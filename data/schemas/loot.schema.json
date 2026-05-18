@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/loot-table.json",
+  "title": "Tomb Dust loot tables by danger tier",
+  "type": "object",
+  "required": ["rulesVersion", "tables"],
+  "additionalProperties": false,
+  "properties": {
+    "rulesVersion": { "$ref": "common.schema.json#/$defs/rulesVersion" },
+    "tables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["currencyGp", "items"],
+        "properties": {
+          "currencyGp": {
+            "type": "object",
+            "required": ["min", "max"],
+            "properties": {
+              "min": { "type": "integer", "minimum": 0 },
+              "max": { "type": "integer", "minimum": 0 },
+              "dice": { "type": "string" }
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "weight"],
+              "properties": {
+                "id": { "$ref": "common.schema.json#/$defs/slug" },
+                "weight": { "type": "integer", "minimum": 1 }
+              }
+            }
+          },
+          "rollProcedure": { "type": "string" }
+        }
+      }
+    },
+    "siteLinks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["hazard", "skirmisher", "elite", "boss"]
+      }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/common.json",
+  "title": "Tomb Dust shared definitions",
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "minLength": 2,
+      "maxLength": 64,
+      "description": "Stable kebab-case identifier (filename stem, cross-ref key)."
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "rulesVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Rules bundle version this record was authored against (d20, PB caps, skill bonus table). Engine should reject or warn on mismatch."
+    },
+    "avAddressId": {
+      "type": "string",
+      "minLength": 4,
+      "description": "AV-GRID address id; canonical set lives in data/av-grid/av-grid.json."
+    },
+    "threatTier": {
+      "type": "string",
+      "enum": ["hazard", "skirmisher", "elite", "boss"]
+    },
+    "armorCategory": {
+      "type": "string",
+      "enum": ["none", "light", "medium", "heavy", "natural"]
+    },
+    "abilityScores": {
+      "type": "object",
+      "required": ["STR", "AGI", "STA", "INT", "SPI"],
+      "additionalProperties": false,
+      "properties": {
+        "STR": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "AGI": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "STA": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "INT": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "SPI": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "LUC": { "type": "integer", "minimum": 1, "maximum": 30 }
+      }
+    },
+    "abilityModifiers": {
+      "type": "object",
+      "required": ["STR", "AGI", "STA", "INT", "SPI"],
+      "additionalProperties": false,
+      "properties": {
+        "STR": { "type": "integer", "minimum": -5, "maximum": 10 },
+        "AGI": { "type": "integer", "minimum": -5, "maximum": 10 },
+        "STA": { "type": "integer", "minimum": -5, "maximum": 10 },
+        "INT": { "type": "integer", "minimum": -5, "maximum": 10 },
+        "SPI": { "type": "integer", "minimum": -5, "maximum": 10 }
+      }
+    },
+    "markdownPath": {
+      "type": "string",
+      "pattern": "^systems/"
+    },
+    "diceNotation": {
+      "type": "string",
+      "pattern": "^\\d+d\\d+(?:\\s*[+\\-]\\s*\\d+)?$"
+    }
+  }
+}

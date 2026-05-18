@@ -1,0 +1,7 @@
+# Dev-team local session + memory (not shared via git)
+.dev-team/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/

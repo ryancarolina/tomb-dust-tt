@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/site.json",
+  "title": "Tomb Dust delve site graph",
+  "type": "object",
+  "required": ["id", "rulesVersion", "displayName", "primaryAddress", "nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/slug" },
+    "rulesVersion": { "$ref": "common.schema.json#/$defs/rulesVersion" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "docPath": { "$ref": "common.schema.json#/$defs/markdownPath" },
+    "primaryAddress": { "type": "string", "minLength": 4 },
+    "dangerRating": {
+      "type": "string",
+      "enum": ["hazard", "skirmisher", "elite", "boss"]
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "address"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/slug" },
+          "address": { "type": "string", "minLength": 4 },
+          "displayName": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "encounters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["monsterId"],
+              "properties": {
+                "monsterId": { "$ref": "common.schema.json#/$defs/slug" },
+                "weight": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "$ref": "common.schema.json#/$defs/slug" },
+          "to": { "$ref": "common.schema.json#/$defs/slug" },
+          "type": {
+            "type": "string",
+            "enum": ["door", "archway", "stairs", "secret", "hatch", "collapse"]
+          },
+          "locked": { "type": "boolean" },
+          "hazard": { "type": "string" },
+          "oneWay": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "grave-ghoul",
+  "rulesVersion": "1.0.0",
+  "displayName": "Grave Ghoul",
+  "docPath": "systems/monsters/grave-ghoul.md",
+  "lore": {
+    "origin": "Corpses left in Ether-touched tombs without rites; hunger for warm flesh and remembered names.",
+    "description": "Hunched, dirt-caked dead with too many teeth and tomb-clay under their nails.",
+    "weaknesses": "Consecration; decapitation prevents Rise Again."
+  },
+  "statBlocks": [
+    {
+      "id": "skirmisher",
+      "displayName": "Grave Ghoul",
+      "tier": "skirmisher",
+      "ac": 13,
+      "hp": 28,
+      "move": 8,
+      "pb": 2,
+      "attributes": { "STR": 2, "AGI": 2, "STA": 2, "INT": -2, "SPI": -1 },
+      "traits": [
+        {
+          "name": "Rise Again",
+          "text": "When reduced to 0 HP, DC 13 consecration or decapitation within 1 round or returns to 1d6 HP once."
+        }
+      ],
+      "actions": [
+        {
+          "name": "Claw",
+          "text": "1d6+3 slashing + 1d4 necrotic; DC 12 STA save or Paralyzed until end of next turn.",
+          "attack": { "toHit": 5, "damage": "1d6+3", "damageType": "slashing" },
+          "save": { "dc": 12, "ability": "STA" }
+        }
+      ]
+    }
+  ],
+  "treasure": ["Burial goods (5–20 gp)", "tomb map scrap"]
+}

@@ -1,0 +1,32 @@
+{
+  "rulesVersion": "1.0.0",
+  "characterId": "example-militia-001",
+  "classTier": 1,
+  "classId": "militia",
+  "counters": {
+    "combats_survived": 7,
+    "weapon_mastered": 2,
+    "spells_cast": 0,
+    "pickpocket_success": 0,
+    "traps_disarmed": 0,
+    "gold_held": 45,
+    "healing_rituals": 0,
+    "days_tracked": 0
+  },
+  "flags": {
+    "military_training": false,
+    "crafted_magic_item": false,
+    "survived_magical_mishap": false,
+    "divine_vision": false,
+    "guild_joined": false
+  },
+  "eligiblePromotions": [
+    {
+      "promotionId": "militia-to-footman",
+      "missing": [
+        { "type": "combats_survived", "current": 7, "target": 10 },
+        { "type": "flag", "name": "military_training", "current": false, "target": true }
+      ]
+    }
+  ]
+}

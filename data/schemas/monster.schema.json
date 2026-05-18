@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/monster.json",
+  "title": "Tomb Dust Monster",
+  "type": "object",
+  "required": ["id", "rulesVersion", "displayName", "statBlocks"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/slug" },
+    "rulesVersion": { "$ref": "common.schema.json#/$defs/rulesVersion" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "docPath": { "$ref": "common.schema.json#/$defs/markdownPath" },
+    "lore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "type": "string" },
+        "description": { "type": "string" },
+        "weaknesses": { "type": "string" }
+      }
+    },
+    "habitat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "regions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "addresses": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/avAddressId" }
+        }
+      }
+    },
+    "statBlocks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/statBlock" }
+    },
+    "treasure": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "statBlock": {
+      "type": "object",
+      "required": ["id", "tier", "ac", "hp", "move", "pb", "attributes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/slug" },
+        "displayName": { "type": "string" },
+        "tier": { "$ref": "common.schema.json#/$defs/threatTier" },
+        "ac": { "type": "integer", "minimum": 5, "maximum": 30 },
+        "hp": { "type": "integer", "minimum": 1 },
+        "move": { "type": "integer", "minimum": 0 },
+        "pb": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "armorCategory": { "$ref": "common.schema.json#/$defs/armorCategory" },
+        "attributes": { "$ref": "common.schema.json#/$defs/abilityModifiers" },
+        "traits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/namedAbility" }
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/namedAbility" }
+        },
+        "reactions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/namedAbility" }
+        },
+        "legendary": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/namedAbility" }
+        }
+      }
+    },
+    "namedAbility": {
+      "type": "object",
+      "required": ["name", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "recharge": {
+          "type": "string",
+          "pattern": "^[1-6](?:-[1-6])?$",
+          "description": "Recharge notation e.g. 5-6."
+        },
+        "attack": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "toHit": { "type": "integer" },
+            "damage": { "$ref": "common.schema.json#/$defs/diceNotation" },
+            "damageType": { "type": "string" },
+            "reachFt": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "save": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dc": { "type": "integer", "minimum": 1 },
+            "ability": {
+              "type": "string",
+              "enum": ["STR", "AGI", "STA", "INT", "SPI"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

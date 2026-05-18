@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/deed.json",
+  "title": "Tomb Dust deed promotion",
+  "type": "object",
+  "required": ["id", "fromTier", "toClassId", "toTier", "counters"],
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/slug" },
+    "fromTier": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "fromClassId": { "$ref": "common.schema.json#/$defs/slug" },
+    "toClassId": { "$ref": "common.schema.json#/$defs/slug" },
+    "toTier": { "type": "integer", "minimum": 2, "maximum": 6 },
+    "counters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "type": "string" },
+          "target": { "type": "integer" },
+          "name": { "type": "string" },
+          "value": {}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+---
+description: When a dev-team session is active, enforce orchestrator workflow and CLI transitions
+alwaysApply: true
+---
+
+# Active dev-team session
+
+If `.dev-team/active.json` exists:
+
+1. Read `.cursor/skills/dev-team/SKILL.md` and act as **Orchestrator**.
+2. At the start of every turn, run:
+   `python .cursor/skills/dev-team/scripts/dev_team_cli.py --workspace . status`
+   then `check`, then `suggest`.
+3. If `status.blocked` is true, fix blockers before dispatching roles or editing the repo.
+4. If state ends with `_GATE`, **end your turn** after presenting the gate — wait for the human to reply in chat before `approve` / `revise` / `reject` / `scope confirm`.
+5. Never run `scope confirm` or `start` in the same turn as `scope propose`.
+6. All phase transitions via `dev_team_cli.py` only; require `"ok": true` in JSON output.
+7. Write artifacts only under `.dev-team/works/<slug>/artifacts/`.
+
+If there is no active work or state is `DONE` / `ABORTED`, this rule does not change normal behavior.

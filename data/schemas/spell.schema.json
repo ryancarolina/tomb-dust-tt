@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/spell.json",
+  "title": "Tomb Dust Spell",
+  "type": "object",
+  "required": ["id", "rulesVersion", "displayName", "school", "tier", "mpCost", "castingTime", "range"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/slug" },
+    "rulesVersion": { "$ref": "common.schema.json#/$defs/rulesVersion" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "docPath": { "$ref": "common.schema.json#/$defs/markdownPath" },
+    "school": { "$ref": "common.schema.json#/$defs/slug" },
+    "tradition": { "type": "string", "enum": ["arcane", "divine"] },
+    "tier": { "type": "integer", "minimum": 1, "maximum": 6 },
+    "mpCost": { "type": "integer", "minimum": 0 },
+    "castingTime": { "type": "string", "minLength": 1 },
+    "range": { "type": "string", "minLength": 1 },
+    "duration": { "type": "string" },
+    "concentration": { "type": "boolean" },
+    "attack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "damage": { "$ref": "common.schema.json#/$defs/diceNotation" },
+        "damageType": { "type": "string" }
+      }
+    },
+    "save": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dc": { "type": "integer", "minimum": 1 },
+        "ability": { "type": "string", "enum": ["STR", "AGI", "STA", "INT", "SPI"] }
+      }
+    },
+    "effect": { "type": "string" },
+    "tags": { "type": "array", "items": { "type": "string" } }
+  },
+  "anyOf": [
+    { "required": ["attack"] },
+    { "required": ["save"] },
+    { "required": ["effect"] }
+  ]
+}

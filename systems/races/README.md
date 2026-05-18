@@ -1,0 +1,10 @@
+## Races (Lore)
+
+- [aquarids.md](aquarids.md)
+- [centaurs.md](centaurs.md)
+- [dark-elves.md](dark-elves.md)
+- [demonkin.md](demonkin.md)
+- [dwarves.md](dwarves.md)
+- [halflings.md](halflings.md)
+- [high-elves.md](high-elves.md)
+- [humans.md](humans.md)

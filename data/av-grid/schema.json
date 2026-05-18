@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/av-grid.json",
+  "title": "Tomb Dust AV-GRID",
+  "type": "object",
+  "required": ["version", "grid", "layerTypes", "biomes", "regions", "addresses"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "grid": {
+      "type": "object",
+      "required": ["columns", "rows", "cellWidthMiles", "origin"],
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "type": "object",
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 1 },
+            "max": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "rows": {
+          "type": "object",
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "string", "pattern": "^[A-Z]$" },
+            "max": { "type": "string", "pattern": "^[A-Z]$" }
+          }
+        },
+        "cellWidthMiles": { "type": "number", "exclusiveMinimum": 0 },
+        "origin": { "type": "string", "enum": ["west-south"] }
+      }
+    },
+    "layerTypes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["material", "plane", "altitude"] },
+          "depth": { "type": "boolean" },
+          "coplanar": { "type": "boolean" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "biomes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "regions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "bounds": {
+            "type": "object",
+            "properties": {
+              "colMin": { "type": "integer" },
+              "colMax": { "type": "integer" },
+              "rowMin": { "type": "string", "pattern": "^[A-Z]$" },
+              "rowMax": { "type": "string", "pattern": "^[A-Z]$" }
+            }
+          },
+          "defaultBiome": { "type": "string" }
+        }
+      }
+    },
+    "addresses": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/address" }
+    }
+  },
+  "$defs": {
+    "address": {
+      "type": "object",
+      "required": ["id", "column", "row", "surfaceRoot", "layerStack", "biomes", "region"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 4 },
+        "column": { "type": "integer", "minimum": 1, "maximum": 99 },
+        "row": { "type": "string", "pattern": "^[A-Z]$" },
+        "surfaceRoot": { "type": "string", "pattern": "^[0-9]{2}-[A-Z]$" },
+        "parent": { "type": ["string", "null"] },
+        "layerStack": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string" },
+              "depth": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "biomes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "region": { "type": "string" },
+        "displayName": { "type": "string" },
+        "summary": { "type": "string" },
+        "history": { "type": "string" },
+        "dangerRating": {
+          "type": ["string", "null"],
+          "enum": ["hazard", "skirmisher", "elite", "boss", null]
+        },
+        "registry": {
+          "type": "object",
+          "properties": {
+            "public": { "type": "boolean" },
+            "stamped": { "type": "boolean" },
+            "ledgerExample": { "type": "string" }
+          }
+        },
+        "links": {
+          "type": "object",
+          "properties": {
+            "location": { "type": "string" },
+            "monsters": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "childAddresses": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

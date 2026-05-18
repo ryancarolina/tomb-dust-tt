@@ -1,0 +1,84 @@
+{
+  "rulesVersion": "1.0.0",
+  "procedure": "Roll 1d6 on travel scene in wilderness; on 1, roll encounter table for biome + dangerRating of current AV-GRID cell.",
+  "biomes": {
+    "HL": {
+      "displayName": "Heartland",
+      "tables": {
+        "hazard": {
+          "d6": [
+            { "roll": "1-4", "result": "No encounter" },
+            { "roll": "5", "result": "1d3 grave-ghoul (hazard) scavenging" },
+            { "roll": "6", "result": "1 thornwolf (skirmisher) on King's Road" }
+          ]
+        },
+        "skirmisher": {
+          "d6": [
+            { "roll": "1-3", "result": "No encounter" },
+            { "roll": "4-5", "result": "1d2 thornwolf" },
+            { "roll": "6", "result": "1 hollow-knight patrol + 1d4 grave-ghoul" }
+          ]
+        },
+        "elite": {
+          "d6": [
+            { "roll": "1-2", "result": "No encounter" },
+            { "roll": "3-4", "result": "1 ironbound-sentinel (rogue)" },
+            { "roll": "5-6", "result": "2 hollow-knight + rust-slime" }
+          ]
+        }
+      }
+    },
+    "WM": {
+      "displayName": "Whispering Marches",
+      "tables": {
+        "hazard": {
+          "d6": [
+            { "roll": "1-4", "result": "No encounter" },
+            { "roll": "5", "result": "1d4 ether-larva" },
+            { "roll": "6", "result": "1 dusk-bat-swarm" }
+          ]
+        },
+        "skirmisher": {
+          "d6": [
+            { "roll": "1-3", "result": "No encounter" },
+            { "roll": "4-5", "result": "1 thornwolf + 1d4 ether-larva" },
+            { "roll": "6", "result": "1 aetherial-beast (skirmisher)" }
+          ]
+        },
+        "elite": {
+          "d6": [
+            { "roll": "1-2", "result": "No encounter" },
+            { "roll": "3-5", "result": "1 crystal-stalker" },
+            { "roll": "6", "result": "1 lingering-echo etherwraith + 1d4 larva" }
+          ]
+        }
+      }
+    },
+    "SF": {
+      "displayName": "Shadowfen",
+      "tables": {
+        "hazard": {
+          "d6": [
+            { "roll": "1-4", "result": "No encounter" },
+            { "roll": "5", "result": "1d4 mireling broodling" },
+            { "roll": "6", "result": "1 gloomspider broodling" }
+          ]
+        },
+        "skirmisher": {
+          "d6": [
+            { "roll": "1-3", "result": "No encounter" },
+            { "roll": "4-5", "result": "1 mireling doppel + 1 fen-stalker" },
+            { "roll": "6", "result": "2 grave-ghoul + 1 gloomspider" }
+          ]
+        },
+        "elite": {
+          "d6": [
+            { "roll": "1-2", "result": "No encounter" },
+            { "roll": "3-4", "result": "1 etherwraith + 1d4 mireling" },
+            { "roll": "5-6", "result": "1 gloomspider matriarch (elite)" }
+          ]
+        }
+      }
+    }
+  }
+}

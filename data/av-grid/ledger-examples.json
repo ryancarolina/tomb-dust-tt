@@ -1,0 +1,71 @@
+{
+  "version": "1.0.0",
+  "rulesVersion": "1.0.0",
+  "ledgers": [
+    {
+      "id": "REG-1172 rev.A",
+      "addressId": "32-C-UG-1",
+      "displayName": "Breley undercrypt",
+      "stamp": {
+        "primary": "32-C-UG-1",
+        "surfaceEntry": "32-C (chapel descent)",
+        "danger": "Skirmisher",
+        "costGp": 45,
+        "insuranceGp": 15,
+        "validDays": 30,
+        "issuedAt": "Edgecombe clerk",
+        "surveyRef": "REG-1172 rev.A"
+      },
+      "notes": "Marshal Holt brother casualty; hollow knights primary threat."
+    },
+    {
+      "id": "REG-1195 rev.B",
+      "addressId": "31-C-UG-3",
+      "displayName": "Crystaline Caverns",
+      "stamp": {
+        "primary": "31-C-UG-3",
+        "surfaceEntry": "31-C (crystal mouth)",
+        "danger": "Elite",
+        "costGp": 95,
+        "insuranceGp": 20,
+        "validDays": 30,
+        "issuedAt": "Iron Pact co-stamp",
+        "surveyRef": "REG-1195 rev.B"
+      },
+      "notes": "Iron Pact dispute zone; crystal stalker survey."
+    },
+    {
+      "id": "REG-1204 rev.C",
+      "addressId": "47-B-UG-3",
+      "displayName": "Pre-Sundering vaults",
+      "stamp": {
+        "primary": "47-B-UG-3",
+        "surfaceEntry": "47-B (ruin gate 3)",
+        "danger": "Elite",
+        "veil": "active — treat chambers 7–9 as 47-B-EP",
+        "costGp": 120,
+        "insuranceGp": 15,
+        "validDays": 30,
+        "issuedAt": "Edgecombe clerk",
+        "surveyRef": "REG-1204 rev.C"
+      },
+      "notes": "Mira Ashret re-survey contract 200 gp; highest fen delve deaths."
+    },
+    {
+      "id": "REG-1188 rev.A",
+      "addressId": "23-A-UG-1",
+      "displayName": "Boydon undercroft",
+      "stamp": {
+        "primary": "23-A-UG-1",
+        "surfaceEntry": "23-A (tower dock)",
+        "danger": "Skirmisher",
+        "costGp": 55,
+        "insuranceGp": 15,
+        "validDays": 30,
+        "issuedAt": "Boydon Tower archivist",
+        "surveyRef": "REG-1188 rev.A"
+      },
+      "notes": "Arcane delver permit required for tier 4+ casting near Silverlake."
+    }
+  ]
+}

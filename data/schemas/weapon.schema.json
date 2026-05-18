@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/weapon.json",
+  "title": "Tomb Dust Weapon",
+  "type": "object",
+  "required": ["id", "rulesVersion", "displayName", "category", "damage", "ability", "skillId"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/slug" },
+    "rulesVersion": { "$ref": "common.schema.json#/$defs/rulesVersion" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "docPath": { "$ref": "common.schema.json#/$defs/markdownPath" },
+    "category": {
+      "type": "string",
+      "enum": ["simple", "martial", "ranged"]
+    },
+    "damage": { "$ref": "common.schema.json#/$defs/diceNotation" },
+    "ability": {
+      "type": "string",
+      "enum": ["STR", "AGI"],
+      "description": "Primary ability for attack and damage (see combat/calculations.md)."
+    },
+    "skillId": {
+      "$ref": "common.schema.json#/$defs/slug",
+      "description": "Weapon skill used for attack bonus and damage (e.g. swordsmanship, archery)."
+    },
+    "costGp": { "type": "number", "minimum": 0 },
+    "properties": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "finesse",
+          "light",
+          "thrown",
+          "versatile",
+          "two-hand",
+          "reach",
+          "loading",
+          "ranged",
+          "concealable"
+        ]
+      }
+    },
+    "versatileDamage": { "$ref": "common.schema.json#/$defs/diceNotation" },
+    "rangeFt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "normal": { "type": "integer", "minimum": 0 },
+        "long": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

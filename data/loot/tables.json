@@ -1,0 +1,50 @@
+{
+  "rulesVersion": "1.0.0",
+  "tables": {
+    "hazard": {
+      "currencyGp": { "min": 2, "max": 15, "dice": "2d6" },
+      "items": [
+        { "id": "burial-goods", "weight": 3 },
+        { "id": "iron-ingot", "weight": 2 },
+        { "id": "fen-peat", "weight": 2 }
+      ],
+      "rollProcedure": "1d6: 1-3 currency only; 4-5 one item; 6 currency + item"
+    },
+    "skirmisher": {
+      "currencyGp": { "min": 10, "max": 40, "dice": "3d10" },
+      "items": [
+        { "id": "burial-goods", "weight": 2 },
+        { "id": "tomb-map-scrap", "weight": 2 },
+        { "id": "reliquary-shard", "weight": 1 },
+        { "id": "iron-ingot", "weight": 2 }
+      ],
+      "rollProcedure": "1d6: 1-2 currency; 3-4 item; 5 both; 6 item (re-roll if duplicate)"
+    },
+    "elite": {
+      "currencyGp": { "min": 40, "max": 120, "dice": "4d10+20" },
+      "items": [
+        { "id": "gloom-silk", "weight": 2 },
+        { "id": "shadow-glass", "weight": 2 },
+        { "id": "veil-crystal", "weight": 2 },
+        { "id": "tomb-map-scrap", "weight": 1 }
+      ],
+      "rollProcedure": "1d6: 1 currency; 2-4 item; 5-6 currency + item"
+    },
+    "boss": {
+      "currencyGp": { "min": 100, "max": 300, "dice": "6d10+50" },
+      "items": [
+        { "id": "veil-crystal", "weight": 3 },
+        { "id": "shadow-glass", "weight": 2 },
+        { "id": "registry-seal-chip", "weight": 1 },
+        { "id": "gloom-silk", "weight": 1 }
+      ],
+      "rollProcedure": "2 items or 1 item + max currency; GM curates boss hoard"
+    }
+  },
+  "siteLinks": {
+    "breley-undercrypt": "skirmisher",
+    "32-C-UG-2": "elite",
+    "47-B-UG-3": "elite",
+    "47-B-UG-5": "boss"
+  }
+}

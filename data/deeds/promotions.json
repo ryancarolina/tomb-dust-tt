@@ -1,0 +1,113 @@
+{
+  "rulesVersion": "1.0.0",
+  "counterTypes": {
+    "combats_survived": { "description": "Encounters survived while conscious" },
+    "weapon_mastered": { "description": "Distinct weapon skills at level 3+" },
+    "spells_cast": { "description": "Spells successfully cast" },
+    "traps_disarmed": { "description": "Traps disarmed successfully" },
+    "pickpocket_success": { "description": "Successful pickpocket checks" },
+    "gold_held": { "description": "Peak gold held on sheet" },
+    "healing_rituals": { "description": "Out-of-combat heals or rituals" },
+    "days_tracked": { "description": "Days of successful wilderness tracking" },
+    "guild_joined": { "description": "Boolean story flag" },
+    "flag": { "description": "Named story flag, value boolean" }
+  },
+  "promotions": [
+    {
+      "id": "peasant-to-footman",
+      "fromTier": 1,
+      "fromClassId": "peasant",
+      "toClassId": "footman",
+      "toTier": 2,
+      "counters": [
+        { "type": "combats_survived", "target": 10 },
+        { "type": "weapon_mastered", "target": 2 },
+        { "type": "flag", "name": "military_training", "value": true }
+      ]
+    },
+    {
+      "id": "militia-to-footman",
+      "fromTier": 1,
+      "fromClassId": "militia",
+      "toClassId": "footman",
+      "toTier": 2,
+      "counters": [
+        { "type": "combats_survived", "target": 10 },
+        { "type": "weapon_mastered", "target": 2 },
+        { "type": "flag", "name": "military_training", "value": true }
+      ]
+    },
+    {
+      "id": "urchin-to-thief",
+      "fromTier": 1,
+      "fromClassId": "urchin",
+      "toClassId": "thief",
+      "toTier": 2,
+      "counters": [
+        { "type": "pickpocket_success", "target": 20 },
+        { "type": "traps_disarmed", "target": 10 },
+        { "type": "guild_joined", "name": "thieves_guild", "value": true }
+      ]
+    },
+    {
+      "id": "apprentice-to-hedge-wizard",
+      "fromTier": 1,
+      "fromClassId": "apprentice",
+      "toClassId": "hedge-wizard",
+      "toTier": 2,
+      "counters": [
+        { "type": "spells_cast", "target": 5 },
+        { "type": "flag", "name": "crafted_magic_item", "value": true },
+        { "type": "flag", "name": "survived_magical_mishap", "value": true }
+      ]
+    },
+    {
+      "id": "novice-to-acolyte",
+      "fromTier": 1,
+      "fromClassId": "novice",
+      "toClassId": "acolyte",
+      "toTier": 2,
+      "counters": [
+        { "type": "healing_rituals", "target": 20 },
+        { "type": "flag", "name": "divine_vision", "value": true },
+        { "type": "flag", "name": "converts", "target": 10 }
+      ]
+    },
+    {
+      "id": "footman-to-warrior",
+      "fromTier": 2,
+      "fromClassId": "footman",
+      "toClassId": "warrior",
+      "toTier": 3,
+      "counters": [
+        { "type": "flag", "name": "won_duel", "value": true },
+        { "type": "flag", "name": "led_military_op", "value": true },
+        { "type": "weapon_mastered", "target": 3 }
+      ]
+    },
+    {
+      "id": "hedge-wizard-to-mage",
+      "fromTier": 2,
+      "fromClassId": "hedge-wizard",
+      "toClassId": "mage",
+      "toTier": 3,
+      "counters": [
+        { "type": "flag", "name": "schools_mastered", "target": 3 },
+        { "type": "flag", "name": "survived_high_ether", "value": true },
+        { "type": "flag", "name": "deciphered_ancient_text", "value": true }
+      ]
+    },
+    {
+      "id": "acolyte-to-priest",
+      "fromTier": 2,
+      "fromClassId": "acolyte",
+      "toClassId": "priest",
+      "toTier": 3,
+      "counters": [
+        { "type": "flag", "name": "public_miracle", "value": true },
+        { "type": "flag", "name": "established_temple", "value": true },
+        { "type": "flag", "name": "defeated_faith_enemy", "value": true }
+      ]
+    }
+  ]
+}

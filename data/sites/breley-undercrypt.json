@@ -1,0 +1,63 @@
+{
+  "id": "breley-undercrypt",
+  "rulesVersion": "1.0.0",
+  "displayName": "Breley Undercrypt",
+  "docPath": "systems/locations/breley-keep.md",
+  "primaryAddress": "32-C-UG-1",
+  "dangerRating": "skirmisher",
+  "nodes": [
+    {
+      "id": "chapel-stairs",
+      "address": "32-C-UG-1",
+      "displayName": "Chapel descent",
+      "tags": ["entry", "lit"],
+      "encounters": [{ "monsterId": "grave-ghoul", "weight": 2 }]
+    },
+    {
+      "id": "ossuary-hall",
+      "address": "32-C-UG-1",
+      "displayName": "Ossuary hall",
+      "tags": ["burial"],
+      "encounters": [
+        { "monsterId": "grave-ghoul", "weight": 3 },
+        { "monsterId": "hollow-knight", "weight": 1 }
+      ]
+    },
+    {
+      "id": "marshal-tomb",
+      "address": "32-C-UG-1",
+      "displayName": "Marshal's sealed tomb",
+      "tags": ["boss-adjacent", "loot"],
+      "encounters": [{ "monsterId": "hollow-knight", "weight": 2 }]
+    },
+    {
+      "id": "iron-seam",
+      "address": "32-C-UG-1",
+      "displayName": "Iron seam breach",
+      "tags": ["hazard", "transition"],
+      "encounters": [{ "monsterId": "grave-ghoul", "weight": 1 }]
+    },
+    {
+      "id": "vault-landing",
+      "address": "32-C-UG-2",
+      "displayName": "Lower vault landing",
+      "tags": ["transition"],
+      "encounters": [{ "monsterId": "rust-slime", "weight": 2 }]
+    },
+    {
+      "id": "veil-niche",
+      "address": "32-C-UG-2-EP",
+      "displayName": "Veil bleed niche",
+      "tags": ["thin-veil", "elite"],
+      "encounters": [{ "monsterId": "hollow-knight", "weight": 1 }]
+    }
+  ],
+  "edges": [
+    { "from": "chapel-stairs", "to": "ossuary-hall", "type": "archway" },
+    { "from": "ossuary-hall", "to": "marshal-tomb", "type": "door", "locked": true },
+    { "from": "ossuary-hall", "to": "iron-seam", "type": "stairs" },
+    { "from": "iron-seam", "to": "vault-landing", "type": "stairs", "hazard": "collapse-clock+1 on loud fight" },
+    { "from": "vault-landing", "to": "veil-niche", "type": "secret", "locked": true },
+    { "from": "marshal-tomb", "to": "ossuary-hall", "type": "door" }
+  ]
+}

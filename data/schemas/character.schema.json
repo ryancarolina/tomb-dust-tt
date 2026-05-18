@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/character.json",
+  "title": "Tomb Dust Character (minimal)",
+  "type": "object",
+  "required": [
+    "id",
+    "rulesVersion",
+    "displayName",
+    "attributes",
+    "classTier",
+    "classId",
+    "skills",
+    "hp",
+    "mp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/slug" },
+    "rulesVersion": { "$ref": "common.schema.json#/$defs/rulesVersion" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "raceId": { "$ref": "common.schema.json#/$defs/slug" },
+    "attributes": { "$ref": "common.schema.json#/$defs/abilityScores" },
+    "classTier": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6,
+      "description": "Deed tier 1–6; drives PB per combat/calculations.md."
+    },
+    "classId": {
+      "$ref": "common.schema.json#/$defs/slug",
+      "description": "Current class slug (e.g. warrior, knight)."
+    },
+    "baseMpClass": {
+      "type": "string",
+      "enum": ["peasant", "laborer", "urchin", "apprentice", "militia", "novice"],
+      "description": "Tier-1 class at creation; sets Base MP per derived-stats.md."
+    },
+    "skills": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/skillEntry" }
+    },
+    "hp": { "$ref": "#/$defs/resourcePool" },
+    "mp": { "$ref": "#/$defs/resourcePool" },
+    "fortune": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "current": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 0 }
+      },
+      "description": "LUC / Fortune session pool (not a d20 modifier)."
+    }
+  },
+  "$defs": {
+    "skillEntry": {
+      "type": "object",
+      "required": ["skillId", "level"],
+      "additionalProperties": false,
+      "properties": {
+        "skillId": { "$ref": "common.schema.json#/$defs/slug" },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        }
+      }
+    },
+    "resourcePool": {
+      "type": "object",
+      "required": ["current", "max"],
+      "additionalProperties": false,
+      "properties": {
+        "current": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 1 },
+        "base": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Base before STA×5 (HP) or INT×3 (MP) scaling."
+        }
+      }
+    }
+  }
+}

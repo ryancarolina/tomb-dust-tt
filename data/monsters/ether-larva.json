@@ -1,0 +1,37 @@
+{
+  "id": "ether-larva",
+  "rulesVersion": "1.0.0",
+  "displayName": "Ether Larva",
+  "docPath": "systems/monsters/ether-larva.md",
+  "lore": {
+    "origin": "Spawn shed by Aetherial Beasts and thin-veil ruptures; vermin of the magical wild.",
+    "description": "Palm-sized crawling rainbows that bite with static teeth.",
+    "weaknesses": "Salt circle; dies in 1 round if separated from Ether source farther than 100 ft."
+  },
+  "statBlocks": [
+    {
+      "id": "hazard",
+      "displayName": "Ether Larva",
+      "tier": "hazard",
+      "ac": 12,
+      "hp": 6,
+      "move": 6,
+      "pb": 2,
+      "attributes": { "STR": -3, "AGI": 2, "STA": 0, "INT": -4, "SPI": 1 },
+      "traits": [
+        {
+          "name": "Swarm Bite",
+          "text": "For each additional larva in same space attacking same target, +1 damage on hit."
+        }
+      ],
+      "actions": [
+        {
+          "name": "Static Bite",
+          "text": "1d4 force.",
+          "attack": { "toHit": 3, "damage": "1d4", "damageType": "force" }
+        }
+      ]
+    }
+  ],
+  "treasure": ["Larva dust (1 spell amp, 5 gp per vial)"]
+}

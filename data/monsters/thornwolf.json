@@ -1,0 +1,45 @@
+{
+  "id": "thornwolf",
+  "rulesVersion": "1.0.0",
+  "displayName": "Thornwolf",
+  "docPath": "systems/monsters/thornwolf.md",
+  "lore": {
+    "origin": "Whispering Woods predators—wolves twisted by Ether saplings growing through their hides.",
+    "description": "Wolf silhouettes bristling with thorny branches; eyes like green lantern oil.",
+    "weaknesses": "Fire on brambles (disadvantage on attacks 1 round); cannot enter consecrated groves."
+  },
+  "habitat": { "regions": ["Whispering Marches"] },
+  "statBlocks": [
+    {
+      "id": "skirmisher",
+      "displayName": "Thornwolf",
+      "tier": "skirmisher",
+      "ac": 14,
+      "hp": 30,
+      "move": 10,
+      "pb": 2,
+      "attributes": { "STR": 2, "AGI": 3, "STA": 2, "INT": -3, "SPI": 0 },
+      "traits": [
+        {
+          "name": "Pack Tactics",
+          "text": "Advantage on melee if ally is within 5 ft of target."
+        }
+      ],
+      "actions": [
+        {
+          "name": "Bite",
+          "text": "1d8+3 piercing + 1d4 piercing (thorns).",
+          "attack": { "toHit": 5, "damage": "1d8+3", "damageType": "piercing" }
+        },
+        {
+          "name": "Bramble Lash",
+          "text": "10 ft; 1d6+2 and speed halved until DC 12 STR check.",
+          "recharge": "5-6",
+          "attack": { "toHit": 5, "damage": "1d6+2", "reachFt": 10 },
+          "save": { "dc": 12, "ability": "STR" }
+        }
+      ]
+    }
+  ],
+  "treasure": ["Thornheart (herbalism, 20 gp)", "wolf pelt"]
+}
