@@ -5,32 +5,40 @@ alwaysApply: true
 
 # Tomb Dust project rules
 
-**Full handbook:** [AGENTS.md](../../AGENTS.md) — read when working on game content, world data, or `systems/`.
+**Full handbook:** [AGENTS.md](../../AGENTS.md) — read when working on game content, world data, or `build/systems/`.
+
+## Build vs play
+
+| Tree | Purpose |
+|------|---------|
+| **`build/`** | Canon: `data/`, `systems/`, `tools/` — edit when authoring |
+| **`play/`** | Runtime saves and AI GM — do not put canon here |
 
 ## Non-negotiables
 
-1. **Locations / grid:** `data/av-grid/av-grid.json` is **source of truth**. Edit JSON first → `python tools/av_grid.py validate` → `build-index` → sync `systems/` markdown. JSON wins over markdown.
+1. **Locations / grid:** `build/data/av-grid/av-grid.json` is **source of truth**. Edit JSON first → `python build/tools/av_grid.py validate` → `build-index` → sync `build/systems/` markdown. JSON wins over markdown.
 
 2. **Coordinates:** AV-GRID format `CC-R` (e.g. `23-A`), layers `UG-n`, `EP`, `BV`, `SK`. Example: `23-A-UG-1` = under Boydon. Do not invent addresses only in docs.
 
-3. **Mechanics:** Single **d20** system (`systems/core/resolution.md`). No d100 evasion, no `1d12` attacks, no `2d6` default skill checks. LUC = **Fortune only**. PB cap +4, skill bonus cap +4, gritty crits, AC + flat-footed.
+3. **Mechanics:** Single **d20** system (`build/systems/core/resolution.md`). No d100 evasion, no `1d12` attacks, no `2d6` default skill checks. LUC = **Fortune only**. PB cap +4, skill bonus cap +4, gritty crits, AC + flat-footed.
 
-4. **No parallel rule files** (e.g. `option-d-*.md`). No canon edits to `assets/tomb-dust-source-archive.md`.
+4. **No parallel rule files** (e.g. `option-d-*.md`). No canon edits to `build/assets/tomb-dust-source-archive.md`.
 
-5. **Extraction tone:** deadly delving, Registry economy, deed-based classes — see `systems/world/extraction.md`.
+5. **Extraction tone:** deadly delving, Registry economy, deed-based classes — see `build/systems/world/extraction.md`.
 
 ## Quick links
 
 | Need | Path |
 |------|------|
-| Grid data | `data/av-grid/av-grid.json` |
-| d20 / crits / Fortune | `systems/core/resolution.md` |
-| Combat math | `systems/combat/calculations.md` |
-| Monsters | `systems/monsters/README.md` |
-| Setting | `systems/world/README.md` |
+| Grid data | `build/data/av-grid/av-grid.json` |
+| d20 / crits / Fortune | `build/systems/core/resolution.md` |
+| Combat math | `build/systems/combat/calculations.md` |
+| Monsters | `build/systems/monsters/README.md` |
+| Setting | `build/systems/world/README.md` |
+| Play / AI GM | `play/README.md` |
 
 ## After grid changes
 
 ```bash
-python tools/av_grid.py validate && python tools/av_grid.py build-index
+python build/tools/av_grid.py validate && python build/tools/av_grid.py build-index
 ```

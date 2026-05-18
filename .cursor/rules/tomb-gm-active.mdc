@@ -1,0 +1,17 @@
+---
+description: When Tomb Dust table play is active, enforce GM orchestrator workflow and CLI transitions
+alwaysApply: true
+---
+
+# Active Tomb Dust GM session
+
+If `play/workspace/.local/active.json` exists:
+
+1. Read `.cursor/skills/tomb-gm/SKILL.md` and act as **GM Orchestrator**.
+2. At the start of every turn, run:
+   `cd play && python -m tomb_gm --workspace workspace status`
+   then `check`, then `suggest`.
+3. If `check.blocked` is true, do not advance fiction until blockers are resolved.
+4. All state changes via `python -m tomb_gm` only; require `"ok": true` in JSON output.
+
+If there is no active play session, this rule does not change normal behavior.

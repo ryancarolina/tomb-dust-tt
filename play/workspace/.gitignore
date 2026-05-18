@@ -1,0 +1,11 @@
+# Runtime — never commit active sessions or DB
+.local/*
+!.local/.gitkeep
+
+# Local overrides (may contain paths or keys)
+config.yaml
+
+# Generated per campaign
+campaigns/**/tts-cache/
+campaigns/**/*.db
+campaigns/**/inbox/*.jsonl

@@ -3,21 +3,9 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "python .cursor/hooks/dev_team_user_prompt.py",
+        "command": "python .cursor/hooks/tomb_gm_user_prompt.py",
         "matcher": "UserPromptSubmit",
         "failClosed": false
-      }
-    ],
-    "beforeShellExecution": [
-      {
-        "command": "python .cursor/hooks/dev_team_guard.py shell",
-        "failClosed": false
-      }
-    ],
-    "afterFileEdit": [
-      {
-        "command": "python .cursor/hooks/dev_team_guard.py file-edit",
-        "failClosed": true
       }
     ]
   }

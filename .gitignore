@@ -1,5 +1,7 @@
-# Dev-team local session + memory (not shared via git)
-.dev-team/
+# Play runtime (campaign DB, active session, TTS cache)
+play/workspace/.local/*
+!play/workspace/.local/.gitkeep
+play/workspace/config.yaml
 
 # Python
 __pycache__/

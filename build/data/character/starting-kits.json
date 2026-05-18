@@ -1,0 +1,49 @@
+{
+  "rulesVersion": "1.0.0",
+  "baseClassGp": {
+    "peasant": 10,
+    "laborer": 15,
+    "urchin": 5,
+    "apprentice": 20,
+    "militia": 25,
+    "novice": 15
+  },
+  "kits": {
+    "peasant": {
+      "costGp": 13,
+      "items": ["club", "sling", "backpack", "bedroll", "rations-5", "waterskin", "flint-steel", "pouch"],
+      "armor": { "wornId": null, "shieldId": null },
+      "weapons": ["club", "sling"]
+    },
+    "laborer": {
+      "costGp": 20,
+      "items": ["quarterstaff", "backpack", "rope-50ft", "rations-5", "healers-kit"],
+      "armor": { "wornId": "padded", "shieldId": null },
+      "weapons": ["quarterstaff"]
+    },
+    "urchin": {
+      "costGp": 42,
+      "items": ["dagger", "thieves-tools", "backpack", "rations-3", "pouch"],
+      "armor": { "wornId": "leather", "shieldId": null },
+      "weapons": ["dagger"]
+    },
+    "apprentice": {
+      "costGp": 74,
+      "items": ["quarterstaff", "spellbook", "ink-quill", "herbalism-kit", "backpack", "rations-5"],
+      "armor": { "wornId": null, "shieldId": null },
+      "weapons": ["quarterstaff"]
+    },
+    "militia": {
+      "costGp": 58,
+      "items": ["spear", "shortsword", "backpack", "healers-kit", "rations-5", "bedroll"],
+      "armor": { "wornId": "studded-leather", "shieldId": "buckler" },
+      "weapons": ["spear", "shortsword"]
+    },
+    "novice": {
+      "costGp": 39,
+      "items": ["warhammer", "holy-symbol", "healers-kit", "backpack", "rations-5"],
+      "armor": { "wornId": "leather", "shieldId": null },
+      "weapons": ["warhammer"]
+    }
+  }
+}

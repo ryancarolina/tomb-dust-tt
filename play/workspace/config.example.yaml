@@ -1,0 +1,20 @@
+# Tomb Dust play workspace config
+# Copy to config.yaml and edit as needed.
+
+# Canon tree (build/data, build/systems)
+content_root: ../../build
+
+# Session runtime directory (this folder)
+workspace: .
+
+# SQLite and session files
+local_dir: .local
+
+max_players: 4
+
+# content_pin: filled by tomb_gm on new campaign
+
+tts:
+  voice: en-US-GuyNeural
+  rate: "+0%"
+  volume: "+0%"

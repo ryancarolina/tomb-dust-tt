@@ -1,0 +1,2 @@
+# Optional play extras (voice GM)
+edge-tts>=6.1.0

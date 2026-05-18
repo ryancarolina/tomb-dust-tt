@@ -1,0 +1,25 @@
+{
+  "rulesVersion": "1.0.0",
+  "races": {
+    "human": {
+      "displayName": "Human",
+      "flexibleBonus": 2,
+      "adjustments": {}
+    },
+    "high-elf": { "displayName": "High Elf", "adjustments": { "INT": 2, "AGI": 1 } },
+    "dark-elf": { "displayName": "Dark Elf", "adjustments": { "AGI": 2, "INT": 1, "SPI": -1 } },
+    "wood-elf": { "displayName": "Wood Elf", "adjustments": { "AGI": 2, "SPI": 1 } },
+    "dwarf": { "displayName": "Dwarf", "adjustments": { "STA": 2, "STR": 1, "AGI": -1 } },
+    "halfling": { "displayName": "Halfling", "adjustments": { "AGI": 2, "SPI": 1 } },
+    "centaur": { "displayName": "Centaur", "adjustments": { "STR": 2, "AGI": 1, "INT": -1 } },
+    "aquarid": { "displayName": "Aquarid", "adjustments": { "AGI": 2, "SPI": 1, "STA": -1 } },
+    "demonkin": { "displayName": "Demonkin", "adjustments": { "SPI": 2, "STR": 1, "AGI": -1 } },
+    "orc": { "displayName": "Orc", "adjustments": { "STR": 2, "STA": 1, "INT": -1 } },
+    "gnome": { "displayName": "Gnome", "adjustments": { "INT": 2, "AGI": 1, "STR": -1 } },
+    "dragonkin": { "displayName": "Dragonkin", "adjustments": { "STR": 2, "SPI": 1, "AGI": -1 } },
+    "faerie": { "displayName": "Faerie", "adjustments": { "AGI": 2, "INT": 1, "STR": -1 } },
+    "minotaur": { "displayName": "Minotaur", "adjustments": { "STR": 2, "STA": 1, "INT": -1 } },
+    "undead": { "displayName": "Undead", "adjustments": { "SPI": 2, "STA": 1, "AGI": -1 } },
+    "troll": { "displayName": "Troll", "adjustments": { "STR": 2, "AGI": 1, "INT": -1 } }
+  }
+}
