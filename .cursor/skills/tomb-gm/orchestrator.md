@@ -40,10 +40,15 @@ Never write “roll 1d10 and tell me the results” or “roll 1d20 for initiati
 player [P1]…[P4] messages
   → status / check / suggest
   → CLI beat / travel / combat tools
-  → narrate outcomes
-  → speak --beat-id <id> (optional; needs edge-tts on host)
-  → update session state block
+  → narrate outcomes in chat
+  → write play/workspace/.local/latest-narration.txt (fiction only)
+  → narrate push --file play/workspace/.local/latest-narration.txt   ← required
+  → session state block
 ```
+
+If the host interrupts audio: `speak --stop`.
+
+Skip voice only when `config.yaml` → `tts.mode: text_only`.
 
 ## Stop for the night
 

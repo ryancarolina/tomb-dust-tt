@@ -13,5 +13,10 @@ If `play/workspace/.local/active.json` exists:
    then `check`, then `suggest`.
 3. If `check.blocked` is true, do not advance fiction until blockers are resolved.
 4. All state changes via `python -m tomb_gm` only; require `"ok": true` in JSON output.
+5. After every narration response, write `play/workspace/.local/latest-narration.txt` and run:
+   `python -m tomb_gm --workspace play/workspace narrate push --file play/workspace/.local/latest-narration.txt`
+   unless `tts.mode` is `text_only`. On speak errors, note once and continue play.
+6. After every narration, update the scene canvas at `canvases/tomb-dust-scene.canvas.tsx`
+   with the current scene data (narration lines, location, stats, awaiting prompt).
 
 If there is no active play session, this rule does not change normal behavior.

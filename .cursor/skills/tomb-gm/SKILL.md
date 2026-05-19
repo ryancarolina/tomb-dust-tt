@@ -54,7 +54,56 @@ Otherwise branch on `status` / `suggest`:
 1. `status` → `check` → `suggest`
 2. Parse `[P1]`…`[P4]`, `[PARTY]`, `[OOC]`
 3. CLI commits mechanics before narrating
-4. Post session state block (phase, AV-GRID, clock, awaiting)
+4. **Speak the scene (required)** — see [Voice (automatic)](#voice-automatic) below
+5. **Update the scene canvas** — see [Scene Canvas (automatic)](#scene-canvas-automatic) below
+6. Post session state block (phase, AV-GRID, clock, awaiting)
+
+## Voice (automatic)
+
+After **every** narration beat — setup welcome, combat outcomes, social scenes, not just `beat` — you **must** run TTS unless `play/workspace/config.yaml` has `tts.mode: text_only`.
+
+**Workflow:**
+
+1. Write **fiction prose only** (dialogue + scene description; omit roll math, session state, `[P1]` prompts, tables) to:
+   `play/workspace/.local/latest-narration.txt`
+2. From **repository root**, run:
+
+```powershell
+python -m tomb_gm --workspace play/workspace narrate push --file play/workspace/.local/latest-narration.txt
+```
+
+3. Require `"ok": true` in JSON. If `edge_tts not installed`, say once in chat that voice is unavailable; **do not skip** the write step. Continue play either way.
+4. Host says stop / interrupt → `python -m tomb_gm --workspace play/workspace speak --stop`
+5. Replay last scene without re-writing → `speak --last`
+
+**Do not** ask the host to run these commands. **Do not** treat voice as optional when mode is `speak_dialogue` or `speak_all`.
+
+## Scene Canvas (automatic)
+
+After **every** narration, update the scene canvas so the player sees the current scene visually:
+
+**File:** `canvases/tomb-dust-scene.canvas.tsx` (relative to the canvases dir at `~/.cursor/projects/<workspace>/canvases/`)
+
+**What to update:** rewrite the `useCanvasState` default value for `'scene'` with:
+
+| Field | Source |
+|-------|--------|
+| `location` | Current displayName from AV-GRID cell |
+| `address` | Current AV-GRID address (e.g. `32-C-UG-1`) |
+| `phase` | Party phase from session state |
+| `characterName` | Active PC name |
+| `hp` | Current / max HP |
+| `fortune` | Remaining / max Fortune |
+| `gold` | Party gold |
+| `narration` | Array of `{text, voice}` — the speak lines for the scene (same as what was spoken) |
+| `awaiting` | What the player can do next |
+| `contract` | Optional — `{term, detail}[]` if an NPC offers a deal this turn |
+
+**Voice keys** used in narration lines: `narrator`, `marshal-garrick-holt`, `postern-clerk`, `breley-sergeant`, or any NPC id from `config.yaml` → `tts.npc_voices`.
+
+**To add a new NPC voice label**, add an entry in the `VOICE_LABELS` object in the canvas.
+
+**Do not** delete or restructure the canvas component code — only update the inline data in `useCanvasState`.
 
 ## Hard rules
 
@@ -85,6 +134,7 @@ Otherwise branch on `status` / `suggest`:
 | Economy | `economy buy/sell/stash/death` |
 | Fortune | `character fortune show/spend --campaign <slug> --id <char>` |
 | Beat | `beat --actions '{"lines":[...],"auto_roll_wilderness":true,"auto_combat":true,"include_party":true}'` |
+| Voice | **`narrate push --file play/workspace/.local/latest-narration.txt`** (required each turn), `speak --last`, `speak --stop` |
 
 **Beat JSON flags:** `auto_roll_wilderness` rolls wilderness on travel; `auto_combat` + monster names in text starts combat; `include_party` adds roster to initiative.
 

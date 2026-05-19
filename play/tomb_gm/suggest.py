@@ -59,9 +59,20 @@ def build_suggest(
         commands.extend(["character list", "roster set --slot N --id <char>"])
         prompts.append("Assign created characters to slots 1–4 with roster set")
     elif awaiting == "PLAYER_ACTIONS":
-        commands.extend(["beat", "world where", "world exits", "speak --beat-id <id>"])
+        commands.extend(
+            [
+                "beat",
+                "world where",
+                "world exits",
+                "narrate push --file .local/latest-narration.txt",
+                "speak --last",
+                "speak --stop",
+            ]
+        )
         prompts.append("Collect [P1]…[P4] actions then run beat")
-        prompts.append("After narration, optional: speak --beat-id from beat output")
+        prompts.append(
+            "After narration: write .local/latest-narration.txt then narrate push --file (required unless tts.mode text_only)"
+        )
     elif awaiting == "BLOCKED":
         stop = True
 

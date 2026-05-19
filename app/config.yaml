@@ -1,0 +1,21 @@
+llm:
+  provider: openrouter
+  model: google/gemini-2.5-flash
+  max_tokens: 2048
+  temperature: 0.8
+
+tts:
+  mode: speak_dialogue
+  voice: en-US-GuyNeural
+  rate: "+0%"
+  npc_voice_default: en-US-JennyNeural
+  npc_voices:
+    marshal-garrick-holt: en-US-SteffanNeural
+    postern-clerk: en-US-ChristopherNeural
+    breley-sergeant: en-US-EricNeural
+
+ui:
+  window_width: 1280
+  window_height: 800
+  font_size: 16
+  narration_width_ratio: 0.7

@@ -15,6 +15,12 @@ max_players: 4
 # content_pin: filled by tomb_gm on new campaign
 
 tts:
-  voice: en-US-GuyNeural
+  mode: speak_dialogue          # speak_all | speak_dialogue | text_only
+  voice: en-US-GuyNeural        # GM / narrator
   rate: "+0%"
   volume: "+0%"
+  npc_voice_default: en-US-JennyNeural
+  npc_voices:
+    marshal-garrick-holt: en-US-SteffanNeural
+    postern-clerk: en-US-ChristopherNeural
+    breley-sergeant: en-US-EricNeural

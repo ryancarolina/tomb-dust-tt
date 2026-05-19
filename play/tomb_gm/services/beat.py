@@ -476,6 +476,7 @@ def process_beat(ctx: CommandContext, actions: dict[str, Any]) -> dict[str, Any]
             "lines": [ln["raw"] for ln in lines],
             "mechanical": mechanical,
             "narration_brief": narration_brief,
+            "speak_lines": speak_lines,
         },
     )
 
