@@ -45,7 +45,9 @@ from gm.context import build_state_context, build_messages
 from gm.logger import (
     log_player_input,
     log_gm_narration,
+    log_creation_advanced,
     log_creation_drift,
+    log_creation_finalize,
     log_creation_step,
     parse_narration_status_line,
     log_tool_call,
@@ -224,6 +226,17 @@ class Orchestrator:
             "roster_len": len(roster),
             "awaiting": status.get("awaiting"),
             "creation.active": self.creation.active,
+        })
+
+    def _log_creation_finalize_status(self, create_result: dict) -> None:
+        try:
+            status = self.bridge.status()
+        except Exception as exc:
+            status = {"_error": str(exc)}
+        log_creation_finalize({
+            "character_create_ok": create_result.get("ok"),
+            "character_create_error": create_result.get("error"),
+            "engine_status": status,
         })
 
     def _emit_narration(self, narration: str) -> None:
@@ -860,6 +873,7 @@ class Orchestrator:
             spell_school_ids=spell_schools or None,
         )
         log_tool_call("character_create", {"name": self.creation.name}, result)
+        self._log_creation_finalize_status(result)
         if not result.get("ok"):
             self.creation.active = True
             return f"The clerk frowns at the paperwork. {result.get('error', 'Registration failed.')}"
@@ -1115,6 +1129,10 @@ class Orchestrator:
 
         self.creation.advance()
         self._remember_creation_step(step)
+        log_creation_advanced({
+            "completed_step": step,
+            "advanced_to": self.creation.step,
+        })
         return {"ok": True, "advanced_to": self.creation.step, "state": self.creation.to_dict()}
 
     # ─── Combat State Machine ─────────────────────────────────────────────

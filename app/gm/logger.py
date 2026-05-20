@@ -52,6 +52,16 @@ def log_creation_step(data: dict):
     log_entry("creation_step", data)
 
 
+def log_creation_advanced(data: dict):
+    """Successful creation FSM transition after set_creation_choice."""
+    log_entry("creation_advanced", data)
+
+
+def log_creation_finalize(data: dict):
+    """Engine status snapshot after character_create / finalize."""
+    log_entry("creation_finalize", data)
+
+
 def parse_narration_status_line(narration: str) -> dict[str, str | None]:
     """Extract Phase and Awaiting from bracket status lines in GM narration."""
     import re

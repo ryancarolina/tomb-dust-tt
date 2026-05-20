@@ -19,6 +19,8 @@
 | `error` | Exceptions, setup failures |
 | `creation_drift` | Narration `[Phase:` / `[Awaiting:` disagrees with engine during creation (`Orchestrator._check_creation_drift`) |
 | `creation_step` | `{creation.step, roster_len, awaiting, creation.active}` each creation turn (`Orchestrator._creation_turn` finally) |
+| `creation_advanced` | `{completed_step, advanced_to}` on every successful `_execute_creation_choice` |
+| `creation_finalize` | `{character_create_ok, character_create_error, engine_status}` after `character_create` in `_auto_finalize` |
 
 ### QA suite
 
@@ -31,7 +33,7 @@
 
 - [x] JSONL logger with core event types
 
-**Open work:** [APP-004](backlog/app-004-log-advancedto-on-creation-choice.md)–[APP-005](backlog/app-005-log-engine-status-after-finalize.md), [APP-049](backlog/app-049-create-app-tests-package.md)–[APP-051](backlog/app-051-golden-path-fixture-with-mock-llm.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-049](backlog/app-049-create-app-tests-package.md)–[APP-051](backlog/app-051-golden-path-fixture-with-mock-llm.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -80,3 +82,5 @@ python -m tomb_gm --workspace play/workspace check
 | 2026-05-20 | Spec created; merged sync-logging + regression-suite content |
 | 2026-05-20 | APP-002: `creation_drift` JSONL via `log_creation_drift` + orchestrator drift check |
 | 2026-05-20 | APP-003: `creation_step` JSONL via `log_creation_step` + `_creation_turn` finally snapshot |
+| 2026-05-20 | APP-004: `creation_advanced` JSONL on successful `_execute_creation_choice` |
+| 2026-05-20 | APP-005: `creation_finalize` JSONL with full `bridge.status()` after `character_create` |
