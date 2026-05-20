@@ -42,6 +42,32 @@ footer = code-generated status line (format_creation_status)
 
 **Table catalog:** § [Creation tables](#creation-tables) below; full standardization tracked in [APP-059](backlog/app-059-standardize-creation-table-outputs.md). **ROLL_STATS** catalog and formatter contract added by APP-067.
 
+### Flavor must reflect committed FSM state (APP-069)
+
+When `creation.active`, thin LLM flavor must not contradict committed FSM fields. Code enforces via prompt anchoring **and** post-compose sanitizer (Option A — sanitizer is the pass gate; prompt alone is insufficient).
+
+| ID | Requirement |
+|----|-------------|
+| **F1** | `_auto_roll_stats` flavor instruction cites committed race via `race_display_title(creation.race)` |
+| **F2** | Roll presentation instruction names **ROLL_STATS** context (dice readout — not class pick) |
+| **F3** | `_sanitize_creation_flavor`: if flavor contains a whole-word match of any **other** race title → blank entire flavor string |
+| **F4** | `_committed_state_flavor_block()` appended to flavor system message when fields set: name, race, class, skills |
+| **F5** | `_creation_flavor_messages` omits `history[-4:]` while `creation.active` |
+
+**Compose pipeline:** `_compose_creation_narration` applies `strip_llm_status_tags` → `strip_flavor_race_table` → `_sanitize_creation_flavor` → (when active or empty roster) `sanitize_premature_completion_flavor` → code `body` → `format_creation_status` footer.
+
+**Helper:** `race_display_title(race_key)` in `creation.py` (shared by committed-state block and sanitizer).
+
+**Regression target:** Rick / Undead @ session 17:09 — roll turn must not ship “Human lineage…” flavor while `creation.race == "undead"` and body shows APP-067 roll table.
+
+### Gated-step body contract (APP-069)
+
+For `SKILLS`, `SPELL_SCHOOLS`, `SPELLS`, `EQUIPMENT_GOLD`: narration **body** is only from `_auto_present_*` / `_handle_creation_response` using `format_skills_table`, `format_schools_table`, `format_spells_table`, `format_equipment_summary`. LLM supplies flavor only; never free LLM tables, kit blocks, or cross-step headers on these steps.
+
+#### Body-level drift (stretch — deferred)
+
+Optional `_check_creation_drift` reason `narrated_step_mismatch` when body/footer implies a step other than `creation.step`. Not required for APP-069 close; Phase 2 keyword tests substitute.
+
 ### Table-shown gating (APP-057)
 
 Gated steps must not treat “field still empty” as “show table again” — that blocks commits on the next player turn.
@@ -82,6 +108,32 @@ Code-owned markdown tables per step. LLM flavor is ≤2 sentences **before** the
 | SPELL_SCHOOLS | `format_schools_table(chosen_class)` | School, Tradition, Themes | Pick rules in intro lines |
 | SPELLS | `format_spells_table(...)` | Spell, School, MP, Effect | Full spell text in canon only |
 | EQUIPMENT_GOLD | `format_equipment_summary(state)` | Kit, Starting GP, Confirm prompt | Clerk commentary (flavor) |
+
+**APP-059 catalog target (RACE):** in-table columns **Race + Adjustments only**; lore stays in flavor (≤2 sentences), not in cells. Current `format_races_table()` still emits a Description column — formatter change is [APP-059](backlog/app-059-standardize-creation-table-outputs.md). APP-072 tests key on `\| Race \| Adjustments \|` so they remain valid when Description is removed.
+
+#### RACE flavor must not duplicate code table (APP-072)
+
+At the RACE step, `_auto_present_race` sets `body = err_prefix + format_races_table()` only. LLM flavor (`_narrate_flavor`, `_CREATION_FLAVOR_MAX_TOKENS = 120`) must not supply a second race table — but responses can still embed or truncate markdown tables (`finish_reason: length`).
+
+**Defense in depth:**
+
+| Layer | Locus | Behavior |
+|-------|-------|----------|
+| Prompt | `_auto_present_race` instruction | “Brief clerk banter only — do not list races or use markdown tables; the Registry ledger appends the race table.” |
+| Global prompt | `_creation_flavor_messages` | “Do NOT include markdown tables …” (all creation steps) |
+| Post-sanitize | `_compose_creation_narration` | `strip_flavor_race_table(cleaned)` on **flavor only** before body append |
+
+**Composed RACE narration contract:** exactly **one** `\| Race \| Adjustments \|` header block — from the code body, never from flavor.
+
+#### `strip_flavor_race_table(text)` (APP-072)
+
+**Input:** LLM flavor string (never the code `body`).
+
+**Block-scoped strip:** starting at a line matching `^\s*\| Race \|`, consume optional markdown separator row (`^\s*\|[-:\s|]+\|\s*$`) and subsequent `\|…\|` data rows; drop the block.
+
+**Line fallback:** remove any remaining lines containing `\| Race \|`.
+
+**Output:** retained prose (leading/trailing clerk banter) with collapsed blank lines; empty/whitespace → `""`.
 
 #### `format_roll_stats_table(roll_result)` (APP-067)
 
@@ -187,6 +239,7 @@ Unknown step fallback (formatter + drift): `{step}_INPUT`.
 
 ```bash
 python -m pytest play/tomb_gm/tests/test_creation_gating.py -q
+python -m pytest app/tests/test_creation_tables.py -q
 python -m pytest app/tests/test_creation_flow.py -q
 ```
 
@@ -256,6 +309,79 @@ After turn 3 (`"human"`), when `creation.step == "CLASS"`:
 
 Optional unit test: `test_format_roll_stats_table(FIXED_ROLL)` in `test_creation_tables.py`.
 
+#### APP-069: Flavor sanitizer + committed-state (Phase 1)
+
+| Test | Asserts |
+|------|---------|
+| `test_roll_stats_flavor_reflects_committed_race` | After `new game` → `Rick` → `undead`, with stub flavor `"Human lineage shows in the ledger."`: `creation.race == "undead"`; roll table header present; `"Human" not in narration` |
+| `test_creation_flavor_messages_committed_class` | After golden path through `apprentice`, captured flavor system message includes `Committed class: apprentice` and `Committed race:` |
+
+#### APP-069: Gated-step body keywords (Phase 2)
+
+Extend `test_full_creation_apprentice_caster` — per-turn required/forbidden substrings after turns 4–7:
+
+| Turn input | Required | Forbidden |
+|------------|----------|-----------|
+| `apprentice` | `Pick **3 skills**`; `\| Category \| Skill \|`; `Awaiting: SKILLS_INPUT`; `skills_table_shown` | `\| School \| Tradition \|`; `**Registry kit:**`; `Pick **one race**` |
+| `Lore, Spellcasting, Arcana` | `\| School \| Tradition \| Themes \|`; `Awaiting: SPELL_SCHOOLS_INPUT`; `schools_table_shown` | `\| Category \| Skill \|`; `**Registry kit:**`; spell table header |
+| `pyromancy, ether` | `Pick **2 tier-1 spells**`; spell table header; `Awaiting: SPELLS_INPUT`; `spells_table_shown` | school table; `**Registry kit:**` |
+| `ember-touch, static-lash` | `**Registry kit:**`; `**Starting gold:**`; `**Skills on record:**`; `Reply **yes**`; `Awaiting: EQUIPMENT_GOLD_CONFIRMATION` | spell/school table headers |
+
+Turn 8 (`yes`): keep APP-057 finalize assertions; `PRE_DELVE not in last` (deeper mid-FSM PRE_DELVE gates → APP-070).
+
+#### APP-072: race table dedup tests
+
+**Module:** `app/tests/test_creation_tables.py`
+
+| Test | Setup | Pass |
+|------|-------|------|
+| `test_strip_flavor_race_table_unit` | Direct call on truncated table (no separator), full table + prose, prose-only | No `\| Race \|` in output; prose retained |
+| `test_race_narration_single_table_header` | Stub LLM returns embedded `\| Race \| Adjustments \| Description \|` table with `finish_reason: length`; drive NAME→RACE (`"Dumpy"`) and invalid re-prompt | `narration.count("\| Race \| Adjustments \|") == 1`; `Pick **one race**` present; `Awaiting: RACE_INPUT` |
+
+Use `_patch_llm_content` (monkeypatch `create_client`) — default mock stub `"Test narration."` cannot regress duplicate-table bug.
+
+### Block premature completion copy (APP-070)
+
+While `creation.active` or `bridge.status()["roster"]` is empty, thin-LLM **flavor** must not invent post-creation completion copy (`PRE_DELVE`, `Awaiting: RECEPTION_CHOICE`, “registered Delver”, or `Phase: preparation` at desk steps). **APP-009** `_auto_finalize()` already blocks code from `WORLD_INTRO` without a non-empty roster; APP-070 hardens the **flavor layer** and drift telemetry only.
+
+Legitimate post-finalize reception: code `footer=` at `_auto_finalize` success may include `Phase: preparation` and `Awaiting: RECEPTION_CHOICE` when roster is non-empty and `creation.step == WORLD_INTRO`. `PRE_DELVE` is LLM jargon and must never appear in player narration.
+
+#### Compose sanitization (C1–C5)
+
+| ID | Requirement |
+|----|-------------|
+| **C1** | `sanitize_premature_completion_flavor` in `creation.py`; caller invokes from `_compose_creation_narration` when `creation.active` or `roster_len == 0` |
+| **C2** | Sanitizer applies to **flavor only** — never `body` or `footer` (preserves `_auto_finalize` registration body and reception footer) |
+| **C3** | Blank flavor when markers match: `pre[-_]?delve`, `Awaiting: RECEPTION_CHOICE`, `registered delver`, `you are now a registered`, `is now a registered` |
+| **C4** | Blank flavor when `Phase: preparation` appears while `active` and `step != WORLD_INTRO` |
+| **C5** | Re-run `strip_llm_status_tags` when sanitizer mutates flavor |
+
+**Compose order (flavor):** `strip_llm_status_tags` → `strip_flavor_race_table` (APP-072) → `_sanitize_creation_flavor` (APP-069) → `sanitize_premature_completion_flavor` (APP-070) → append code `body` + `footer`.
+
+#### Drift extension (D1–D2)
+
+When `_creation_drift_scope()` and `roster_len == 0`, `_check_creation_drift` in `orchestrator.py` adds:
+
+| ID | Condition | Reason |
+|----|-----------|--------|
+| **D1a** | `narrated_phase in {"pre_delve", "pre-delve"}` | `premature_exploration_phase` |
+| **D1b** | `creation.active` and `narrated_awaiting == RECEPTION_CHOICE` | `premature_exploration_phase` |
+| **D1c** | `creation.active` and `narrated_phase == preparation` and `step != WORLD_INTRO` | `premature_exploration_phase` |
+| **D2** | Registration phrases in full narration (`registered delver`, `you are now a registered`) | `premature_completion_copy` |
+
+Drift is belt-and-suspenders when compose sanitizer strips all markers; T1 does not require drift events.
+
+#### Tests — APP-070 (T1)
+
+**`test_skills_turn_rejects_premature_completion_flavor`** (`app/tests/test_creation_flow.py`):
+
+1. Golden path turns 1–4 (`INPUTS[:4]`) with `FIXED_ROLL` monkeypatch.
+2. Monkeypatch `_narrate_flavor` to return bad completion prose (`registered Delver` + `[Phase: PRE_DELVE | Awaiting: RECEPTION_CHOICE]`).
+3. Turn 5: `Lore, Spellcasting, Arcana` — FSM advances to `SPELL_SCHOOLS`, roster empty.
+4. Assert: no `pre_delve`, `reception_choice`, or `registered delver` in narration; `Awaiting: SPELL_SCHOOLS_INPUT` in footer.
+
+Golden path turn 8 (`test_full_creation_apprentice_caster`) still allows `RECEPTION_CHOICE` + `Phase: preparation` with non-empty roster; `PRE_DELVE not in last`.
+
 #### Other scenarios (existing / future)
 
 | Scenario | Asserts | Owner |
@@ -277,8 +403,9 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 
 | File | Role |
 |------|------|
-| `gm/creation.py` | State machine, tables, parsers |
-| `gm/orchestrator.py` | `_creation_turn`, `_auto_present_*`, `_auto_finalize`, `_execute_creation_choice` |
+| `gm/creation.py` | State machine, tables, parsers, `strip_flavor_race_table` (APP-072) |
+| `gm/orchestrator.py` | `_creation_turn`, `_auto_present_*`, `_compose_creation_narration`, `_auto_finalize`, `_execute_creation_choice` |
+| `tests/test_creation_tables.py` | APP-072 race table strip + single-header integration |
 | `gm/choice_memory.py` | Remember creation choices |
 
 ---
@@ -298,3 +425,7 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 | 2026-05-20 | APP-068 spec draft: § NAME→RACE same-turn presentation (R1 table+footer, R2 no clerk-waits); § Tests APP-068 narration assertions |
 | 2026-05-20 | APP-068 done: NAME commit returns `_auto_present_race()` same turn (direct path in `_handle_creation_response`); chain RACE fallthrough guard; `test_name_advance_presents_race_table` + turn-2 assertions in `test_full_creation_apprentice_caster` green |
 | 2026-05-20 | APP-067 done: `format_roll_stats_table` in `creation.py`; `_auto_roll_stats` thin flavor + code tables; ROLL_STATS chain dedup; `test_creation_flow.py` APP-067 assertions green |
+| 2026-05-20 | APP-069 done: § Flavor must reflect committed FSM state (F1–F5, Option A sanitizer); § Gated-step body contract; Phase 1–2 tests in `test_creation_flow.py`; stretch `narrated_step_mismatch` deferred |
+| 2026-05-20 | APP-070 done: `sanitize_premature_completion_flavor` + compose wiring; drift D1/D2 for empty-roster completion leaks; `test_skills_turn_rejects_premature_completion_flavor` green (extends APP-009 finalize gate) |
+| 2026-05-20 | APP-072 spec draft: § RACE flavor must not duplicate code table; `strip_flavor_race_table`; § Tests APP-072; APP-059 RACE catalog target note |
+| 2026-05-20 | APP-072 done: `strip_flavor_race_table` in `creation.py`; compose hook in `_compose_creation_narration`; RACE prompt tightened; `test_creation_tables.py` green |

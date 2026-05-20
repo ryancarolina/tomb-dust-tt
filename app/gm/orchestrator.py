@@ -27,6 +27,10 @@ from gm.creation import (
     format_equipment_summary,
     format_creation_status,
     strip_llm_status_tags,
+    strip_flavor_race_table,
+    race_display_title,
+    sanitize_premature_completion_flavor,
+    SKILL_DISPLAY,
     ensure_equipment_gold,
     is_equipment_confirm,
     is_equipment_objection,
@@ -63,6 +67,11 @@ from gm.logger import (
 )
 
 _PREMATURE_EXPLORE_PHASES = frozenset({"delve", "ingress", "extract", "aftermath"})
+_PRE_DELVE_PHASES = frozenset({"pre_delve", "pre-delve"})
+_PREMATURE_COMPLETION_COPY_RE = re.compile(
+    r"registered\s+delver|you\s+are\s+now\s+a\s+registered",
+    re.IGNORECASE,
+)
 _CREATION_FLAVOR_MAX_TOKENS = 120
 
 SPELL_QUERY_RE = re.compile(
@@ -193,13 +202,12 @@ class Orchestrator:
         if not self._creation_drift_scope():
             return
         narrated = parse_narration_status_line(narration)
-        if not narrated.get("phase") and not narrated.get("awaiting"):
-            return
         try:
             status = self.bridge.status()
         except Exception:
             status = {}
         roster = status.get("roster") or []
+        roster_len = len(roster)
         party = status.get("party") or {}
         engine_phase = str(party.get("phase") or "").strip().lower()
         narrated_phase = str(narrated.get("phase") or "").strip().lower()
@@ -207,14 +215,32 @@ class Orchestrator:
 
         reasons: list[str] = []
         expected_awaiting: str | None = None
-        if self.creation.active and narrated_awaiting:
-            expected_awaiting = self._expected_creation_awaiting_label()
-            if narrated_awaiting != expected_awaiting:
-                reasons.append("awaiting_mismatch")
-        if narrated_phase and engine_phase and narrated_phase != engine_phase:
-            reasons.append("phase_mismatch")
-        if self.creation.active and narrated_phase in _PREMATURE_EXPLORE_PHASES:
-            reasons.append("premature_exploration_phase")
+        if roster_len == 0 and _PREMATURE_COMPLETION_COPY_RE.search(narration):
+            reasons.append("premature_completion_copy")
+
+        if not narrated.get("phase") and not narrated.get("awaiting"):
+            if not reasons:
+                return
+        else:
+            if self.creation.active and narrated_awaiting:
+                expected_awaiting = self._expected_creation_awaiting_label()
+                if narrated_awaiting != expected_awaiting:
+                    reasons.append("awaiting_mismatch")
+            if narrated_phase and engine_phase and narrated_phase != engine_phase:
+                reasons.append("phase_mismatch")
+            if self.creation.active and narrated_phase in _PREMATURE_EXPLORE_PHASES:
+                reasons.append("premature_exploration_phase")
+            if roster_len == 0:
+                if narrated_phase in _PRE_DELVE_PHASES:
+                    reasons.append("premature_exploration_phase")
+                if self.creation.active and narrated_awaiting == "RECEPTION_CHOICE":
+                    reasons.append("premature_exploration_phase")
+                if (
+                    self.creation.active
+                    and narrated_phase == "preparation"
+                    and self.creation.step != "WORLD_INTRO"
+                ):
+                    reasons.append("premature_exploration_phase")
 
         if not reasons:
             return
@@ -527,6 +553,23 @@ class Orchestrator:
         """Thin LLM flavor + code body + code-owned status footer."""
         parts: list[str] = []
         cleaned = strip_llm_status_tags(flavor)
+        cleaned = strip_flavor_race_table(cleaned)
+        cleaned = self._sanitize_creation_flavor(cleaned)
+        try:
+            roster_len = len(self.bridge.status().get("roster") or [])
+        except Exception:
+            roster_len = 0
+        if self.creation.active or roster_len == 0:
+            sanitized = sanitize_premature_completion_flavor(
+                cleaned,
+                active=self.creation.active,
+                step=self.creation.step,
+                roster_len=roster_len,
+            )
+            if sanitized != cleaned:
+                cleaned = strip_llm_status_tags(sanitized)
+            else:
+                cleaned = sanitized
         if cleaned:
             parts.append(cleaned)
         if body.strip():
@@ -536,7 +579,34 @@ class Orchestrator:
             parts.append(status_line)
         return "\n\n".join(parts)
 
+    def _committed_state_flavor_block(self) -> str:
+        lines: list[str] = []
+        if self.creation.name:
+            lines.append(f"Character name: {self.creation.name}")
+        if self.creation.race:
+            lines.append(f"Committed race: {race_display_title(self.creation.race)}")
+        if self.creation.chosen_class:
+            lines.append(f"Committed class: {self.creation.chosen_class}")
+        if self.creation.chosen_skills:
+            names = ", ".join(SKILL_DISPLAY.get(s, s) for s in self.creation.chosen_skills)
+            lines.append(f"Committed skills: {names}")
+        return "\n".join(lines)
+
+    def _sanitize_creation_flavor(self, flavor: str) -> str:
+        if not self.creation.active or not self.creation.race:
+            return flavor
+        for key in RACES:
+            if key == self.creation.race:
+                continue
+            title = race_display_title(key)
+            if re.search(rf"\b{re.escape(title)}\b", flavor, re.IGNORECASE):
+                return ""
+        return flavor
+
     def _creation_flavor_messages(self, instruction: str, player_input: str) -> list[dict[str, Any]]:
+        committed = self._committed_state_flavor_block()
+        committed_block = f"\n\n{committed}\n" if committed else ""
+        history_block = [] if self.creation.active else list(self.history[-4:])
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -544,16 +614,27 @@ class Orchestrator:
                 "content": (
                     "You are the GM for Tomb Dust at the Registry desk in Breley Keep.\n"
                     f"Character: {self.creation.name or '(unnamed)'}\n"
-                    f"Creation step: {self.creation.step}\n\n"
+                    f"Creation step: {self.creation.step}\n"
+                    f"{committed_block}\n"
                     f"{instruction}\n\n"
                     "Write 1-2 short sentences of in-character flavor ONLY.\n"
                     "Do NOT include markdown tables, status lines, [Location:...], Phase, Awaiting, "
                     "or mechanical numbers — code appends those."
                 ),
             },
-            *self.history[-4:],
+            *history_block,
             {"role": "user", "content": player_input},
         ]
+
+    def _narrate_creation_flavor(
+        self, instruction: str, player_input: str, *, presenting_step: str | None = None
+    ) -> str:
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(instruction, player_input)
+        )
+        if presenting_step:
+            flavor = self._sanitize_creation_flavor(flavor)
+        return flavor
 
     def _narrate_flavor(self, messages: list[dict[str, Any]]) -> str:
         """Short LLM flavor during creation (~120 tokens, no tools)."""
@@ -696,7 +777,9 @@ class Orchestrator:
         err = f"**Note:** {error}\n\n" if error else ""
         flavor = self._narrate_flavor(
             self._creation_flavor_messages(
-                f"The clerk writes down '{self.creation.name}' and asks about lineage.",
+                f"The clerk writes down '{self.creation.name}' and asks about lineage. "
+                "Brief clerk banter only — do not list races or use markdown tables; "
+                "the Registry ledger appends the race table.",
                 player_input,
             )
         )
@@ -942,11 +1025,13 @@ class Orchestrator:
         self._remember_creation_step("ROLL_STATS")
 
         eligible = result.get("eligible_classes", ["peasant"])
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                "Present attribute roll results briefly — the Registry clerk reads the dice.",
-                player_input,
-            )
+        race_title = race_display_title(self.creation.race)
+        flavor = self._narrate_creation_flavor(
+            f"Present attribute roll results for a delver whose lineage is **{race_title}**. "
+            "Do not name or imply any other race. "
+            "You are presenting ROLL_STATS results (dice readout) — not asking for class yet.",
+            player_input,
+            presenting_step="ROLL_STATS",
         )
         body = format_roll_stats_table(result) + "\n\n" + format_classes_table(eligible)
         self.creation.classes_table_shown = True

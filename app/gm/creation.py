@@ -121,6 +121,11 @@ RACES = {
     "troll": {"description": "Tall regenerators and fierce hunters.", "mods": {"STR": 2, "AGI": 1, "INT": -1}},
 }
 
+
+def race_display_title(race_key: str) -> str:
+    return race_key.replace("-", " ").title()
+
+
 CLASS_INFO = {
     "peasant": {
         "requirement": "None",
@@ -533,6 +538,62 @@ def strip_llm_status_tags(text: str) -> str:
     """Remove LLM-invented status footer blocks; code owns Awaiting/Location lines."""
     cleaned = _LLM_STATUS_TAG_RE.sub("", text or "")
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+_RACE_TABLE_HEADER_RE = re.compile(r"^\s*\| Race \|", re.MULTILINE)
+_MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|[-:\s|]+\|\s*$")
+_MD_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|")
+
+
+def strip_flavor_race_table(text: str) -> str:
+    """Remove markdown race tables from LLM flavor; code owns format_races_table() body."""
+    if not (text or "").strip():
+        return ""
+    lines = (text or "").splitlines()
+    keep: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if _RACE_TABLE_HEADER_RE.match(line):
+            i += 1
+            if i < len(lines) and _MD_TABLE_SEPARATOR_RE.match(lines[i]):
+                i += 1
+            while i < len(lines) and _MD_TABLE_ROW_RE.match(lines[i]):
+                i += 1
+            continue
+        keep.append(line)
+        i += 1
+    out_lines = [ln for ln in keep if "| Race |" not in ln]
+    result = "\n".join(out_lines)
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
+_PREMATURE_FLAVOR_MARKERS = (
+    re.compile(r"pre[-_]?delve", re.IGNORECASE),
+    re.compile(r"awaiting:\s*reception_choice", re.IGNORECASE),
+    re.compile(r"registered\s+delver", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now\s+a\s+registered", re.IGNORECASE),
+    re.compile(r"is\s+now\s+a\s+registered", re.IGNORECASE),
+)
+_PREMATURE_PREPARATION_PHASE_RE = re.compile(r"phase:\s*preparation", re.IGNORECASE)
+
+
+def sanitize_premature_completion_flavor(
+    flavor: str,
+    *,
+    active: bool,
+    step: str,
+    roster_len: int = 0,
+) -> str:
+    """Blank flavor that invents post-creation completion while desk FSM is active."""
+    if not (flavor or "").strip():
+        return ""
+    for pattern in _PREMATURE_FLAVOR_MARKERS:
+        if pattern.search(flavor):
+            return ""
+    if active and step != "WORLD_INTRO" and _PREMATURE_PREPARATION_PHASE_RE.search(flavor):
+        return ""
+    return flavor
 
 
 def format_creation_status(state: CreationState) -> str:
