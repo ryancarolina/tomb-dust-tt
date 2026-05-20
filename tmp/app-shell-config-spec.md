@@ -20,7 +20,7 @@ Loaded by `main.load_config()`; consumed by `Orchestrator` (`llm`) and `App` (`u
 | Section | Key | Type | Shipped default | Used by |
 |---------|-----|------|-----------------|---------|
 | `llm` | `provider` | string | `openrouter` | Documentation only today |
-| `llm` | `model` | string | `google/gemini-3.1-flash-lite` | `Orchestrator.model`, UI model label |
+| `llm` | `model` | string | `anthropic/claude-haiku-4.5` | `Orchestrator.model`, UI model label |
 | `llm` | `max_tokens` | int | `2048` | Main GM turns (`Orchestrator`) |
 | `llm` | `temperature` | float | `0.8` | All LLM calls |
 | `tts` | `mode` | string | `speak_dialogue` | `speak_all` \| `speak_dialogue` \| `text_only` |
@@ -76,3 +76,4 @@ cd app && python main.py           # manual: window opens
 |------|--------|
 | 2026-05-20 | Spec created; baseline documents existing shell |
 | 2026-05-20 | **APP-046 done:** Document all `config.yaml` keys; default `llm.model` → `google/gemini-3.1-flash-lite` (OpenRouter; ~same tier as 2.5 Flash, lower output $) |
+| 2026-05-20 | **APP-076 done:** default `llm.model` → `anthropic/claude-haiku-4.5` (OpenRouter; Haiku 4.5 for tool-call reliability vs Flash Lite) |
