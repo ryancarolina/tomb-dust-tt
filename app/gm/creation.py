@@ -56,6 +56,22 @@ SKILL_PARSE_ALIASES: dict[str, str] = {
     "mana control": "mana-control",
 }
 
+
+def _compact_skill_token(s: str) -> str:
+    return s.replace(" ", "").replace("-", "")
+
+
+def _build_skill_compact_map() -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for slug in ALL_SKILL_SLUGS:
+        mapping[_compact_skill_token(slug)] = slug
+    for alias, target in SKILL_PARSE_ALIASES.items():
+        mapping[_compact_skill_token(alias)] = target
+    return mapping
+
+
+_SKILL_COMPACT_MAP: dict[str, str] = _build_skill_compact_map()
+
 SKILL_CATEGORIES: dict[str, list[str]] = {
     "Combat": ["swordsmanship", "archery", "shield-use", "unarmed-combat", "crossbow"],
     "Physical": ["athletics", "acrobatics", "climbing", "swimming", "endurance"],
@@ -80,7 +96,7 @@ CREATION_STATUS_LABELS: dict[str, str] = {
 }
 
 _LLM_STATUS_TAG_RE = re.compile(
-    r"\[Location:[^\]]*\]|\[Phase:[^\]]*\]|^\s*Awaiting:\s*[A-Z0-9_]+\s*$",
+    r"\[Location:[^\]]*\]|\[Phase:[^\]]*\]|Awaiting:\s*[A-Z0-9_]+",
     re.I | re.MULTILINE,
 )
 
@@ -293,6 +309,9 @@ def normalize_skill_slug(name: str) -> str | None:
     hyphen = lower.replace(" ", "-")
     if hyphen in ALL_SKILL_SLUGS:
         return hyphen
+    compact = _SKILL_COMPACT_MAP.get(_compact_skill_token(lower))
+    if compact:
+        return compact
     return None
 
 
@@ -543,6 +562,9 @@ def strip_llm_status_tags(text: str) -> str:
 _RACE_TABLE_HEADER_RE = re.compile(r"^\s*\| Race \|", re.MULTILINE)
 _MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|[-:\s|]+\|\s*$")
 _MD_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|")
+_STATS_TABLE_HEADER_RE = re.compile(r"^\s*\| Attr \|")
+_STATS_HEADING_RE = re.compile(r"^\s*#{1,3}\s+Your Attributes\b", re.IGNORECASE)
+_COMPACT_ATTR_HEADER_RE = re.compile(r"^\s*\| STR \|.*\| AGI \|")
 
 
 def strip_flavor_race_table(text: str) -> str:
@@ -564,6 +586,39 @@ def strip_flavor_race_table(text: str) -> str:
         keep.append(line)
         i += 1
     out_lines = [ln for ln in keep if "| Race |" not in ln]
+    result = "\n".join(out_lines)
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
+def strip_flavor_stats_table(text: str) -> str:
+    """Remove markdown stat tables from LLM flavor; code owns format_roll_stats_table() body."""
+    if not (text or "").strip():
+        return ""
+    lines = (text or "").splitlines()
+    keep: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if (
+            _STATS_TABLE_HEADER_RE.match(line)
+            or _STATS_HEADING_RE.match(line)
+            or _COMPACT_ATTR_HEADER_RE.match(line)
+        ):
+            i += 1
+            if i < len(lines) and _MD_TABLE_SEPARATOR_RE.match(lines[i]):
+                i += 1
+            while i < len(lines) and _MD_TABLE_ROW_RE.match(lines[i]):
+                i += 1
+            continue
+        keep.append(line)
+        i += 1
+    out_lines = [
+        ln
+        for ln in keep
+        if "| Attr | Base |" not in ln
+        and "`roll_attributes(" not in ln
+        and "| STR | AGI |" not in ln
+    ]
     result = "\n".join(out_lines)
     return re.sub(r"\n{3,}", "\n\n", result).strip()
 
@@ -806,6 +861,22 @@ def parse_player_skills(text: str, class_key: str) -> list[str] | None:
     if len(found) == 3:
         return found
     return None
+
+
+def format_skill_parse_error(text: str, class_key: str) -> str:
+    """Build SKILLS-step error text for comma-separated input (APP-075)."""
+    _ = class_key
+    generic = "Name exactly 3 skills from the table, comma-separated."
+    if is_clarification(text) or "," not in text.lower():
+        return generic
+    lower = text.lower()
+    parts = [p.strip() for p in lower.split(",") if p.strip()]
+    unknown = [part for part in parts if normalize_skill_slug(part) is None]
+    if len(unknown) == 1:
+        return f"Unrecognized skill: {unknown[0]}. {generic}"
+    if len(unknown) > 1:
+        return f"Unrecognized skills: {', '.join(unknown)}. {generic}"
+    return generic
 
 
 def _format_mods(mods: dict) -> str:

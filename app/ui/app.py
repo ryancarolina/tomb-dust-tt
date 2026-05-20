@@ -312,15 +312,12 @@ class App:
                 }
                 self._ui_queue.put(("map_update", map_data))
 
-            suggestions = self._extract_suggestions(narration)
-            if suggestions:
-                self._ui_queue.put(("suggestions", suggestions))
-
         except Exception as exc:
             if turn_id == self._current_turn_id:
                 self._ui_queue.put(("error", str(exc)))
             return
         finally:
+            self._queue_turn_suggestions(turn_id)
             if self._orchestrator and narration is not None and turn_id == self._current_turn_id:
                 self._save_session()
 
@@ -336,16 +333,13 @@ class App:
         else:
             self._ui_queue.put(("turn_idle", turn_id))
 
-    def _extract_suggestions(self, narration: str) -> list[str]:
-        import re
-        match = re.search(r"\[.*?Awaiting:\s*(.+?)\]", narration)
-        if match:
-            raw = match.group(1).strip()
-            parts = [p.strip() for p in raw.split("|") if p.strip()]
-            if not parts:
-                parts = [p.strip() for p in raw.split(",") if p.strip()]
-            return parts[:4]
-        return []
+    def _queue_turn_suggestions(self, turn_id: int) -> None:
+        """Unconditional chip refresh after every turn (success or error)."""
+        if turn_id != self._current_turn_id or not self._orchestrator:
+            return
+        self._ui_queue.put(
+            ("suggestions", self._orchestrator.get_player_suggestions())
+        )
 
     def _speak_narration(self, text: str, lines: list[dict] | None, turn_id: int):
         if turn_id != self._current_turn_id:

@@ -9,6 +9,7 @@ from gm.creation import (
     is_clarification,
     is_equipment_confirm,
     is_equipment_objection,
+    format_skill_parse_error,
     normalize_skill_slug,
     parse_player_skills,
     parse_player_schools,
@@ -24,12 +25,25 @@ from gm.creation import (
 def test_normalize_skill_slug():
     assert normalize_skill_slug("Sleight of Hand") == "sleight-of-hand"
     assert normalize_skill_slug("shield-use") == "shield-use"
+    assert normalize_skill_slug("manacontrol") == "mana-control"
+    assert normalize_skill_slug("sleightofhand") == "sleight-of-hand"
     assert normalize_skill_slug("bogus") is None
 
 
 def test_parse_player_skills_comma_list():
     skills = parse_player_skills("Stealth, Sleight of Hand, Perception", "urchin")
     assert skills == ["stealth", "sleight-of-hand", "perception"]
+    glued = parse_player_skills("spellcasting, medicine, manacontrol", "apprentice")
+    assert glued == ["spellcasting", "medicine", "mana-control"]
+    spaced = parse_player_skills("spellcasting, medicine, mana control", "apprentice")
+    assert spaced == ["spellcasting", "medicine", "mana-control"]
+    assert parse_player_skills("spellcasting, medicine, bogus", "apprentice") is None
+
+
+def test_format_skill_parse_error():
+    msg = format_skill_parse_error("spellcasting, medicine, bogus", "apprentice")
+    assert "bogus" in msg
+    assert "exactly 3 skills" in msg.lower()
 
 
 def test_parse_player_skills_rejects_clarification():

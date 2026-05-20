@@ -29,6 +29,7 @@ from gm.creation import (
     format_creation_status,
     strip_llm_status_tags,
     strip_flavor_race_table,
+    strip_flavor_stats_table,
     race_display_title,
     sanitize_premature_completion_flavor,
     SKILL_DISPLAY,
@@ -38,6 +39,7 @@ from gm.creation import (
     parse_player_race,
     parse_player_class,
     parse_player_skills,
+    format_skill_parse_error,
     parse_player_schools,
     parse_player_spells,
     normalize_skill_slug,
@@ -101,6 +103,22 @@ class Orchestrator:
 
     def get_status(self) -> dict:
         return self.bridge.status()
+
+    def get_player_suggestions(self) -> list[str]:
+        from ui.suggestions import build_player_suggestions
+
+        has_save = self.bridge.has_save()
+        try:
+            awaiting = self.bridge.status().get("awaiting") or ""
+        except Exception:
+            awaiting = ""
+
+        return build_player_suggestions(
+            creation_step=self.creation.step,
+            creation_active=self.creation.active,
+            engine_awaiting=awaiting,
+            has_save=has_save,
+        )
 
     def _restore_history(self):
         """Load orchestrator history and creation state from session_state.json."""
@@ -636,6 +654,7 @@ class Orchestrator:
         parts: list[str] = []
         cleaned = strip_llm_status_tags(flavor)
         cleaned = strip_flavor_race_table(cleaned)
+        cleaned = strip_flavor_stats_table(cleaned)
         cleaned = self._sanitize_creation_flavor(cleaned)
         try:
             roster_len = len(self.bridge.status().get("roster") or [])
@@ -940,7 +959,9 @@ class Orchestrator:
             if not skills:
                 return self._auto_present_skills(
                     player_input,
-                    error="Name exactly 3 skills from the table, comma-separated.",
+                    error=format_skill_parse_error(
+                        player_input, self.creation.chosen_class
+                    ),
                 )
             result = self._execute_creation_choice(
                 "SKILLS", ",".join(skills), player_input=player_input,
@@ -1043,15 +1064,23 @@ class Orchestrator:
             return f"{prior}\n\n{extra}".strip() if prior else extra
         return prior or "The clerk waits."
 
+    def _creation_table_flavor(
+        self, instruction: str, player_input: str, *, error: str | None
+    ) -> str:
+        if error:
+            return ""
+        return self._narrate_flavor(
+            self._creation_flavor_messages(instruction, player_input)
+        )
+
     def _auto_present_skills(self, player_input: str, error: str | None = None) -> str:
         """Deterministic skills table — code body, thin LLM flavor."""
         self.creation.skills_table_shown = True
         err = f"**Note:** {error}\n\n" if error else ""
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                f"Ask {self.creation.name} which three skills they trained in as a {self.creation.chosen_class}.",
-                player_input,
-            )
+        flavor = self._creation_table_flavor(
+            f"Ask {self.creation.name} which three skills they trained in as a {self.creation.chosen_class}.",
+            player_input,
+            error=error,
         )
         body = err + format_skills_table(self.creation.chosen_class)
         return self._compose_creation_narration(flavor, body)
@@ -1063,11 +1092,10 @@ class Orchestrator:
             return self._chain_after_creation_choice("")
         self.creation.schools_table_shown = True
         err = f"**Note:** {error}\n\n" if error else ""
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                "Ask which magical schools the delver studied.",
-                player_input,
-            )
+        flavor = self._creation_table_flavor(
+            "Ask which magical schools the delver studied.",
+            player_input,
+            error=error,
         )
         body = err + format_schools_table(self.creation.chosen_class)
         return self._compose_creation_narration(flavor, body)
@@ -1076,11 +1104,10 @@ class Orchestrator:
         """Deterministic starting spell table."""
         self.creation.spells_table_shown = True
         err = f"**Note:** {error}\n\n" if error else ""
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                "Ask which tier-1 spells the delver memorized from their chosen schools.",
-                player_input,
-            )
+        flavor = self._creation_table_flavor(
+            "Ask which tier-1 spells the delver memorized from their chosen schools.",
+            player_input,
+            error=error,
         )
         body = err + format_spells_table(self.creation.chosen_class, self.creation.chosen_schools)
         return self._compose_creation_narration(flavor, body)
@@ -1109,9 +1136,11 @@ class Orchestrator:
         eligible = result.get("eligible_classes", ["peasant"])
         race_title = race_display_title(self.creation.race)
         flavor = self._narrate_creation_flavor(
-            f"Present attribute roll results for a delver whose lineage is **{race_title}**. "
+            f"The clerk reacts briefly to the dice roll for a delver whose lineage is **{race_title}**. "
+            "Write 1–2 sentences of Registry banter only — mood, ledger ink, superstition. "
             "Do not name or imply any other race. "
-            "You are presenting ROLL_STATS results (dice readout) — not asking for class yet.",
+            "Do not present attribute numbers, HP, or markdown tables; code appends the full roll readout. "
+            "Do not include status lines or Awaiting labels.",
             player_input,
             presenting_step="ROLL_STATS",
         )

@@ -67,7 +67,7 @@ When `creation.active`, thin LLM flavor must not contradict committed FSM fields
 | **F4** | `_committed_state_flavor_block()` appended to flavor system message when fields set: name, race, class, skills |
 | **F5** | `_creation_flavor_messages` omits `history[-4:]` while `creation.active` |
 
-**Compose pipeline:** `_compose_creation_narration` applies `strip_llm_status_tags` → `strip_flavor_race_table` → `_sanitize_creation_flavor` → (when active or empty roster) `sanitize_premature_completion_flavor` → code `body` → `format_creation_status` footer.
+**Compose pipeline:** `_compose_creation_narration` applies `strip_llm_status_tags` → `strip_flavor_race_table` → `strip_flavor_stats_table` → `_sanitize_creation_flavor` → (when active or empty roster) `sanitize_premature_completion_flavor` → (C5 re-strip if premature sanitizer mutated) → code `body` → `format_creation_status` footer. Full sanitizer contracts: § [Flavor sanitization pipeline (APP-073)](#flavor-sanitization-pipeline-app-073).
 
 **Helper:** `race_display_title(race_key)` in `creation.py` (shared by committed-state block and sanitizer).
 
@@ -80,6 +80,72 @@ For `SKILLS`, `SPELL_SCHOOLS`, `SPELLS`, `EQUIPMENT_GOLD`: narration **body** is
 #### Body-level drift (stretch — deferred)
 
 Optional `_check_creation_drift` reason `narrated_step_mismatch` when body/footer implies a step other than `creation.step`. Not required for APP-069 close; Phase 2 keyword tests substitute.
+
+### Skill slug normalization (APP-075)
+
+Player skill text at **SKILLS** must resolve glued/compact forms of multi-word slugs (e.g. `manacontrol` → `mana-control`) without changing the public `parse_player_skills` return type (`list[str] | None`).
+
+#### Resolution order (`normalize_skill_slug`)
+
+Apply in order; first match wins:
+
+| Step | Check | Example |
+|------|-------|---------|
+| 1 | Lowercase + strip | ` Lore ` → `lore` |
+| 2 | Exact slug in `ALL_SKILL_SLUGS` | `medicine` → `medicine` |
+| 3 | Spaced alias in `SKILL_PARSE_ALIASES` | `mana control` → `mana-control` |
+| 4 | Spaces → hyphens, match slug | `mana control` (if not in aliases) → `mana-control` |
+| 5 | **Compact pass** — remove spaces and hyphens from input; lookup precomputed `{compact(slug): slug}` built from every canonical slug and alias key | `manacontrol` → `mana-control`; `sleightofhand` → `sleight-of-hand` |
+| 6 | No match | `None` |
+
+**Compact map rule:** Precompute once at module load. Keys are `token.replace(" ", "").replace("-", "")` for each slug and alias key. **Exact / alias / hyphen checks always run before compact** so future slug collisions resolve to the longest-established canonical slug first. Current 32-skill catalog is collision-free under this rule (verified in research).
+
+**Nine hyphenated skills (minimum glued coverage):** `shield-use`, `unarmed-combat`, `dual-wielding`, `heavy-weapons`, `thrown-weapons`, `sleight-of-hand`, `magical-knowledge`, `mana-control`, `battlefield-awareness`.
+
+#### `parse_player_skills` behavior
+
+| ID | Requirement |
+|----|-------------|
+| **P1** | Comma branch and non-comma branch both call `normalize_skill_slug` per token/part — compact pass in P1 benefits **both** paths (non-comma substring scan normalizes discovered tokens). |
+| **P2** | Comma-separated: split on `,`, strip parts, resolve each via `normalize_skill_slug`; dedupe while preserving first-seen order; return list **only** when exactly three distinct slugs resolved. Ticket repro `spellcasting, medicine, manacontrol` (apprentice) → `['spellcasting', 'medicine', 'mana-control']`. |
+| **P3** | Unknown comma-separated tokens must not fail silently — see § Parse error messaging below. |
+
+Non-comma input (no `,` in string): existing substring scan over `SKILL_PARSE_ALIASES.keys() | ALL_SKILL_SLUGS` (longest first) unchanged except tokens now resolve glued forms via P1 step 5. Glued paste without commas (e.g. `spellcasting medicine manacontrol`) is **in scope** when compact normalization is in `normalize_skill_slug`.
+
+#### Parse error messaging (P3)
+
+**Owner:** `app/gm/creation.py` exposes a **documented helper** (e.g. `format_skill_parse_error(text, class_key) -> str`) that inspects comma-separated parts and returns the full `error=` string. **`_handle_creation_response`** SKILLS branch (`orchestrator.py` ~939–944) **must call this helper** instead of a fixed generic string when `parse_player_skills` returns `None`. Do not build unknown-token text only in tests or only inside `parse_player_skills` — the orchestrator passes the helper result to `_auto_present_skills(..., error=...)`.
+
+**Priority:** When any comma-separated part fails `normalize_skill_slug`, name the unrecognized part(s) **before** the generic count message.
+
+| Input (apprentice) | Required error substring(s) |
+|--------------------|------------------------------|
+| `spellcasting, medicine, bogus` | `bogus` (e.g. `Unrecognized skill: bogus`) **and** guidance to pick 3 from table |
+| `foo, bar, medicine` | both unknown tokens named when practical (e.g. `Unrecognized skills: foo, bar`) |
+
+**Normative examples (shape, not exact punctuation):**
+
+- Single unknown: `Unrecognized skill: bogus. Name exactly 3 skills from the table, comma-separated.`
+- Multiple unknown: `Unrecognized skills: foo, bar. Name exactly 3 skills from the table, comma-separated.`
+- Wrong count with all tokens recognized: generic count message only (no fake “unrecognized” line).
+
+`parse_player_skills` return type stays `list[str] | None`; diagnostics live in the helper only.
+
+### Gated-step flavor on validation failure (APP-075)
+
+When `_auto_present_skills`, `_auto_present_schools`, or `_auto_present_spells` is called with non-empty `error=`, flavor must not contradict the validation failure. `_auto_present_race`, `_auto_present_class`, and `_auto_present_equipment` are **out of scope** unless a follow-up ticket aligns them.
+
+| ID | Requirement |
+|----|-------------|
+| **V1** | Do **not** use the first-time step instruction (“Ask {name} which three skills…”, “Ask which two schools…”, etc.) when `error` is set. |
+| **V2** | **Preferred:** `flavor = ""` — skip `_narrate_flavor` on error re-show; player sees `**Note:**` + code table only. **Allowed alternative:** one brief correction-only LLM instruction (no congratulations, no confirm picks, no “moving on”) — if used, instruction text must differ from the first-time ask. |
+| **V3** | Flavor must not congratulate, confirm accepted picks, or imply the step advanced (same intent as ticket AC / APP-070 but for **validation failure**, not premature completion). |
+| **V4** | Code **body** unchanged: `**Note:** {error}\n\n` + `format_*_table(...)` intro/table for the **current** step. |
+| **V5** | Single response contract: one narration with note + table + `format_creation_status()` footer for the **current** step (`Awaiting: SKILLS_INPUT`, `SPELL_SCHOOLS_INPUT`, or `SPELLS_INPUT`). No duplicate “ask” framing that contradicts the note. |
+| **E1** | V1–V3 apply to all three symbols: `_auto_present_skills`, `_auto_present_schools`, `_auto_present_spells`. |
+| **E2** | Post-`validate_skill_picks` / school / spell validation errors that call `_auto_present_*` with enriched `error=` follow the same V1–V5 rules (not only raw parse failure). |
+
+**Regression target:** Supa session 2026-05-20 — `spellcasting, medicine, manacontrol` before P1 fix: congratulatory flavor + `**Note:**` + skills table + `Awaiting: SKILLS_INPUT` in one response.
 
 ### Table-shown gating (APP-057)
 
@@ -148,6 +214,69 @@ At the RACE step, `_auto_present_race` sets `body = err_prefix + format_races_ta
 
 **Output:** retained prose (leading/trailing clerk banter) with collapsed blank lines; empty/whitespace → `""`.
 
+### Flavor sanitization pipeline (APP-073)
+
+Completes APP-007 status-tag strip and adds ROLL_STATS duplicate-table defense (same class of bug as APP-072 race tables). All helpers apply to **flavor only** — never code `body` or explicit `footer` (preserves `_auto_finalize` reception footer).
+
+#### Player-facing contract
+
+| Region | Owner | Must not contain |
+|--------|-------|------------------|
+| Flavor (after sanitizers) | Thin LLM, cleaned | Status tags, `Awaiting:`, duplicate mechanical tables |
+| Body | Code `format_*_table` | — (authoritative) |
+| Footer | `format_creation_status()` or explicit reception `footer` | Exactly **one** canonical `Awaiting:` for desk steps |
+
+`parse_narration_status_line()` uses the **first** `Awaiting:` in full narration — flavor-region stale tokens poison drift and APP-065 chips before the code footer is reached.
+
+#### `strip_llm_status_tags(text)` — hardened (APP-007 completed by APP-073)
+
+**Input:** LLM flavor string (never `body` / `footer`).
+
+**Remove:**
+
+| Pattern | Notes |
+|---------|--------|
+| `[Location:…]` bracket blocks | Anywhere in string (existing APP-007) |
+| `[Phase:…]` bracket blocks | Anywhere in string (existing APP-007) |
+| `Awaiting:` + token | **Any** occurrence — inline (`Clerk nods. Awaiting: SKILL_INPUT`) or whole-line; not only `^\s*Awaiting:…$` |
+
+**Preserve:** Prose clauses not matching above; collapse excess blank lines.
+
+**Canon labels:** Player-facing narration has exactly one `Awaiting:` from `format_creation_status()` using `CREATION_STATUS_LABELS` — e.g. `SKILLS_INPUT` (not `SKILL_INPUT`), `SPELL_SCHOOLS_INPUT` (not `MAGIC_SCHOOLS_*`), `EQUIPMENT_GOLD_CONFIRMATION` (not `EQUIPMENT_CONFIRMATION`). Prompts must not teach non-canonical tokens; sanitizer is the pass gate when models ignore prompts.
+
+**C5 interaction:** Re-run after `sanitize_premature_completion_flavor` when that helper mutates flavor (APP-070).
+
+#### ROLL_STATS flavor must not duplicate code table (APP-073)
+
+At ROLL_STATS → CLASS chain, `_auto_roll_stats` sets `body = format_roll_stats_table(result) + format_classes_table(eligible)`. LLM flavor must not supply a second attribute presentation — but models embed `### Your Attributes`, full `\| Attr \| Base \| … \|` tables, compact `\| STR \| AGI \| STA \| … \|` rows, or truncated `` `roll_attributes( `` fragments (`finish_reason: length` at 120 tokens).
+
+**Defense in depth:**
+
+| Layer | Locus | Behavior |
+|-------|-------|----------|
+| Prompt | `_auto_roll_stats` instruction | Brief clerk reaction to the roll only — **do not** present numbers, HP, or markdown tables; code appends the roll readout |
+| Global prompt | `_creation_flavor_messages` | “Do NOT include markdown tables … mechanical numbers” (all creation steps) |
+| Post-sanitize | `_compose_creation_narration` | `strip_flavor_stats_table(cleaned)` on **flavor only** after `strip_flavor_race_table` |
+
+**Composed ROLL_STATS narration contract:** exactly **one** `\| Attr \| Base \|` header block — from the code body, never from flavor. **Final** column values match `creation.roll_result["final_attributes"]` / `bridge.roll_attributes` only; never merge LLM-invented scores.
+
+**Acceptable alternative:** Skip LLM flavor on ROLL_STATS (code-only intro + tables). If Dev chooses this, document here and adjust tests; default path is thin flavor + stats strip.
+
+#### `strip_flavor_stats_table(text)` (APP-073)
+
+**Input:** LLM flavor string (never the code `body`).
+
+**Block-scoped strip** (mirror APP-072):
+
+1. Starting at a line matching `^\s*\| Attr \|` **or** a markdown heading line `^\s*#{1,3}\s+Your Attributes`, consume optional separator row (`^\s*\|[-:\s|]+\|\s*$`) and subsequent `\|…\|` data rows; drop the block.
+2. Starting at a compact attribute header row matching `^\s*\| STR \|` (with AGI/STA/INT/SPI/LUC columns), same consume pattern.
+
+**Line fallback:** remove lines containing `\| Attr \| Base \|`, `` `roll_attributes( ``, or compact `\| STR \| AGI \|` header fingerprints.
+
+**Output:** retained prose with collapsed blank lines; empty/whitespace → `""`.
+
+Reuse `_MD_TABLE_SEPARATOR_RE` / `_MD_TABLE_ROW_RE` from APP-072.
+
 #### `format_roll_stats_table(roll_result)` (APP-067)
 
 **Input:** successful `GameBridge.roll_attributes()` dict (see [`app-gamebridge-spec.md`](app-gamebridge-spec.md) / `bridge.py`). Formatter reads payload fields only — no re-roll, no LLM.
@@ -177,7 +306,7 @@ At the RACE step, `_auto_present_race` sets `body = err_prefix + format_races_ta
 `_auto_roll_stats(player_input)`:
 
 1. `bridge.roll_attributes(race)` → store `creation.roll_result`; `advance()` → step `CLASS`; `_remember_creation_step("ROLL_STATS")`.
-2. `flavor = _narrate_flavor(...)` — brief attribute-roll color; **no tables, no stat math**.
+2. `flavor = _narrate_creation_flavor(...)` — brief clerk reaction to the dice; **no tables, no stat numbers, no HP** (APP-073). Code owns all mechanical readout.
 3. `body = format_roll_stats_table(result) + "\n\n" + format_classes_table(eligible)`.
 4. `creation.classes_table_shown = True` before return (CLASS commit guard in `_execute_creation_choice`).
 5. `return _compose_creation_narration(flavor, body)` → footer `Awaiting: CLASS_INPUT`.
@@ -200,7 +329,7 @@ At the RACE step, `_auto_present_race` sets `body = err_prefix + format_races_ta
 - [x] `CreationState` + step enum + parsers (`parse_player_skills`, etc.)
 - [x] Code-first handling for SKILLS, schools, spells, equipment confirm
 - [x] Code appends `format_*_table()` + `format_equipment_summary()` (APP-006)
-- [x] `format_creation_status()` + strip LLM status tags (APP-007)
+- [x] `format_creation_status()` + strip LLM status tags (APP-007 — **completed** by APP-073 hardened strip)
 - [x] Hard gate exploration during creation (APP-008)
 - [x] Finalize roster non-empty gate (APP-009)
 - [x] Resume restores creation step from session_state (APP-010)
@@ -253,6 +382,7 @@ Unknown step fallback (formatter + drift): `{step}_INPUT`.
 ```bash
 python -m pytest play/tomb_gm/tests/test_creation_gating.py -q
 python -m pytest app/tests/test_creation_tables.py -q
+python -m pytest app/tests/test_creation_flavor_sanitize.py -q
 python -m pytest app/tests/test_creation_flow.py -q
 ```
 
@@ -353,6 +483,19 @@ Turn 8 (`yes`): keep APP-057 finalize assertions; `PRE_DELVE not in last` (deepe
 
 Use `_patch_llm_content` (monkeypatch `create_client`) — default mock stub `"Test narration."` cannot regress duplicate-table bug.
 
+#### APP-073: status tags + stats table dedup tests
+
+**Module:** `app/tests/test_creation_flavor_sanitize.py` _(new)_ or extend `test_creation_tables.py`
+
+| Test | Setup | Pass |
+|------|-------|------|
+| `test_strip_llm_status_tags_inline_awaiting` | Direct call: inline `Awaiting: SKILL_INPUT`, bracket `[Location:…\|Phase:…]`, whole-line awaiting | No `Awaiting:` in output |
+| `test_strip_flavor_stats_table_unit` | Direct call: `### Your Attributes`, full `\| Attr \| Base \|` block, compact `\| STR \| AGI \|`, `` `roll_attributes( `` fragment | No stat-table fingerprints; prose retained where applicable |
+| `test_compose_flavor_sanitize_status_and_stats` | `_compose_creation_narration` with bad flavor (status + stat table) + real code body | One canonical footer; one `\| Attr \| Base \|`; no wrong awaiting in flavor region |
+| `test_roll_stats_narration_single_stats_table` | Stub LLM stat-table flavor on RACE commit (`"human"` / `"undead"`) with `FIXED_ROLL` monkeypatch | `count("\| Attr \| Base \|") == 1`; Final column matches fixture; `Awaiting: CLASS_INPUT` |
+
+**Regression targets:** Spluffy/Tuffy undead @ session 2026-05-20 (duplicate stat tables); Supa/Bumpy wrong awaiting labels.
+
 ### Block premature completion copy (APP-070)
 
 While `creation.active` or `bridge.status()["roster"]` is empty, thin-LLM **flavor** must not invent post-creation completion copy (`PRE_DELVE`, `Awaiting: RECEPTION_CHOICE`, “registered Delver”, or `Phase: preparation` at desk steps). **APP-009** `_auto_finalize()` already blocks code from `WORLD_INTRO` without a non-empty roster; APP-070 hardens the **flavor layer** and drift telemetry only.
@@ -369,7 +512,7 @@ Legitimate post-finalize reception: code `footer=` at `_auto_finalize` success m
 | **C4** | Blank flavor when `Phase: preparation` appears while `active` and `step != WORLD_INTRO` |
 | **C5** | Re-run `strip_llm_status_tags` when sanitizer mutates flavor |
 
-**Compose order (flavor):** `strip_llm_status_tags` → `strip_flavor_race_table` (APP-072) → `_sanitize_creation_flavor` (APP-069) → `sanitize_premature_completion_flavor` (APP-070) → append code `body` + `footer`.
+**Compose order (flavor):** `strip_llm_status_tags` → `strip_flavor_race_table` (APP-072) → `strip_flavor_stats_table` (APP-073) → `_sanitize_creation_flavor` (APP-069) → `sanitize_premature_completion_flavor` (APP-070) → re-run `strip_llm_status_tags` if premature sanitizer mutated (C5) → append code `body` + `footer`.
 
 #### Drift extension (D1–D2)
 
@@ -394,6 +537,44 @@ Drift is belt-and-suspenders when compose sanitizer strips all markers; T1 does 
 4. Assert: no `pre_delve`, `reception_choice`, or `registered delver` in narration; `Awaiting: SPELL_SCHOOLS_INPUT` in footer.
 
 Golden path turn 8 (`test_full_creation_apprentice_caster`) still allows `RECEPTION_CHOICE` + `Phase: preparation` with non-empty roster; `PRE_DELVE not in last`.
+
+#### Tests — APP-075 (T1–T3)
+
+**Primary module paths (ticket Expected files must match):**
+
+| Test | Module | Notes |
+|------|--------|-------|
+| **T1** | `play/tomb_gm/tests/test_creation_gating.py` | Extend existing `test_normalize_skill_slug` / `test_parse_player_skills_comma_list` |
+| **T2**, **T2b**, **T3** | `app/tests/test_creation_flow.py` | Orchestrator integration; pattern from APP-070 |
+
+**T1 — Parser unit** (`play/tomb_gm/tests/test_creation_gating.py`):
+
+| Case | Input / call | Expected |
+|------|----------------|----------|
+| Glued hyphen skill | `normalize_skill_slug("manacontrol")` | `mana-control` |
+| Glued sample (representative) | `normalize_skill_slug("sleightofhand")` | `sleight-of-hand` |
+| Ticket repro | `parse_player_skills("spellcasting, medicine, manacontrol", "apprentice")` | three slugs including `mana-control` |
+| Unknown token parse | `parse_player_skills("spellcasting, medicine, bogus", "apprentice")` | `None` |
+| P3 helper | `format_skill_parse_error("spellcasting, medicine, bogus", "apprentice")` | contains `bogus`; count guidance present |
+| Regression spaced | `parse_player_skills("spellcasting, medicine, mana control", "apprentice")` | three slugs (alias path unchanged) |
+
+**T2 — SKILLS error-path flavor** (`app/tests/test_creation_flow.py`):
+
+1. Golden path turns 1–4 (`INPUTS[:4]`) with `FIXED_ROLL` monkeypatch.
+2. Monkeypatch `_narrate_flavor` to return fixed congratulatory prose (e.g. `"Smart choices for a Supa."`).
+3. Turn 5: `spellcasting, medicine, bogus` (unknown token — stable before/after P1).
+4. Assert: `creation.step == "SKILLS"`; `**Note:**` in narration; `bogus` in narration (P3 via orchestrator); footer `Awaiting: SKILLS_INPUT`.
+5. **Flavor isolation:** With V2 preferred (empty flavor on error), assert forbidden congratulation markers (`smart choices`, `excellent`, `moving on` — case-insensitive) are **absent from full narration** — the monkeypatched stub must not appear when `_narrate_flavor` is skipped. If implementation uses correction-only flavor (V2 alt), assert those markers absent from narration **and** first-time ask phrases absent (`which three skills they trained`).
+
+**T2b — Positive regression (required):** Same setup as T2 turns 1–4; turn 5 input `spellcasting, medicine, manacontrol` → `creation.step == "SPELL_SCHOOLS"`; footer `Awaiting: SPELL_SCHOOLS_INPUT`; no `**Note:**` error prefix on success path.
+
+**T3 — Schools/spells error flavor** (`app/tests/test_creation_flow.py`):
+
+1. Drive golden path to `SPELL_SCHOOLS` (turns 1–5 with valid skills including ticket repro string).
+2. Monkeypatch `_narrate_flavor` to return congratulatory prose.
+3. Turn 6: invalid school input (e.g. single school or unknown id per existing validation).
+4. Assert: `creation.step == "SPELL_SCHOOLS"`; `**Note:**` present; forbidden congratulation markers absent from narration; footer `Awaiting: SPELL_SCHOOLS_INPUT`.
+5. Optional mirror at **SPELLS** with invalid spell pick — same V1–V5 assertions with `Awaiting: SPELLS_INPUT`.
 
 #### Other scenarios (existing / future)
 
@@ -443,3 +624,7 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 | 2026-05-20 | APP-072 spec draft: § RACE flavor must not duplicate code table; `strip_flavor_race_table`; § Tests APP-072; APP-059 RACE catalog target note |
 | 2026-05-20 | APP-072 done: `strip_flavor_race_table` in `creation.py`; compose hook in `_compose_creation_narration`; RACE prompt tightened; `test_creation_tables.py` green |
 | 2026-05-20 | APP-074: removed legacy `get_step_prompt()` step-instruction builder from `creation.py`; § Step content sources — code-first `_auto_present_*` / `format_*_table` only |
+| 2026-05-20 | APP-073 spec draft: § Flavor sanitization pipeline — hardened `strip_llm_status_tags` (APP-007 complete), `strip_flavor_stats_table`, ROLL_STATS flavor policy; compose order updated in APP-069/APP-070 sections; § Tests APP-073 |
+| 2026-05-20 | APP-073 done: `strip_llm_status_tags` hardened (inline `Awaiting:` + brackets); `strip_flavor_stats_table` + compose hook; `_auto_roll_stats` clerk-only flavor; `test_creation_flavor_sanitize.py` green; APP-007 status-strip checklist completed |
+| 2026-05-20 | APP-075 spec r2: § Skill slug normalization (P1–P3, compact order, `format_skill_parse_error` owner); § Gated-step flavor on validation failure (V1–V5, E1–E2); § Tests APP-075 (T1 gating, T2/T2b/T3 flow) |
+| 2026-05-20 | APP-075 done: `_SKILL_COMPACT_MAP` + compact pass in `normalize_skill_slug`; `format_skill_parse_error` + orchestrator SKILLS branch; `_creation_table_flavor` skips LLM on `error=` for skills/schools/spells; T1 `test_creation_gating.py`, T2/T2b/T3 `test_creation_flow.py` green |
