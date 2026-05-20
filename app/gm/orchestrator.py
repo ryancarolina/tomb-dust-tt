@@ -46,6 +46,7 @@ from gm.logger import (
     log_player_input,
     log_gm_narration,
     log_creation_drift,
+    log_creation_step,
     parse_narration_status_line,
     log_tool_call,
     log_llm_request,
@@ -210,6 +211,19 @@ class Orchestrator:
             "narrated_awaiting": narrated.get("awaiting"),
             "engine_phase": party.get("phase"),
             "reasons": reasons,
+        })
+
+    def _log_creation_step_snapshot(self) -> None:
+        try:
+            status = self.bridge.status()
+        except Exception:
+            status = {}
+        roster = status.get("roster") or []
+        log_creation_step({
+            "step": self.creation.step,
+            "roster_len": len(roster),
+            "awaiting": status.get("awaiting"),
+            "creation.active": self.creation.active,
         })
 
     def _emit_narration(self, narration: str) -> None:
@@ -474,7 +488,12 @@ class Orchestrator:
 
     def _creation_turn(self, player_input: str) -> str:
         """State-machine-driven creation turn. Code decides what happens; LLM narrates."""
+        try:
+            return self._creation_turn_body(player_input)
+        finally:
+            self._log_creation_step_snapshot()
 
+    def _creation_turn_body(self, player_input: str) -> str:
         if self.creation.step == "WORLD_INTRO" or (
             not self.creation.active and self.creation.step != "FINALIZE"
         ):

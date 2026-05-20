@@ -47,6 +47,11 @@ def log_creation_drift(data: dict):
     log_entry("creation_drift", data)
 
 
+def log_creation_step(data: dict):
+    """Per-turn creation FSM snapshot for debugging drift."""
+    log_entry("creation_step", data)
+
+
 def parse_narration_status_line(narration: str) -> dict[str, str | None]:
     """Extract Phase and Awaiting from bracket status lines in GM narration."""
     import re
