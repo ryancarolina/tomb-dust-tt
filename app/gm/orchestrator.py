@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from gm.bridge import GameBridge
@@ -291,6 +292,24 @@ class Orchestrator:
         """Log recovery copy without creation drift checks (resume failure paths)."""
         log_gm_narration(message)
 
+    def _session_state_path(self) -> Path:
+        return Path(__file__).resolve().parents[1] / "session_state.json"
+
+    def _reset_creation_for_new_game(self) -> None:
+        self.creation = CreationState(active=True, step="NAME")
+
+    def _clear_creation_block_on_disk(self) -> None:
+        save_path = self._session_state_path()
+        if not save_path.exists():
+            return
+        try:
+            data = json.loads(save_path.read_text(encoding="utf-8"))
+            data["creation_state"] = self.export_creation_state()
+            data.pop("engine_status", None)
+            save_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
     def _is_mid_creation_resume_failure(self) -> bool:
         if self.creation.active:
             return True
@@ -303,9 +322,8 @@ class Orchestrator:
                 return True
         except Exception:
             pass
-        from pathlib import Path
 
-        save_path = Path(__file__).resolve().parents[1] / "session_state.json"
+        save_path = self._session_state_path()
         if not save_path.exists():
             return False
         try:
@@ -346,7 +364,12 @@ class Orchestrator:
         return "\n\n".join(lines) + "\n\n[Awaiting: new game]"
 
     def setup_new_game(self, campaign_slug: str = "salt-road") -> dict:
-        """Wipe session/campaign data and start completely fresh. World corpses persist."""
+        """End prior session before wipe; start completely fresh. World corpses persist."""
+        self._reset_creation_for_new_game()
+        self._clear_creation_block_on_disk()
+        end_result = self.bridge.end_session()
+        if not end_result.get("ok"):
+            self.bridge.force_close_all_sessions()
         self.bridge.wipe_all_data()
         self.bridge.init()
         result = self.bridge.campaign_new(campaign_slug, campaign_slug.replace("-", " ").title())
@@ -393,8 +416,7 @@ class Orchestrator:
 
     def _delete_save_file(self):
         """Remove the UI session state file."""
-        from pathlib import Path
-        save_path = Path(__file__).resolve().parents[1] / "session_state.json"
+        save_path = self._session_state_path()
         try:
             save_path.unlink(missing_ok=True)
         except Exception:

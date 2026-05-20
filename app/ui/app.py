@@ -391,15 +391,22 @@ class App:
                 self._ui_queue.put(("speaker", ("narrator", False)))
 
     def _save_session(self):
-        """Persist narration history and visited map cells."""
+        """Persist narration history and visited map cells.
+
+        Snapshots full ``get_status()`` under ``engine_status`` for APP-017/018
+        reconcile on load; read path is out of scope for APP-016.
+        """
         session_id = None
         campaign_slug = None
+        engine_status: dict | None = None
         if self._orchestrator:
             try:
                 status = self._orchestrator.get_status()
                 active = status.get("active") or {}
                 session_id = active.get("session_id")
                 campaign_slug = active.get("campaign_slug")
+                if status.get("ok") is not False and "_error" not in status:
+                    engine_status = status
             except Exception:
                 pass
         data = {
@@ -419,6 +426,8 @@ class App:
                 self._orchestrator.export_combat_state() if self._orchestrator else None
             ),
         }
+        if engine_status is not None:
+            data["engine_status"] = engine_status
         try:
             SAVE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception:
