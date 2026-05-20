@@ -34,7 +34,7 @@
 
 Canonical types in `validate_content.py` (`SITE_EDGE_TYPES`): `door`, `archway`, `stairs`, `secret`, `hatch`, `collapse`.
 
-**Canon decision (2026-05-20, APP-001):** Legacy JSON types `passage` and `gap` are remapped to **`archway`** in site data — not added as new enum values. Optional edge metadata (e.g. `hazard`) is preserved on the edge object.
+**Canon decision (2026-05-20, APP-001 / APP-013):** Remap legacy `passage` and `gap` to **`archway`** in site JSON — do **not** add new `SITE_EDGE_TYPES`. Optional edge metadata (e.g. `hazard`) is preserved on the edge object.
 
 ---
 
@@ -89,3 +89,4 @@ python -m tomb_gm --workspace play/workspace check
 |------|--------|
 | 2026-05-20 | Spec created; merged delve-travel + site-edge validation content |
 | 2026-05-20 | APP-001: remapped `passage`/`gap` → `archway` in boydon-undercroft + shadowfen-vaults; unblocks validate_content / tomb_gm check |
+| 2026-05-20 | APP-013: closed decision ticket — canon is remap-to-archway (implemented in APP-001) |
