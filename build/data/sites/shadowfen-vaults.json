@@ -80,12 +80,12 @@
   "edges": [
     { "from": "ruin-gate", "to": "flooded-anteroom", "type": "stairs" },
     { "from": "flooded-anteroom", "to": "glyph-corridor", "type": "archway" },
-    { "from": "flooded-anteroom", "to": "fungal-grotto", "type": "passage" },
-    { "from": "glyph-corridor", "to": "collapsed-archive", "type": "gap", "hazard": "squeeze-check DC 12 AGI" },
+    { "from": "flooded-anteroom", "to": "fungal-grotto", "type": "archway" },
+    { "from": "glyph-corridor", "to": "collapsed-archive", "type": "archway", "hazard": "squeeze-check DC 12 AGI" },
     { "from": "glyph-corridor", "to": "cult-chamber", "type": "door" },
-    { "from": "collapsed-archive", "to": "ashret-camp", "type": "passage" },
-    { "from": "cult-chamber", "to": "ward-seal", "type": "passage" },
-    { "from": "ward-seal", "to": "cult-chamber", "type": "passage" },
+    { "from": "collapsed-archive", "to": "ashret-camp", "type": "archway" },
+    { "from": "cult-chamber", "to": "ward-seal", "type": "archway" },
+    { "from": "ward-seal", "to": "cult-chamber", "type": "archway" },
     { "from": "ashret-camp", "to": "cult-chamber", "type": "secret", "locked": true }
   ]
 }

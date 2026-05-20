@@ -26,21 +26,15 @@
 ### UI
 
 - Map click sends travel intent; blocked during creation/combat as appropriate.
+- **Map UX redesign** (design + implementation): [APP-063](backlog/app-063-map-ux-redesign-useful-navigation.md) — compass-backed exits, labels, working clicks, dungeon exits.
 
 ---
 
-## Blocker: content validation (blocks `tomb_gm check`)
+## Site edge types (canon)
 
-`check` currently fails on invalid site edge type `"passage"`:
+Canonical types in `validate_content.py` (`SITE_EDGE_TYPES`): `door`, `archway`, `stairs`, `secret`, `hatch`, `collapse`.
 
-- `build/data/sites/boydon-undercroft.json` — 1 edge
-- `build/data/sites/shadowfen-vaults.json` — 4 edges
-
-Canonical types in `validate_content.py`: `door`, `archway`, `stairs`, `secret`, `hatch`, `collapse`.
-
-**Decision:** Remap `passage` → `archway`, or add `passage` to `SITE_EDGE_TYPES`.
-
-**Done when:** `validate_content.py` and `tomb_gm check` pass.
+**Canon decision (2026-05-20, APP-001):** Legacy JSON types `passage` and `gap` are remapped to **`archway`** in site data — not added as new enum values. Optional edge metadata (e.g. `hazard`) is preserved on the edge object.
 
 ---
 
@@ -58,12 +52,8 @@ Canonical types in `validate_content.py`: `door`, `archway`, `stairs`, `secret`,
 - [x] `world_travel`, `process_beat`, `enter_dungeon` tools exposed
 - [x] Map click → travel string to orchestrator
 - [x] `enter_dungeon` accepts `site_address` and `site_id` alias in bridge
-- [ ] Fix site `passage` edges (content — see Blocker above)
-- [ ] Tool schema documents `enter_dungeon(site_address)` as primary arg
-- [ ] On failed `set_phase(delve)`, orchestrator hints `enter_dungeon` + `compass_exits`
-- [ ] Map friendly place names → AV-GRID for surface travel (engine `world.py`)
-- [ ] Block site-entry fiction unless last tool was successful `enter_dungeon` / `site enter`
-- [ ] Registry hub loop: preparation → ingress → delve → extract in tests
+
+**Open work:** [APP-021](backlog/app-021-enterdungeon-primary-tool-arg.md)–[APP-025](backlog/app-025-registry-hub-loop-integration-test.md), [APP-063](backlog/app-063-map-ux-redesign-useful-navigation.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -98,3 +88,4 @@ python -m tomb_gm --workspace play/workspace check
 | Date | Change |
 |------|--------|
 | 2026-05-20 | Spec created; merged delve-travel + site-edge validation content |
+| 2026-05-20 | APP-001: remapped `passage`/`gap` → `archway` in boydon-undercroft + shadowfen-vaults; unblocks validate_content / tomb_gm check |

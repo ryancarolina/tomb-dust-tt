@@ -51,6 +51,6 @@
     { "from": "tower-cellar", "to": "cistern-hall", "type": "archway" },
     { "from": "cistern-hall", "to": "storage-vault", "type": "door", "locked": true },
     { "from": "cistern-hall", "to": "old-crypt", "type": "stairs" },
-    { "from": "old-crypt", "to": "veil-crack", "type": "passage" }
+    { "from": "old-crypt", "to": "veil-crack", "type": "archway" }
   ]
 }
