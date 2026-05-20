@@ -4,7 +4,7 @@ Combat assumes a **square grid** (see [core/resolution.md](../core/resolution.md
 
 ## Initiative
 
-When combat starts, each participant rolls **initiative** once:
+At the **start of each round**, every **living participant** in the encounter rolls **initiative** fresh:
 
 **Initiative = d20 + AGI mod + initiative bonuses**
 
@@ -14,21 +14,30 @@ When combat starts, each participant rolls **initiative** once:
 | **Battlefield Awareness** | +1 per 2 skill levels (round down) |
 | Circumstance | Per ability, trait, or GM (e.g. advantage on the roll) |
 
-Record each total. **Turn order** runs from highest to lowest initiative each round. When a creature’s turn ends, the next creature in order acts until the round completes, then a new round begins at the top of the order.
+Record each total for **that round only**. **Turn order** runs from highest to lowest initiative; when a creature’s turn ends, the next creature in order acts until every living participant has acted. Then the round ends and **everyone rolls initiative again** for the next round.
+
+The delver who reacted fastest to **start the fight** is not guaranteed to act first in later rounds — wounds, footing, spells, and pressure change who is quickest as the encounter progresses.
+
+**Defeated** creatures (0 HP, dead, or removed from the encounter) do not roll and do not act.
+
+### Round flow
+
+1. **Roll initiative** for all living participants (apply tie-breakers; record order).
+2. Each participant acts in order: movement → action → bonus action (if any); **reactions** may occur anytime.
+3. When the last participant in order finishes, the round ends.
+4. If combat continues, return to step 1 with **new initiative rolls**.
 
 ### Tie-breaking
 
-If two or more totals match:
+If two or more totals match on the same round’s roll:
 
 1. Higher **AGI modifier** acts first.
-2. Still tied: higher **unmodified d20** on the initiative roll.
+2. Still tied: higher **unmodified d20** on that round’s initiative roll.
 3. Still tied: **player characters** before monsters; among NPCs, GM picks order.
-
-Re-rolling initiative mid-fight requires a specific rule (e.g. a technique or environmental shift)—do not tie-break again unless the roll is repeated.
 
 ## Surprise and alert status
 
-Before the first turn, resolve **surprise**:
+Before **round 1** initiative is rolled, resolve **surprise**:
 
 1. Compare **Stealth** (hiding side) to passive **Perception** (SPI mod + PB + Perception skill bonus, or a fixed passive score for monsters), or run a group Stealth vs Perception contest as the GM prefers.
 2. Any creature that did **not** notice a threat it could reasonably perceive starts combat **surprised**.
@@ -156,15 +165,23 @@ When a creature you can see **leaves your reach** (moves from adjacent to non-ad
 
 ## Dying and death
 
-### Dying
+### Massive trauma (instant death)
 
-A creature at **0 HP** that is not dead gains **Dying** (see [conditions.md](conditions.md)):
+If a single hit deals damage **≥ 3 × the target's current HP** (before that hit is applied), the target **dies immediately**—no 0 HP roll, no Dying state.
 
-- **Unconscious**, **prone**, cannot act.
-- **Auto-fail** STR and AGI saves.
-- Any **damage** while Dying causes **death** immediately (no further HP tracking).
+*Example:* at **3 HP**, **9+ damage** on one hit = instant death.
 
-### Stabilization
+### Dropping to 0 HP (consciousness roll)
+
+If a creature is reduced to **0 HP** and is not already dead:
+
+1. Roll **STA save:** `d20 + STA mod` vs DC **12**.
+2. **Success** → **Downed** (see [conditions.md](conditions.md)): conscious at 0 HP; may **heal self** (e.g. **Mend Light**), receive ally aid, or **Disengage** / flee—**no attacks**.
+3. **Failure** → **Dying**: unconscious, prone, cannot act.
+
+**Any damage** while at **0 HP** (Downed or Dying) causes **death** immediately.
+
+### Stabilization (Dying only)
 
 | Method | Action | Effect |
 |--------|--------|--------|
@@ -174,16 +191,20 @@ A creature at **0 HP** that is not dead gains **Dying** (see [conditions.md](con
 
 **Stable:** unconscious; does not worsen. After **1 hour** of care or a **short rest**, wakes at **1 HP** unless magic says otherwise.
 
+Healing above **0 HP** removes **Downed**, **Dying**, and **Stable**.
+
 ### Death
 
 A creature **dies** when:
 
-- It takes damage while **Dying**;
+- A single hit deals **≥ 3 × current HP** (massive trauma);
+- It takes **any damage** while at **0 HP** (Downed or Dying);
 - It remains **Dying** when the **encounter ends** and receives no stabilization within **1 minute**;
-- A monster trait or effect says it dies at 0 HP; or
+- A monster **downed behavior** or trait kills a helpless target (see [monsters/README.md](../monsters/README.md));
+- A monster dies at 0 HP by default (most monsters); or
 - The GM declares fatality (environment, execution, etc.).
 
-**Player characters:** account-level consequences (stash, Registry log, inheritance) are in [meta/death-and-persistence.md](../meta/death-and-persistence.md). Death on the map leaves the **body and carried gear** in the site until recovered or lost.
+**Player characters:** death **ends the run**. The **corpse and all body gear** stay at the death site as a lootable world feature. The player starts a **new game** with a fresh character—**account stash and stashGp persist** for the successor; no body gear, rep, deeds, or map inheritance. See [meta/death-and-persistence.md](../meta/death-and-persistence.md).
 
 ## Rest and recovery
 
@@ -200,10 +221,12 @@ Mid-delve long rests are **not** allowed unless the table agrees the site is a c
 
 ## Running the encounter
 
-1. Roll initiative; apply surprise and **flat-footed** where relevant.
-2. Each round, every creature in order: movement → action → bonus action (if any); reactions may occur anytime.
-3. Resolve attacks with the d20 pipeline in [core/resolution.md](../core/resolution.md) and [calculations.md](calculations.md).
-4. Apply **conditions** from [conditions.md](conditions.md) as they are inflicted or end.
-5. End combat when one side surrenders, flees, or is defeated; reset **once per combat** limits.
+1. Resolve **surprise** and **flat-footed** where relevant (round 1 only, before initiative).
+2. At the **start of each round**, roll **initiative** for all living participants and record turn order.
+3. Each participant acts in order: movement → action → bonus action (if any); reactions may occur anytime.
+4. Resolve attacks with the d20 pipeline in [core/resolution.md](../core/resolution.md) and [calculations.md](calculations.md).
+5. Apply **conditions** from [conditions.md](conditions.md) as they are inflicted or end.
+6. When the round ends, repeat from step 2 unless combat is over.
+7. End combat when one side surrenders, flees, or is defeated; reset **once per combat** limits.
 
 Monster stat blocks list **Move** in squares per turn and may reference conditions by name—use this file and [conditions.md](conditions.md) for the shared definitions.

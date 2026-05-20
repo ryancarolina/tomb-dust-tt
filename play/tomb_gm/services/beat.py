@@ -12,9 +12,10 @@ from tomb_gm.cli.context import CommandContext
 from tomb_gm.domain import session as session_domain
 from tomb_gm.services.content import ContentService
 from tomb_gm.services.memory import remember_fact
+from tomb_gm.services.memory.choice_facts import remember_beat_choices
 from tomb_gm.services.encounters import wilderness_travel_roll
 from tomb_gm.services.site import SiteError, enter_site, move_site, search_site, where_site
-from tomb_gm.services.simulation.combat import combat_status, start_combat
+from tomb_gm.services.simulation.combat import combat_status
 from tomb_gm.services.world import WorldService
 
 AV_ADDRESS_RE = re.compile(
@@ -31,10 +32,7 @@ MONSTER_ID_RE = re.compile(
     re.I,
 )
 CAST_RE = re.compile(r"\b(cast|invoke|channel)\b", re.I)
-SPELL_ID_RE = re.compile(
-    r"\b(ember-touch|firebolt|grave-chill|thorn-prick|ash-veil|static-lash)\b",
-    re.I,
-)
+SPELL_ID_RE = re.compile(r"\b([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b", re.I)
 SEARCH_RE = re.compile(
     r"\b(search|investigate|scour|rifle|loot the|pick through)\b",
     re.I,
@@ -248,7 +246,13 @@ def _build_narration(mechanical: list[dict[str, Any]], party: dict[str, Any]) ->
         elif act == "site_search":
             if m.get("success"):
                 parts.append("Your search turns up something useful.")
-                if m.get("loot"):
+                granted = m.get("loot_granted") or {}
+                if granted.get("ok"):
+                    items = [g.get("itemId") for g in (granted.get("grants") or [])]
+                    gp = int(granted.get("gp", 0))
+                    if items or gp:
+                        parts.append(f"Salvage secured: {', '.join(items) if items else 'coin'} (+{gp} gp).")
+                elif m.get("loot"):
                     parts.append("Salvage worth claiming.")
             else:
                 parts.append("The search yields nothing.")
@@ -346,18 +350,15 @@ def process_beat(ctx: CommandContext, actions: dict[str, Any]) -> dict[str, Any]
             COMBAT_RE.search(lower) and mode != "site" and actions.get("auto_combat")
         ):
             specs = monster_specs or ["grave-ghoul:1"]
-            try:
-                result = start_combat(
-                    ctx.conn,
-                    session_id=session_id,
-                    content_root=ctx.config.content_root,
-                    monster_specs=specs,
-                    include_party=bool(actions.get("include_party")),
-                    campaign_slug=campaign_slug,
-                )
-                mechanical.append({**result, "action": "combat_start"})
-            except (ValueError, FileNotFoundError) as exc:
-                mechanical.append({"ok": False, "error": str(exc), "slot": slot})
+            mechanical.append(
+                {
+                    "ok": True,
+                    "action": "combat_trigger",
+                    "monster_specs": specs,
+                    "include_party": actions.get("include_party", True),
+                    "slot": slot,
+                }
+            )
             continue
 
         if COMBAT_RE.search(lower) and mode != "site":
@@ -386,12 +387,31 @@ def process_beat(ctx: CommandContext, actions: dict[str, Any]) -> dict[str, Any]
         if CAST_RE.search(lower):
             spell_match = SPELL_ID_RE.search(lower)
             spell_id = spell_match.group(1).lower() if spell_match else None
+            if spell_id and content.load_spell(spell_id) and slot is not None:
+                char_row = ctx.conn.execute(
+                    "SELECT id FROM characters WHERE campaign_slug = ? AND slot = ?",
+                    (campaign_slug, slot),
+                ).fetchone()
+                if char_row:
+                    from tomb_gm.domain.spell_cast import cast_spell
+
+                    cast_result = cast_spell(
+                        ctx.conn,
+                        log_event,
+                        content_root=ctx.config.content_root,
+                        campaign_slug=campaign_slug,
+                        character_id=char_row["id"],
+                        spell_id=spell_id,
+                        session_id=session_id,
+                    )
+                    mechanical.append({**cast_result, "action": "spell_cast", "slot": slot})
+                    continue
             mechanical.append(
                 {
                     "ok": True,
-                    "action": "spell_cast_hint" if not spell_id else "spell_cast",
+                    "action": "spell_cast_hint",
                     "spell_id": spell_id,
-                    "message": "Use combat cast --caster <id> --spell <id> --campaign <slug>",
+                    "message": "Name a known spell (e.g. cast ember-touch) or use combat cast",
                     "slot": slot,
                 }
             )
@@ -465,6 +485,14 @@ def process_beat(ctx: CommandContext, actions: dict[str, Any]) -> dict[str, Any]
             )
 
     party = _party_snapshot(ctx, session_id)
+    remember_beat_choices(
+        ctx.conn,
+        campaign_slug,
+        session_id,
+        player_lines=lines,
+        mechanical=mechanical,
+        address=party.get("address"),
+    )
     narration_brief, speak_lines = _build_narration(mechanical, party)
 
     log_event(

@@ -68,7 +68,7 @@ Tomas acts first each round after surprise ends, but round 1 he cannot act while
 
 **Stabilization attempt:** Ally Field Medic (Medicine bonus action, DC 13) — d20 11 + mods = fail.
 
-**Death:** Ghoul claw for **4** damage while Tomas is **Dying** → **death** (no further HP tracking). See [meta/death-and-persistence.md](../meta/death-and-persistence.md) for account stash and inheritance.
+**Death:** Ghoul claw for **4** damage while Tomas is **Dying** → **death** (no further HP tracking). Body gear stays on the corpse; **account stash persists** for the successor delver ([meta/death-and-persistence.md](../meta/death-and-persistence.md)).
 
 ## Validation
 

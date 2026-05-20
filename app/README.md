@@ -1,5 +1,7 @@
 # Tomb Dust — Standalone PyGame Application
 
+**This is the canonical way to play Tomb Dust.** The Cursor `@tomb-gm` chat flow and manual `tomb_gm` CLI are obsolete for players — they remain developer tools only.
+
 A MUD-client style extraction-fantasy TTRPG powered by an LLM Game Master.
 
 ## Quick Start
@@ -10,6 +12,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
+Type **`new game`** in the input box to start fresh character creation. The app auto-resumes if `session_state.json` or a workspace save exists.
+
 ## Requirements
 
 - Python 3.11+
@@ -17,6 +21,8 @@ python main.py
 - The full `tomb-dust` project tree (this app imports directly from `play/tomb_gm/` and `build/`)
 
 ## Architecture
+
+**Development specs:** [`tmp/app-master-spec.md`](../tmp/app-master-spec.md) — mandatory for all `app/` changes; spec ↔ code drift is never allowed.
 
 ```
 app/

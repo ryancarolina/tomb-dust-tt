@@ -139,6 +139,26 @@ def ac_vs_spells(base_ac: int, magical_defense_bonus: int) -> int:
     return base_ac + magical_defense_bonus
 
 
+def spell_save_dc(
+    *,
+    casting_mod: int,
+    pb: int,
+    spellcasting_bonus: int,
+    focus_bonus: int = 0,
+) -> int:
+    return 8 + casting_mod + pb + spellcasting_bonus + focus_bonus
+
+
+def spell_attack_total_bonus(
+    *,
+    casting_mod: int,
+    pb: int,
+    spellcasting_bonus: int,
+    focus_bonus: int = 0,
+) -> int:
+    return casting_mod + pb + spellcasting_bonus + focus_bonus
+
+
 def initiative_total(*, natural: int, agi_mod: int, bonus: int = 0) -> int:
     return natural + agi_mod + bonus
 

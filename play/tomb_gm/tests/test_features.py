@@ -2,40 +2,23 @@ from __future__ import annotations
 
 import argparse
 import random
-from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
+from helpers import REPO, seed_campaign
 from tomb_gm.cli.cmd_character import handle_create
-from tomb_gm.cli.context import CommandContext
-from tomb_gm.config import load_config, resolve_workspace
-from tomb_gm.db.connection import connect, run_migrations
 from tomb_gm.domain.creation import load_race, run_creation_pipeline
 from tomb_gm.services.encounters import wilderness_travel_roll
 
-REPO = Path(__file__).resolve().parents[3]
-WORKSPACE = REPO / "play" / "workspace"
 CAMPAIGN = "features-test"
 
 
 @pytest.fixture()
-def ctx():
-    ws = resolve_workspace(str(WORKSPACE))
-    cfg = load_config(ws)
-    conn = connect(cfg.db_path)
-    run_migrations(conn)
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "INSERT OR REPLACE INTO campaigns "
-        "(slug, display_name, content_pin_json, account_state_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (CAMPAIGN, "Features", "{}", "{}", now, now),
-    )
-    conn.execute("DELETE FROM characters WHERE campaign_slug = ?", (CAMPAIGN,))
-    conn.commit()
-    yield CommandContext(config=cfg, conn=conn)
-    conn.close()
+def ctx(command_ctx):
+    seed_campaign(command_ctx.conn, CAMPAIGN, "Features")
+    command_ctx.conn.execute("DELETE FROM characters WHERE campaign_slug = ?", (CAMPAIGN,))
+    command_ctx.conn.commit()
+    return command_ctx
 
 
 def test_load_race_human():

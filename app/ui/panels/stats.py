@@ -16,12 +16,16 @@ class StatsPanel:
         self.character_name = "—"
         self.hp_current = 0
         self.hp_max = 1
+        self.mp_current = 0
+        self.mp_max = 0
         self.fortune_current = 0
         self.fortune_max = 1
         self.gold = 0
         self.phase = "preparation"
         self.location_name = "—"
         self.address = "—"
+        self.conditions: list[str] = []
+        self.known_spells: list[str] = []
         self._font = None
         self._font_small = None
         self._font_stat = None
@@ -37,19 +41,40 @@ class StatsPanel:
         if roster:
             pc = roster[0]
             self.character_name = pc.get("display_name", "—")
+
             hp_str = pc.get("hp", "0/0")
             parts = hp_str.split("/")
             try:
                 self.hp_current = int(parts[0])
                 self.hp_max = int(parts[1]) if len(parts) > 1 else self.hp_current
-            except ValueError:
+            except (ValueError, IndexError):
                 pass
+
+            fortune_str = pc.get("fortune", "0/1")
+            fparts = fortune_str.split("/")
+            try:
+                self.fortune_current = int(fparts[0])
+                self.fortune_max = int(fparts[1]) if len(fparts) > 1 else self.fortune_current
+            except (ValueError, IndexError):
+                pass
+
+            self.gold = pc.get("gold", 0)
+
+            mp_str = pc.get("mp", "0/0")
+            mparts = mp_str.split("/")
+            try:
+                self.mp_current = int(mparts[0])
+                self.mp_max = int(mparts[1]) if len(mparts) > 1 else 0
+            except (ValueError, IndexError):
+                pass
+
+            self.conditions = pc.get("conditions", [])
+            self.known_spells = pc.get("known_spells") or []
 
         party = status.get("party")
         if party:
             self.phase = party.get("phase", "preparation")
             self.address = party.get("address", "—")
-            self.gold = party.get("gold_in_transit", 0) or 0
 
     def resize(self, rect: pygame.Rect):
         self.rect = rect
@@ -93,6 +118,22 @@ class StatsPanel:
         screen.blit(hp_text, (x + bar_w // 2 - hp_text.get_width() // 2, y + 1))
         y += bar_h + 12
 
+        # MP bar (only show if character has MP)
+        if self.mp_max > 0:
+            mp_label = self._font_small.render("MP", True, TEXT_MUTED)
+            screen.blit(mp_label, (x, y))
+            y += mp_label.get_height() + 4
+
+            mp_bar_color = (60, 100, 180)
+            pygame.draw.rect(screen, HP_BG, (x, y, bar_w, bar_h), border_radius=3)
+            mp_ratio = max(0, min(1, self.mp_current / self.mp_max))
+            mp_fill_w = int(bar_w * mp_ratio)
+            if mp_fill_w > 0:
+                pygame.draw.rect(screen, mp_bar_color, (x, y, mp_fill_w, bar_h), border_radius=3)
+            mp_text = self._font_small.render(f"{self.mp_current}/{self.mp_max}", True, TEXT_PRIMARY)
+            screen.blit(mp_text, (x + bar_w // 2 - mp_text.get_width() // 2, y + 1))
+            y += bar_h + 12
+
         # Fortune
         fortune_label = self._font_small.render("Fortune", True, TEXT_MUTED)
         screen.blit(fortune_label, (x, y))
@@ -116,3 +157,24 @@ class StatsPanel:
         y += loc_label.get_height() + 2
         addr_surf = self._font.render(self.address, True, TEXT_SECONDARY)
         screen.blit(addr_surf, (x, y))
+        y += addr_surf.get_height() + 12
+
+        if self.known_spells:
+            sp_label = self._font_small.render("Spells", True, TEXT_MUTED)
+            screen.blit(sp_label, (x, y))
+            y += sp_label.get_height() + 2
+            for sp in self.known_spells[:4]:
+                sp_surf = self._font_small.render(f"• {sp.replace('-', ' ').title()}", True, TEXT_SECONDARY)
+                screen.blit(sp_surf, (x, y))
+                y += sp_surf.get_height() + 1
+            y += 8
+
+        # Conditions (if any)
+        if self.conditions:
+            cond_label = self._font_small.render("Conditions", True, TEXT_MUTED)
+            screen.blit(cond_label, (x, y))
+            y += cond_label.get_height() + 4
+            for cond in self.conditions[:4]:
+                cond_surf = self._font_small.render(f"• {cond}", True, HP_RED)
+                screen.blit(cond_surf, (x, y))
+                y += cond_surf.get_height() + 2

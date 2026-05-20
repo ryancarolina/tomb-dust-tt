@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/inventory.json",
+  "title": "Tomb Dust character inventory (v2 pack)",
+  "type": "object",
+  "required": ["inventoryVersion", "pack"],
+  "additionalProperties": false,
+  "properties": {
+    "inventoryVersion": {
+      "type": "integer",
+      "enum": [2, 3]
+    },
+    "pack": {
+      "type": "array",
+      "items": { "$ref": "inventory-item.schema.json" }
+    }
+  }
+}

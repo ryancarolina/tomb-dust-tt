@@ -1,0 +1,91 @@
+{
+  "id": "shadowfen-vaults",
+  "rulesVersion": "1.0.0",
+  "displayName": "Pre-Sundering Vaults",
+  "docPath": "systems/locations/shadowfen-ruins.md",
+  "primaryAddress": "47-B-UG-3",
+  "dangerRating": "elite",
+  "nodes": [
+    {
+      "id": "ruin-gate",
+      "address": "47-B-UG-3",
+      "displayName": "Ruin gate descent",
+      "summary": "Crumbling steps cut into wet stone; perpetual mist seeps from below. Registry warning marker: 40+ confirmed deaths.",
+      "tags": ["entry", "lit"],
+      "encounters": [{ "monsterId": "fen-stalker", "weight": 1 }]
+    },
+    {
+      "id": "flooded-anteroom",
+      "address": "47-B-UG-3",
+      "displayName": "Flooded anteroom",
+      "summary": "Knee-deep black water; columns rise from the murk. Something moves in the corners.",
+      "tags": ["water-hazard"],
+      "encounters": [
+        { "monsterId": "mirelings", "weight": 3 },
+        { "monsterId": "fen-stalker", "weight": 1 }
+      ]
+    },
+    {
+      "id": "glyph-corridor",
+      "address": "47-B-UG-3",
+      "displayName": "Glyph corridor",
+      "summary": "Walls covered in pre-Sundering script. Faint green luminescence from the glyphs themselves. Ward-magic residue.",
+      "tags": ["trapped"],
+      "encounters": [{ "monsterId": "gloomspiders", "weight": 2 }]
+    },
+    {
+      "id": "collapsed-archive",
+      "address": "47-B-UG-3",
+      "displayName": "Collapsed archive",
+      "summary": "Shattered shelving and scattered scroll fragments. Ceiling partially caved. A narrow gap leads further in.",
+      "tags": ["loot", "hazard"],
+      "encounters": [{ "monsterId": "gloomspiders", "weight": 2 }]
+    },
+    {
+      "id": "cult-chamber",
+      "address": "47-B-UG-3",
+      "displayName": "Cult ritual chamber",
+      "summary": "Circular room with a sunken pit. Dark stains radiate from the center. The air is cold — unnaturally so. This is where the Black Vale breach was opened.",
+      "tags": ["boss-adjacent", "thin-veil"],
+      "encounters": [
+        { "monsterId": "etherwraiths", "weight": 2 },
+        { "monsterId": "shadowkin", "weight": 1 }
+      ]
+    },
+    {
+      "id": "ward-seal",
+      "address": "47-B-UG-3",
+      "displayName": "Knight ward-seal",
+      "summary": "Massive iron door etched with the crest of the Knights of the Ninety-Ninth Night. Ward-chalk glows faintly. Beyond: the Black Vale.",
+      "tags": ["sealed", "transition"],
+      "encounters": []
+    },
+    {
+      "id": "ashret-camp",
+      "address": "47-B-UG-3",
+      "displayName": "Ashret's failed camp",
+      "summary": "Overturned bedrolls, shattered lantern, dried blood. Mira Ashret's brother's survey party died here. Personal effects remain.",
+      "tags": ["loot", "story"],
+      "encounters": [{ "monsterId": "mirelings", "weight": 2 }]
+    },
+    {
+      "id": "fungal-grotto",
+      "address": "47-B-UG-3",
+      "displayName": "Fungal grotto",
+      "summary": "Bioluminescent mushrooms coat every surface. Spores drift in the air. Visibility is good but breathing is hazardous without precaution.",
+      "tags": ["hazard", "alchemy"],
+      "encounters": [{ "monsterId": "gloomspiders", "weight": 1 }]
+    }
+  ],
+  "edges": [
+    { "from": "ruin-gate", "to": "flooded-anteroom", "type": "stairs" },
+    { "from": "flooded-anteroom", "to": "glyph-corridor", "type": "archway" },
+    { "from": "flooded-anteroom", "to": "fungal-grotto", "type": "passage" },
+    { "from": "glyph-corridor", "to": "collapsed-archive", "type": "gap", "hazard": "squeeze-check DC 12 AGI" },
+    { "from": "glyph-corridor", "to": "cult-chamber", "type": "door" },
+    { "from": "collapsed-archive", "to": "ashret-camp", "type": "passage" },
+    { "from": "cult-chamber", "to": "ward-seal", "type": "passage" },
+    { "from": "ward-seal", "to": "cult-chamber", "type": "passage" },
+    { "from": "ashret-camp", "to": "cult-chamber", "type": "secret", "locked": true }
+  ]
+}

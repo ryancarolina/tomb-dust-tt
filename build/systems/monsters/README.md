@@ -26,7 +26,8 @@ Each entry includes **lore**, one or more **stat blocks**, **tactics**, and **tr
 | STR | AGI | STA | INT | SPI |
 | mods |
 
-**Traits** — passive abilities
+**Traits** — passive abilities  
+**Downed behavior** — how the creature treats **Downed** or **Dying** PCs (see below)  
 **Actions** — attacks: +X to hit vs AC, damage on hit; saves: DC 8 + PB + ability mod
 **Reactions** / **Legendary** (elite/boss only, optional)
 ```
@@ -34,6 +35,22 @@ Each entry includes **lore**, one or more **stat blocks**, **tactics**, and **tr
 **Monster attacks** list **+hit** and **damage** explicitly (e.g. *+5 to hit, 1d8+2 slashing*). **Save DC** = 8 + monster PB + relevant modifier.
 
 **Flat-footed:** Humanoid monsters lose AGI to AC when surprised; beasts in light armor follow the same rule. Heavy natural armor (plates, shells) keeps full AC when flat-footed.
+
+## Downed behavior
+
+Every monster stat block declares **`downedBehavior`** in JSON (and in markdown **Tactics** when relevant). This governs target choice and fiction when PCs are **Downed** (conscious, 0 HP) or **Dying** (unconscious, 0 HP).
+
+| Behavior | Target priority | Typical fiction |
+|----------|-----------------|-----------------|
+| **ignore** | Standing PCs only; skips Downed/Dying | Beasts hunting active prey; disciplined guards |
+| **feast** | Prefers Downed/Dying; keeps attacking them | Ghouls, carrion feeders, hungry undead |
+| **execute** | Prefers Downed/Dying; first hit on Dying often lethal | Assassins, knights finishing wounded |
+| **drag** | Prefers Downed; attempts to haul prey away | Stalkers, slavers, burrowers |
+| **flee** | Stops fighting if all standing PCs are down | Cowards, ambushers who got their kill |
+
+**Damage at 0 HP** still follows PC rules: any hit on Downed or Dying kills unless already dead. **Execute** monsters prioritize helpless targets; **feast** monsters may ignore fresh threats to feed.
+
+Author new monsters with an explicit behavior; default authored blocks use **ignore** unless the creature’s lore says otherwise.
 
 ## Index
 

@@ -2,28 +2,72 @@
 
 from __future__ import annotations
 
+SET_CREATION_CHOICE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "set_creation_choice",
+        "description": "Record the player's choice for the current creation step. Extract the choice from what the player said and pass it here. You MUST call this tool — it is the only way to advance.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "step": {"type": "string", "description": "The current creation step", "enum": ["NAME", "RACE", "CLASS", "SKILLS", "SPELL_SCHOOLS", "SPELLS", "EQUIPMENT_GOLD"]},
+                "value": {"type": "string", "description": "The player's choice. NAME: character name. RACE: race id (e.g. 'undead'). CLASS: class id (e.g. 'militia'). SKILLS: comma-separated skill names. SPELL_SCHOOLS: comma-separated school ids. SPELLS: comma-separated spell ids. EQUIPMENT_GOLD: 'confirmed'."},
+            },
+            "required": ["step", "value"],
+        },
+    },
+}
+
+COMBAT_ACTION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "combat_action",
+        "description": (
+            "Submit the active PC's combat action. ONLY call on the current turn actor's turn. "
+            "Use combatant ids from game state. After success, narrate mechanical results only."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["ATTACK", "CAST", "END_TURN"],
+                    "description": "Combat action type",
+                },
+                "actor_id": {"type": "string", "description": "Must match current turn_id"},
+                "target_id": {"type": "string", "description": "Target combatant id (ATTACK/CAST)"},
+                "weapon_id": {"type": "string", "description": "Weapon id for ATTACK"},
+                "spell_id": {"type": "string", "description": "Spell id from knownSpells for CAST"},
+            },
+            "required": ["action", "actor_id"],
+        },
+    },
+}
+
 TOOLS = [
+    # SET_CREATION_CHOICE_TOOL is injected separately during creation — not in normal play tools
     {
         "type": "function",
         "function": {
             "name": "roll_d20",
-            "description": "Roll a d20 + modifier against a DC. Use for skill checks, saves, and ability tests.",
+            "description": "Roll a d20 + modifier against a DC. YOU (the GM) roll all dice — the player never rolls. Use this for skill checks, saves, ability tests, and any uncertain outcome.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "mod": {"type": "integer", "description": "Total modifier (attribute + PB + skill bonus)"},
-                    "dc": {"type": "integer", "description": "Difficulty class"},
-                    "reason": {"type": "string", "description": "What the roll is for (e.g. 'Persuasion check')"},
+                    "mod": {"type": "integer", "description": "Total modifier (attribute + PB + skill bonus). Use 0 if unknown."},
+                    "dc": {"type": "integer", "description": "Difficulty class (easy=8, medium=12, hard=15, very hard=18)"},
+                    "reason": {"type": "string", "description": "What the roll is for (e.g. 'Stealth check to sneak past guards')"},
                 },
                 "required": ["mod", "dc", "reason"],
             },
         },
     },
+    # roll_attributes removed — now auto-executed by code during creation
     {
         "type": "function",
         "function": {
             "name": "process_beat",
-            "description": "Process player action lines as a narrative beat. Handles travel, site, combat intents automatically.",
+            "description": "PRIMARY PLAY TOOL. Call this for EVERY player action during gameplay. Handles travel (detects 'go to', AV-GRID addresses, directions), site entry/movement, combat triggers, and search actions automatically. Always pass the player's raw action text. Returns narration_brief and mechanical_summary — base your narration on these. If this returns ok:false, narrate the failure.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -128,12 +172,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "combat_attack",
-            "description": "Make an attack roll in active combat.",
+            "description": "Make an attack roll in active combat. Use combatant ids from game state (e.g. character id for PCs, grave-ghoul-1 for monsters).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "attacker_id": {"type": "string", "description": "ID of the attacker"},
-                    "target_id": {"type": "string", "description": "ID of the target"},
+                    "attacker_id": {"type": "string", "description": "Attacker combatant id (PC character id or monster instance id)"},
+                    "target_id": {"type": "string", "description": "Target combatant id"},
+                    "weapon_id": {"type": "string", "description": "Optional weapon id from inventory"},
                 },
                 "required": ["attacker_id", "target_id"],
             },
@@ -155,32 +200,12 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "character_create",
-            "description": "Create a new player character with given attributes.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Character name"},
-                    "background": {"type": "string", "description": "Background (e.g. 'soldier', 'scholar', 'street-rat')"},
-                    "str_score": {"type": "integer", "description": "STR score (8-18)"},
-                    "agi_score": {"type": "integer", "description": "AGI score (8-18)"},
-                    "end_score": {"type": "integer", "description": "END score (8-18)"},
-                    "wil_score": {"type": "integer", "description": "WIL score (8-18)"},
-                    "int_score": {"type": "integer", "description": "INT score (8-18)"},
-                    "luc_score": {"type": "integer", "description": "LUC score (8-18)"},
-                },
-                "required": ["name"],
-            },
-        },
-    },
+    # character_create removed — now auto-executed by code in _auto_finalize
     {
         "type": "function",
         "function": {
             "name": "memory_recall",
-            "description": "Search campaign memory for relevant facts (NPCs, events, locations mentioned before).",
+            "description": "Search campaign memory for relevant facts (NPCs, events, locations mentioned before). ALWAYS use this before answering questions about objectives, quests, or past events.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -188,6 +213,362 @@ TOOLS = [
                     "top_k": {"type": "integer", "description": "Number of results (default 5)"},
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remember_fact",
+            "description": "Store an important fact in campaign memory (quest given, NPC met, item found, decision made). Use after significant events.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact": {"type": "string", "description": "The fact to remember (e.g. 'Marshal Holt tasked party with retrieving his brother's signet ring')"},
+                    "entities": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Related entity names (NPCs, items, places)",
+                    },
+                    "importance": {"type": "integer", "description": "1-5 scale (3=default, 5=critical quest info)"},
+                },
+                "required": ["fact"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cast_spell",
+            "description": "Cast a spell from the caster's knownSpells list only. Never invent spell ids. Canon examples: mend-light, consecrate-ground, ember-touch, static-lash.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "character_id": {"type": "string", "description": "Caster character ID"},
+                    "spell_id": {"type": "string", "description": "Spell id from knownSpells (e.g. mend-light)"},
+                    "target_id": {"type": "string", "description": "Target combatant ID (if attack/targeted spell)"},
+                },
+                "required": ["character_id", "spell_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_known_spells",
+            "description": "List spells the character knows from the database. Call when the player asks what spells they know.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "character_id": {"type": "string", "description": "Character ID"},
+                },
+                "required": ["character_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fortune_spend",
+            "description": "Spend 1 Fortune point to grant advantage on the next d20 roll. Pool = max(1, 1 + LUC mod). Refreshes at session start only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "character_id": {"type": "string", "description": "Character spending Fortune"},
+                },
+                "required": ["character_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "short_rest",
+            "description": "Take a short rest (~1 hr). HP += SPI mod + Endurance level. MP += SPI mod + Mana Control level. Once per delving day.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_phase",
+            "description": (
+                "Change extraction phase. Valid transitions: preparation→ingress, "
+                "ingress→delve|preparation, delve→extract, extract→aftermath|delve, "
+                "aftermath→preparation. Do NOT use set_phase to enter a dungeon — "
+                "call enter_dungeon(site_address) instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phase": {
+                        "type": "string",
+                        "description": "Target phase: preparation, ingress, delve, extract, aftermath",
+                    },
+                },
+                "required": ["phase"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clock_tick",
+            "description": "Tick the threat clock (from noise, time, veil disturbance). At 6/6 = danger escalation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "clock": {"type": "string", "description": "Which clock: ingress, delve, or extract"},
+                    "segments": {"type": "integer", "description": "How many segments to tick (default 1)"},
+                },
+                "required": ["clock"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_site",
+            "description": "Search current site node for clues, traps, or loot. Investigation check vs DC (default 13).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dc": {"type": "integer", "description": "Investigation DC (default 13)"},
+                    "skill_mod": {"type": "integer", "description": "Character's Investigation/Perception modifier"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "wilderness_encounter",
+            "description": "Roll for wilderness encounter during travel (d6, on 1 = encounter from biome table).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "advance_scene",
+            "description": "Move the party one scene forward in their current direction within the current cell. Each cell has 2-4 scenes (~3 miles each). If at the last scene, this crosses into the adjacent cell. Returns revealed features and terrain description. Call when the player says 'keep going', 'continue', 'explore further', or any directional movement.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "description": "Compass direction: N, S, E, W. If omitted, continues in current heading.",
+                        "enum": ["N", "S", "E", "W"],
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compass_exits",
+            "description": "Get compass-labeled exits from the current cell with terrain, population, danger, and visited status for each adjacent cell. Use to inform the player what lies in each direction.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enter_dungeon",
+            "description": (
+                "Enter a dungeon/underground site from the current surface cell. "
+                "Transitions to room-based navigation and advances phase to delve. "
+                "Use compass_exits to list available below addresses first."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "site_address": {
+                        "type": "string",
+                        "description": (
+                            "Site to enter: AV-GRID address (e.g. '32-C-UG-1'), site slug "
+                            "(e.g. 'breley-undercrypt'), or display name when unambiguous "
+                            "(e.g. 'undercrypt'). Prefer AV-GRID from compass_exits below list."
+                        ),
+                    },
+                    "site_id": {
+                        "type": "string",
+                        "description": "Alias for site_address (same resolution rules).",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_room",
+            "description": "Move to an adjacent room in the current dungeon. Use exit directions from the current room's exits list (e.g. 'archway', 'stairs', 'forward', 'back').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "description": "Exit direction or target room name from the room's exits list",
+                    },
+                },
+                "required": ["direction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "exit_dungeon",
+            "description": "Leave the current dungeon and return to the surface. Call when the player heads back to the entrance and wants to leave.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "interact_feature",
+            "description": (
+                "Interact with a feature in the current scene or room. "
+                "For delver corpses, use the exact id from Room features (starts with corpse-). "
+                "After loot, narrate ONLY items in the tool result transferred field — never invent loot."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "feature_id": {
+                        "type": "string",
+                        "description": "ID of the feature to interact with (from features_revealed in advance_scene or compass_exits results)",
+                    },
+                    "action": {
+                        "type": "string",
+                        "description": "What the player is doing: 'search', 'loot', 'examine', 'activate', 'destroy'",
+                    },
+                },
+                "required": ["feature_id", "action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_inventory",
+            "description": "List the active delver's inventory from the database. Call when the player asks what they are carrying.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "character_id": {
+                        "type": "string",
+                        "description": "Optional character id; defaults to active roster slot",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "equip_item",
+            "description": "Equip a pack instance to a slot (14-slot model). Use instanceId from list_inventory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {"type": "string"},
+                    "slot": {
+                        "type": "string",
+                        "description": "mainHand, offHand, chest, helm, etc.",
+                    },
+                    "character_id": {"type": "string"},
+                },
+                "required": ["instance_id", "slot"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unequip_item",
+            "description": "Unequip a pack instance by instanceId.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {"type": "string"},
+                    "character_id": {"type": "string"},
+                },
+                "required": ["instance_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grant_loot",
+            "description": "Roll and persist loot to the active delver's pack. Never narrate loot without calling this.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tier": {
+                        "type": "string",
+                        "description": "hazard, skirmisher, elite, or boss",
+                    },
+                    "character_id": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "buy_item",
+            "description": "Buy from hub vendor (surface + vendor at address). Deducts personal goldGp.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id": {"type": "string"},
+                    "quantity": {"type": "integer"},
+                    "vendor_id": {"type": "string"},
+                    "character_id": {"type": "string"},
+                },
+                "required": ["item_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sell_item",
+            "description": "Sell pack item by instanceId at hub fence/vendor. Cannot sell equipped items.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {"type": "string"},
+                    "quantity": {"type": "integer"},
+                    "vendor_id": {"type": "string"},
+                    "character_id": {"type": "string"},
+                },
+                "required": ["instance_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_stash",
+            "description": "Show account stash (persists across character deaths). Hub surface only for transfers.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_vendor",
+            "description": "List vendor stock at current hub (requires surface mode at vendor address).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vendor_id": {"type": "string"},
+                },
             },
         },
     },

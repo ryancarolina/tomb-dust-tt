@@ -16,6 +16,8 @@
         { "id": "burial-goods", "weight": 2 },
         { "id": "tomb-map-scrap", "weight": 2 },
         { "id": "reliquary-shard", "weight": 1 },
+        { "id": "scroll-ember-touch", "weight": 1 },
+        { "id": "scroll-mend-light", "weight": 1 },
         { "id": "iron-ingot", "weight": 2 }
       ],
       "rollProcedure": "1d6: 1-2 currency; 3-4 item; 5 both; 6 item (re-roll if duplicate)"

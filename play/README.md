@@ -1,36 +1,32 @@
-# Play — run Tomb Dust
+# Play — engine & saves
 
-Everything here is **runtime**: sessions, saves, and the engine that drives the AI GM.  
+Runtime code and data for Tomb Dust sessions. **Players use the standalone app** — not this folder directly.
+
+| Play the game | [`../app/README.md`](../app/README.md) — `python main.py` |
+|---------------|-------------------------------------------------------------|
+
 Canon (rules, world JSON) lives in **[`build/`](../build/)** — do not edit that tree during play.
 
 ```
 play/
-  workspace/       ← Saves, config, campaigns (.local/ is gitignored)
-  tomb_gm/         ← Python engine + CLI (invoked by @tomb-gm agent)
-  docs/            ← AI GM spec and build roadmap
+  workspace/       ← Saves, SQLite, campaigns (.local/ is gitignored)
+  tomb_gm/         ← Python engine (used by app/gm/bridge.py)
+  docs/            ← Pointer to tmp/ app specs (see README there)
 ```
 
-## How to play
+## How the app uses this tree
 
-1. Open the **repository root** in Cursor.
-2. Invoke **`@tomb-gm`** — the agent sets up `workspace/`, resumes or starts a campaign, and runs all mechanics.
-3. Players only chat: `[P1 Name] …` through `[P4]`, `[PARTY]`, `[OOC]`.
+The PyGame app (`app/main.py`) imports `play/tomb_gm/` via `GameBridge` and stores saves under `play/workspace/` (default workspace). You do not run `python -m tomb_gm` or use Cursor chat to play.
 
-No terminal setup required for players.
+## Workspace config (advanced)
 
-## Workspace config
-
-Copy [`workspace/config.example.yaml`](workspace/config.example.yaml) → `workspace/config.yaml` (the agent can do this on first invoke).
+If debugging the engine directly, copy [`workspace/config.example.yaml`](workspace/config.example.yaml) → `workspace/config.yaml`.
 
 - **`content_root`** points at [`build/`](../build/) (canon).
 - **Saves** live under `workspace/.local/` and `workspace/campaigns/`.
 
-## Docs
+## Developer docs
 
-- **[docs/tomb-gm-implementation-spec.md](docs/tomb-gm-implementation-spec.md)** — **full implementation spec** (CLI, DB, beats, memory, combat)
-- [docs/tomb-gm-build-roadmap.md](docs/tomb-gm-build-roadmap.md) — section-by-section delivery order
-- [docs/cursor-tomb-gm-spec.md](docs/cursor-tomb-gm-spec.md) — short architecture summary
-
-## Engine status
-
-`tomb_gm` CLI covers campaigns, travel, full character creation (race/genetics/life events/kit), combat, economy, encounters, memory, beat loop, and TTS. Invoke **`@tomb-gm`** in Cursor to play.
+- **App specs:** [`tmp/app-master-spec.md`](../tmp/app-master-spec.md) (registry of all `tmp/app-*-spec.md`)
+- **Canon ↔ engine:** [`build/docs/engine-integration.md`](../build/docs/engine-integration.md)
+- [docs/README.md](docs/README.md) — legacy `play/docs/` specs removed

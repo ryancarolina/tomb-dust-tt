@@ -1,0 +1,56 @@
+{
+  "id": "boydon-undercroft",
+  "rulesVersion": "1.0.0",
+  "displayName": "Boydon Undercroft",
+  "docPath": "systems/locations/boydon-tower.md",
+  "primaryAddress": "23-A-UG-1",
+  "dangerRating": "skirmisher",
+  "nodes": [
+    {
+      "id": "tower-cellar",
+      "address": "23-A-UG-1",
+      "displayName": "Tower cellar stairs",
+      "summary": "Spiral stone stairs descend from the tower's ground floor. Torch sconces still hold oil — recently maintained by the archivist's staff.",
+      "tags": ["entry", "lit"],
+      "encounters": []
+    },
+    {
+      "id": "cistern-hall",
+      "address": "23-A-UG-1",
+      "displayName": "Cistern hall",
+      "summary": "Long vaulted corridor with collecting pools along both walls. Water drips steadily. Echo carries far.",
+      "tags": ["water"],
+      "encounters": [{ "monsterId": "cave-rat-swarm", "weight": 2 }]
+    },
+    {
+      "id": "storage-vault",
+      "address": "23-A-UG-1",
+      "displayName": "Storage vault",
+      "summary": "Locked iron gate (archivist holds key). Beyond: crates of alchemical supplies, sealed scroll cases, spare ward-stones.",
+      "tags": ["loot", "locked"],
+      "encounters": []
+    },
+    {
+      "id": "old-crypt",
+      "address": "23-A-UG-1",
+      "displayName": "Old crypt",
+      "summary": "Pre-tower burial alcoves. Most empty — residents relocated when the tower was built. One sealed alcove hums faintly.",
+      "tags": ["burial", "thin-veil"],
+      "encounters": [{ "monsterId": "ether-larva", "weight": 2 }]
+    },
+    {
+      "id": "veil-crack",
+      "address": "23-A-UG-1",
+      "displayName": "Veil stabilizer root",
+      "summary": "The foundation of one of Boydon's veil stabilizer arrays. Crystal conduits thread through the rock. Touching them is inadvisable.",
+      "tags": ["arcane", "restricted"],
+      "encounters": [{ "monsterId": "ether-larva", "weight": 1 }]
+    }
+  ],
+  "edges": [
+    { "from": "tower-cellar", "to": "cistern-hall", "type": "archway" },
+    { "from": "cistern-hall", "to": "storage-vault", "type": "door", "locked": true },
+    { "from": "cistern-hall", "to": "old-crypt", "type": "stairs" },
+    { "from": "old-crypt", "to": "veil-crack", "type": "passage" }
+  ]
+}

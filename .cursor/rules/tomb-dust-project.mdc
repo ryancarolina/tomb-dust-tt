@@ -12,7 +12,7 @@ alwaysApply: true
 | Tree | Purpose |
 |------|---------|
 | **`build/`** | Canon: `data/`, `systems/`, `tools/` — edit when authoring |
-| **`play/`** | Runtime saves and AI GM — do not put canon here |
+| **`play/`** | Runtime saves and **`tomb_gm/` engine** (consumed by the app) |
 
 ## Non-negotiables
 
@@ -35,7 +35,12 @@ alwaysApply: true
 | Combat math | `build/systems/combat/calculations.md` |
 | Monsters | `build/systems/monsters/README.md` |
 | Setting | `build/systems/world/README.md` |
-| Play / AI GM | `play/README.md` |
+| Play the game | [`app/README.md`](../../app/README.md) |
+| App dev specs | [`tmp/app-master-spec.md`](../../tmp/app-master-spec.md) |
+
+## App changes
+
+Any edit under **`app/`** must update the matching spec in **`tmp/`** per [AGENTS.md](../../AGENTS.md). **Spec ↔ code drift is never allowed.**
 
 ## After grid changes
 

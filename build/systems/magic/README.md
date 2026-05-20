@@ -1,7 +1,7 @@
 # Magic
 
 - [schools.md](schools.md) — six schools, divine vs arcane casting
-- [spells.md](spells.md) — spell catalog (tier 1–5; expert/master expansion)
+- [spells.md](spells.md) — spell catalog (tiers 1–6; 41 spells in JSON)
 - [skills/magic-skills.md](../skills/magic-skills.md) — Spellcasting, Magical Defense, Mana Control, Magical Knowledge
 - [combat/calculations.md](../combat/calculations.md) — spell attack, save DC, Magical Defense
 - [world/ether.md](../world/ether.md) — Ether in the setting

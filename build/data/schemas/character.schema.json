@@ -50,6 +50,15 @@
         "max": { "type": "integer", "minimum": 0 }
       },
       "description": "LUC / Fortune session pool (not a d20 modifier)."
+    },
+    "goldGp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Carried gold pieces on the delver sheet."
+    },
+    "inventory": {
+      "$ref": "inventory.schema.json",
+      "description": "Unified pack inventory (v2); equipped gear uses slot + equipped on entries."
     }
   },
   "$defs": {

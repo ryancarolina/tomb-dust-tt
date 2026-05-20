@@ -129,4 +129,27 @@ Roll **d6** when casting **Wild Surge**, failing a high-Ether save, or on Sorcer
 
 **Priest (tier 5)** SPI 16 (+3), **Sun Smite**: attack d20 + 3 + 3 + 3 vs AC; **2d8** radiant (+ **2d8** vs undead).
 
-JSON mirror: [`data/spells/spells.json`](../../data/spells/spells.json) (30 spells, `rulesVersion` 1.0.0).
+## Adept catalog (tier 3)
+
+| Spell | School | Tier | MP | Notes |
+|-------|--------|------|-----|-------|
+| **Cinder Lance** | pyromancy | 3 | 3 | 2d6 fire spell attack |
+| **Root Snare** | biomancy | 3 | 3 | STR save or Restrained (conc) |
+| **Bone Tap** | necromancy | 3 | 3 | Question corpse |
+| **Phase Step** | ether | 3 | 3 | Bonus action teleport 15 ft |
+| **Ward of Dawn** | divine | 3 | 3 | Allies +2 vs fear |
+
+(Ward school also has **Ward Circle** at tier 3.)
+
+## Archmage catalog (tier 6)
+
+| Spell | School | Tier | MP |
+|-------|--------|------|-----|
+| **Sunstorm** | pyromancy | 6 | 6 |
+| **Adamant Ward** | ward | 6 | 6 |
+| **World-Tree Shelter** | biomancy | 6 | 6 |
+| **Lich Gate** | necromancy | 6 | 6 |
+| **Rift Sever** | ether | 6 | 6 |
+| **Avatar of Aven** | divine | 6 | 6 |
+
+JSON mirror: [`data/spells/spells.json`](../../data/spells/spells.json) (41 spells, `rulesVersion` 1.1.0) · schools: [`data/spells/schools.json`](../../data/spells/schools.json)

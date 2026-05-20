@@ -92,6 +92,53 @@ class ContentService:
         return self._weapons_index().get(weapon_id)
 
     @lru_cache(maxsize=1)
+    def _armor_index(self) -> dict[str, dict[str, Any]]:
+        path = self.content_root / "data" / "armor" / "armor.json"
+        if not path.is_file():
+            return {}
+        with path.open(encoding="utf-8") as fh:
+            items = json.load(fh)
+        return {a["id"]: {**a, "kind": a.get("kind", "armor")} for a in items if isinstance(a, dict) and "id" in a}
+
+    @lru_cache(maxsize=1)
+    def _gear_index(self) -> dict[str, dict[str, Any]]:
+        path = self.content_root / "data" / "gear" / "gear.json"
+        if not path.is_file():
+            return {}
+        with path.open(encoding="utf-8") as fh:
+            items = json.load(fh)
+        return {g["id"]: g for g in items if isinstance(g, dict) and "id" in g}
+
+    @lru_cache(maxsize=1)
+    def _items_index(self) -> dict[str, dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for wid, weapon in self._weapons_index().items():
+            merged[wid] = {**weapon, "kind": "weapon"}
+        for aid, armor in self._armor_index().items():
+            merged[aid] = armor
+        for gid, gear in self._gear_index().items():
+            merged[gid] = gear
+        return merged
+
+    def load_armor(self, armor_id: str) -> dict[str, Any] | None:
+        return self._armor_index().get(armor_id)
+
+    def load_gear(self, gear_id: str) -> dict[str, Any] | None:
+        return self._gear_index().get(gear_id)
+
+    def load_item(self, item_id: str) -> dict[str, Any] | None:
+        return self._items_index().get(item_id)
+
+    def items_lookup(self) -> dict[str, dict[str, Any]]:
+        return dict(self._items_index())
+
+    def item_display_name(self, item_id: str) -> str:
+        item = self.load_item(item_id)
+        if item:
+            return str(item.get("displayName", item_id))
+        return item_id.replace("-", " ").title()
+
+    @lru_cache(maxsize=1)
     def _spells_index(self) -> dict[str, dict[str, Any]]:
         path = self.content_root / "data" / "spells" / "spells.json"
         if not path.is_file():
@@ -102,6 +149,28 @@ class ContentService:
 
     def load_spell(self, spell_id: str) -> dict[str, Any] | None:
         return self._spells_index().get(spell_id)
+
+    @lru_cache(maxsize=1)
+    def _schools_index(self) -> dict[str, dict[str, Any]]:
+        path = self.content_root / "data" / "spells" / "schools.json"
+        if not path.is_file():
+            return {}
+        with path.open(encoding="utf-8") as fh:
+            items = json.load(fh)
+        return {s["id"]: s for s in items if isinstance(s, dict) and "id" in s}
+
+    def load_school(self, school_id: str) -> dict[str, Any] | None:
+        return self._schools_index().get(school_id)
+
+    def list_spells_for_schools(
+        self, school_ids: list[str], *, max_tier: int = 6
+    ) -> list[dict[str, Any]]:
+        schools = set(school_ids)
+        out = []
+        for spell in self._spells_index().values():
+            if spell.get("school") in schools and int(spell.get("tier", 99)) <= max_tier:
+                out.append(spell)
+        return sorted(out, key=lambda s: (s.get("school", ""), s.get("tier", 0), s.get("id", "")))
 
     def load_site(self, site_id: str) -> dict[str, Any] | None:
         path = self.content_root / "data" / "sites" / f"{site_id}.json"
@@ -135,3 +204,25 @@ class ContentService:
             if cell and str(cell.get("region", "")).lower() == region_lower:
                 out.append(cell)
         return out
+
+    @lru_cache(maxsize=1)
+    def _vendors_index(self) -> dict[str, dict[str, Any]]:
+        path = self.content_root / "data" / "vendors" / "vendors.json"
+        if not path.is_file():
+            return {}
+        with path.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+        vendors = data.get("vendors") or data if isinstance(data, list) else []
+        if isinstance(data, dict):
+            vendors = data.get("vendors", [])
+        return {v["id"]: v for v in vendors if isinstance(v, dict) and "id" in v}
+
+    def load_vendor(self, vendor_id: str) -> dict[str, Any] | None:
+        return self._vendors_index().get(vendor_id)
+
+    def cell_services(self, address: str) -> dict[str, Any]:
+        cell = self.get_cell(address)
+        if not cell:
+            return {}
+        services = cell.get("services")
+        return dict(services) if isinstance(services, dict) else {}

@@ -1,0 +1,21 @@
+{
+  "rulesVersion": "1.1.0",
+  "profiles": {
+    "apprentice": {
+      "schoolPickCount": 2,
+      "schoolFilter": "arcane",
+      "spellPickCount": 2,
+      "maxSpellTier": 1,
+      "requireSpellcastingSkill": true
+    },
+    "novice": {
+      "schoolPickCount": 2,
+      "requiredSchools": ["divine"],
+      "schoolPickRule": "divine_plus_one",
+      "spellPickCount": 2,
+      "maxSpellTier": 1,
+      "minDivineSpells": 1,
+      "requireSpellcastingSkill": true
+    }
+  }
+}

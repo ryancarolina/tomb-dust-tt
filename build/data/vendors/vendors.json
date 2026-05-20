@@ -1,0 +1,20 @@
+{
+  "rulesVersion": "1.0.0",
+  "vendors": [
+    {
+      "id": "registry-quartermaster",
+      "displayName": "Registry Quartermaster",
+      "address": "32-C",
+      "stock": [
+        { "itemId": "leather", "qty": null },
+        { "itemId": "spear", "qty": 10 },
+        { "itemId": "healers-kit", "qty": 5 },
+        { "itemId": "arrows", "qty": 50 },
+        { "itemId": "rations", "qty": null }
+      ],
+      "buyMultiplier": 1.0,
+      "sellMultiplier": 0.5,
+      "buysCategories": ["material"]
+    }
+  ]
+}

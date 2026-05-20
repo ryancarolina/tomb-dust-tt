@@ -28,7 +28,9 @@ class App:
 
         self._orchestrator = None
         self._tts_config = config.get("tts", {})
-        self._processing = False
+        self._turn_state = "idle"  # idle | thinking | speaking
+        self._current_turn_id = 0
+        self._turn_lock = threading.Lock()
         self._status_text = "Initializing..."
         self._ui_queue: queue.Queue = queue.Queue()
         self._scroll_velocity = 0.0
@@ -65,11 +67,11 @@ class App:
                     self.sidebar.handle_hover(event.pos)
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     map_addr = self.sidebar.handle_map_click(event.pos)
-                    if map_addr and not self._processing:
+                    if map_addr and self._can_submit():
                         self._submit(f"travel to {map_addr}")
                     else:
                         result = self.input_box.handle_click(event.pos)
-                        if result and not self._processing:
+                        if result and self._can_submit():
                             self._submit(result)
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
@@ -77,7 +79,7 @@ class App:
                         running = False
                     else:
                         result = self.input_box.handle_event(event)
-                        if result and not self._processing:
+                        if result and self._can_submit():
                             self._submit(result)
 
             self._process_ui_queue()
@@ -123,24 +125,29 @@ class App:
                 status = self._orchestrator.get_status()
                 self._ui_queue.put(("status", status))
 
+                has_save = self._orchestrator.bridge.has_save()
                 awaiting = status.get("awaiting", "SETUP")
-                if awaiting == "SETUP":
-                    self._ui_queue.put(("narration", [
-                        {"text": "Welcome to Tomb Dust.", "voice": "narrator"},
-                        {"text": "No active session found. Type 'new game' to begin, or 'continue' to resume.", "voice": "narrator"},
-                    ]))
-                    self._ui_queue.put(("suggestions", ["new game", "continue"]))
-                elif awaiting == "PLAYER_ACTIONS":
-                    self._ui_queue.put(("narration", [
-                        {"text": "Session resumed. The world awaits your next move.", "voice": "narrator"},
-                    ]))
-                elif awaiting == "SESSION_ENDED":
-                    self._ui_queue.put(("narration", [
-                        {"text": "Your last session has ended. Type 'continue' to start a new one.", "voice": "narrator"},
-                    ]))
-                    self._ui_queue.put(("suggestions", ["continue"]))
+                has_active = status.get("active") is not None
+                has_save = has_save or (has_active and awaiting not in ("SETUP", "SESSION_ENDED"))
 
-                self._ui_queue.put(("load_session", None))
+                self._ui_queue.put(("narration", [
+                    {"text": "TOMB DUST", "voice": "narrator"},
+                    {"text": "A hardcore extraction-fantasy TTRPG.", "voice": "narrator"},
+                    {"text": "Death is frequent. The world is hostile. Even small victories are meaningful.", "voice": "narrator"},
+                    {"text": "", "voice": "narrator"},
+                ]))
+
+                if has_save:
+                    self._ui_queue.put(("narration", [
+                        {"text": "You have a saved game.", "voice": "narrator"},
+                    ]))
+                    self._ui_queue.put(("suggestions", ["load game", "new game"]))
+                else:
+                    self._ui_queue.put(("narration", [
+                        {"text": "Type 'new game' to create a character and enter the world.", "voice": "narrator"},
+                    ]))
+                    self._ui_queue.put(("suggestions", ["new game"]))
+
                 self._ui_queue.put(("ready", None))
             except Exception as exc:
                 self._ui_queue.put(("error", f"Init failed: {exc}"))
@@ -163,26 +170,44 @@ class App:
             elif msg_type == "player":
                 self.narration.add_line(data, "player")
                 self._smooth_scroll_to_bottom()
+            elif msg_type == "clear_narration":
+                self.narration.clear()
             elif msg_type == "status":
                 self.sidebar.update_from_status(data)
+            elif msg_type == "map_update":
+                if isinstance(data, dict):
+                    self.sidebar.map.update_position(
+                        address=data.get("address", ""),
+                        scene_index=data.get("scene_index", 1),
+                        scene_max=data.get("scene_max", 3),
+                        heading=data.get("heading", "N"),
+                        mode=data.get("mode", "surface"),
+                        dungeon_room=data.get("dungeon_room"),
+                        dungeon_exits=data.get("dungeon_exits"),
+                    )
+                else:
+                    self.sidebar.map.update_position(address=data)
             elif msg_type == "speaker":
                 voice, speaking = data
                 self.sidebar.set_speaker(voice, speaking)
             elif msg_type == "suggestions":
                 self.input_box.set_suggestions(data)
             elif msg_type == "ready":
-                self._processing = False
-                self._status_text = "Ready"
-                self.sidebar.set_speaker("narrator", False)
+                self._set_turn_idle()
+            elif msg_type == "turn_idle":
+                if data == self._current_turn_id:
+                    self._set_turn_idle()
             elif msg_type == "load_session":
                 self._load_session()
             elif msg_type == "error":
                 self.narration.add_line(f"[Error: {data}]", "narrator")
-                self._processing = False
-                self._status_text = "Error — try again"
+                self._set_turn_idle("Error — try again")
             elif msg_type == "processing":
-                self._processing = True
+                self._turn_state = "thinking"
                 self._status_text = data or "GM is thinking..."
+            elif msg_type == "speaking":
+                self._turn_state = "speaking"
+                self._status_text = "GM is speaking (Enter to interrupt)"
 
     def _update_scroll(self, dt: float):
         if abs(self._scroll_velocity) > 1:
@@ -200,9 +225,17 @@ class App:
     def _smooth_scroll_to_bottom(self):
         self.narration.scroll_to_bottom()
 
+    def _can_submit(self) -> bool:
+        return self._turn_state != "thinking"
+
+    def _set_turn_idle(self, status_text: str = "Ready") -> None:
+        self._turn_state = "idle"
+        self._status_text = status_text
+        self.sidebar.set_speaker("narrator", False)
+
     def _draw_status(self, screen: pygame.Surface):
         font = pygame.font.SysFont("Consolas", FONT_SIZE_SMALL)
-        if self._processing:
+        if self._turn_state == "thinking":
             dots = "." * ((pygame.time.get_ticks() // 400) % 4)
             text = f"{self._status_text}{dots}"
             color = TEXT_ACCENT
@@ -218,40 +251,93 @@ class App:
         screen.blit(model_surf, (self.input_box.rect.right - model_surf.get_width() - 10, self.input_box.rect.top - 18))
 
     def _submit(self, text: str):
+        if not self._can_submit():
+            return
+
+        if self._turn_state == "speaking":
+            from tomb_gm.services.tts.queue import request_stop
+            request_stop()
+
+        self._current_turn_id += 1
+        turn_id = self._current_turn_id
+
         self._ui_queue.put(("processing", "GM is thinking"))
         self._ui_queue.put(("player", text))
-        thread = threading.Thread(target=self._process_turn, args=(text,), daemon=True)
+        thread = threading.Thread(
+            target=self._process_turn,
+            args=(text, turn_id),
+            daemon=True,
+        )
         thread.start()
 
-    def _process_turn(self, text: str):
+    def _process_turn(self, text: str, turn_id: int):
+        narration = None
+        lines = None
         try:
+            if turn_id != self._current_turn_id:
+                return
+
             if not self._orchestrator:
                 self._ui_queue.put(("error", "Orchestrator not initialized"))
                 return
 
-            narration = self._orchestrator.process_turn(text)
+            if text.lower().strip() in ("load game", "load", "continue", "resume"):
+                self._ui_queue.put(("load_session", None))
+            elif text.lower().strip() in ("new game", "new", "start"):
+                self._ui_queue.put(("clear_narration", None))
+
+            with self._turn_lock:
+                if turn_id != self._current_turn_id:
+                    return
+                narration = self._orchestrator.process_turn(text)
+
+            if turn_id != self._current_turn_id:
+                return
 
             from tomb_gm.services.tts.scene import parse_scene
             lines = parse_scene(narration)
 
-            if lines:
-                self._ui_queue.put(("narration", lines))
-            else:
-                self._ui_queue.put(("narration_text", narration))
+            self._ui_queue.put(("narration_text", narration))
 
             status = self._orchestrator.get_status()
             self._ui_queue.put(("status", status))
+
+            party = status.get("party")
+            if party and party.get("address"):
+                map_data = {
+                    "address": party["address"],
+                    "scene_index": party.get("scene_index", 1),
+                    "scene_max": party.get("scene_max", 3),
+                    "heading": party.get("heading", "N"),
+                    "mode": party.get("mode", "surface"),
+                    "dungeon_room": party.get("dungeon_room_id"),
+                    "dungeon_exits": party.get("dungeon_exits", []),
+                }
+                self._ui_queue.put(("map_update", map_data))
 
             suggestions = self._extract_suggestions(narration)
             if suggestions:
                 self._ui_queue.put(("suggestions", suggestions))
 
-            self._speak_narration(narration, lines)
-
         except Exception as exc:
-            self._ui_queue.put(("error", str(exc)))
+            if turn_id == self._current_turn_id:
+                self._ui_queue.put(("error", str(exc)))
+            return
         finally:
-            self._ui_queue.put(("ready", None))
+            if self._orchestrator and narration is not None and turn_id == self._current_turn_id:
+                self._save_session()
+
+        if turn_id != self._current_turn_id:
+            return
+
+        if narration and self._tts_config.get("mode") != "text_only":
+            threading.Thread(
+                target=self._speak_narration,
+                args=(narration, lines, turn_id),
+                daemon=True,
+            ).start()
+        else:
+            self._ui_queue.put(("turn_idle", turn_id))
 
     def _extract_suggestions(self, narration: str) -> list[str]:
         import re
@@ -264,13 +350,16 @@ class App:
             return parts[:4]
         return []
 
-    def _speak_narration(self, text: str, lines: list[dict] | None):
+    def _speak_narration(self, text: str, lines: list[dict] | None, turn_id: int):
+        if turn_id != self._current_turn_id:
+            return
         if self._tts_config.get("mode") == "text_only":
             return
+
+        self._ui_queue.put(("speaking", None))
         try:
             from tomb_gm.services.tts import speak_scene
             from tomb_gm.services.tts.scene import filter_for_mode
-            from tomb_gm.services.tts.voices import resolve_voice
 
             cache_dir = Path(__file__).resolve().parents[2] / "play" / "workspace" / ".local" / "tts-cache"
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -278,29 +367,59 @@ class App:
             mode = self._tts_config.get("mode", "speak_dialogue")
             speak_lines = lines if lines else None
 
+            if turn_id != self._current_turn_id:
+                return
+
             if speak_lines:
                 filtered = filter_for_mode(speak_lines, mode)
                 for line in filtered:
+                    if turn_id != self._current_turn_id:
+                        return
                     voice = line.get("voice", "narrator")
                     self._ui_queue.put(("speaker", (voice, True)))
 
+            if turn_id != self._current_turn_id:
+                return
+
             speak_scene(text, tts=self._tts_config, cache_dir=cache_dir, lines=speak_lines)
 
-            self._ui_queue.put(("speaker", ("narrator", False)))
         except ImportError:
             pass
         except Exception:
-            self._ui_queue.put(("speaker", ("narrator", False)))
+            pass
+        finally:
+            if turn_id == self._current_turn_id:
+                self._ui_queue.put(("turn_idle", turn_id))
+            else:
+                self._ui_queue.put(("speaker", ("narrator", False)))
 
     def _save_session(self):
         """Persist narration history and visited map cells."""
+        session_id = None
+        campaign_slug = None
+        if self._orchestrator:
+            try:
+                status = self._orchestrator.get_status()
+                active = status.get("active") or {}
+                session_id = active.get("session_id")
+                campaign_slug = active.get("campaign_slug")
+            except Exception:
+                pass
         data = {
+            "session_id": session_id,
+            "campaign_slug": campaign_slug,
             "narration_lines": self.narration.lines[-200:],
             "input_history": self.input_box.history[-50:],
             "visited_cells": list(self.sidebar.map.visited),
             "current_address": self.sidebar.map.current_address,
             "orchestrator_history": (
                 self._orchestrator.history[-40:] if self._orchestrator else []
+            ),
+            "creation_state": (
+                self._orchestrator.export_creation_state() if self._orchestrator else None
+            ),
+            "combat_state": (
+                self._orchestrator.export_combat_state() if self._orchestrator else None
             ),
         }
         try:
@@ -309,7 +428,7 @@ class App:
             pass
 
     def _load_session(self):
-        """Restore UI state from last save."""
+        """Restore UI state from last save, then sync with DB state."""
         if not SAVE_PATH.exists():
             return
         try:
@@ -326,5 +445,22 @@ class App:
 
             if self._orchestrator:
                 self._orchestrator.history = data.get("orchestrator_history", [])
+                # Creation state from UI file is only valid when DB has no roster yet.
+                self._orchestrator.import_creation_state(data.get("creation_state"))
+                self._orchestrator.import_combat_state(data.get("combat_state"))
+                self._orchestrator._sync_creation_from_status()
+                self._orchestrator._sync_combat_from_status()
         except Exception:
             pass
+
+        if self._orchestrator:
+            try:
+                status = self._orchestrator.get_status()
+                party = status.get("party")
+                if party:
+                    real_addr = party.get("address")
+                    if real_addr:
+                        self.sidebar.map.current_address = real_addr
+                        self.sidebar.map.visited.add(real_addr)
+            except Exception:
+                pass

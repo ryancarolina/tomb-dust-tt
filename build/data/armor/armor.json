@@ -1,0 +1,65 @@
+[
+  {
+    "id": "padded",
+    "rulesVersion": "1.0.0",
+    "displayName": "Padded armor",
+    "kind": "armor",
+    "category": "light",
+    "acBonus": 1,
+    "costGp": 5,
+    "weight": 4
+  },
+  {
+    "id": "leather",
+    "rulesVersion": "1.0.0",
+    "displayName": "Leather armor",
+    "kind": "armor",
+    "category": "light",
+    "acBonus": 2,
+    "costGp": 10,
+    "weight": 4
+  },
+  {
+    "id": "studded-leather",
+    "rulesVersion": "1.0.0",
+    "displayName": "Studded leather",
+    "kind": "armor",
+    "category": "light",
+    "acBonus": 3,
+    "costGp": 25,
+    "weight": 4
+  },
+  {
+    "id": "buckler",
+    "rulesVersion": "1.0.0",
+    "displayName": "Buckler",
+    "kind": "shield",
+    "category": "shield",
+    "slot": "offHand",
+    "acBonus": 1,
+    "costGp": 5,
+    "weight": 2
+  },
+  {
+    "id": "shield",
+    "rulesVersion": "2.0.0",
+    "displayName": "Kite shield",
+    "kind": "shield",
+    "category": "shield",
+    "slot": "offHand",
+    "acBonus": 2,
+    "costGp": 10,
+    "weight": 3
+  },
+  {
+    "id": "plate",
+    "rulesVersion": "2.0.0",
+    "displayName": "Plate armor",
+    "kind": "armor",
+    "category": "heavy",
+    "slot": "chest",
+    "acBonus": 8,
+    "costGp": 200,
+    "weight": 20
+  }
+]

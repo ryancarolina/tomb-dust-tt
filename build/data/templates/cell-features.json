@@ -1,0 +1,434 @@
+{
+  "_doc": "Biome-specific feature templates for runtime cell generation. Each terrain type has weighted feature pools. The generation engine rolls 2-5 features per cell from the appropriate pool.",
+  "version": "1.0.0",
+  "featuresByTerrain": {
+    "forest": {
+      "water": [
+        {"name": "woodland stream", "weight": 5, "desc": "Clear water over mossy stones; drinkable"},
+        {"name": "hidden spring", "weight": 3, "desc": "Bubbles up beneath twisted roots; surprisingly cold"},
+        {"name": "stagnant pool", "weight": 2, "desc": "Dark water; insects hover; something moved beneath"}
+      ],
+      "natural": [
+        {"name": "ancient oak", "weight": 4, "desc": "Trunk wider than three men; carvings half-absorbed by bark"},
+        {"name": "mushroom ring", "weight": 3, "desc": "Perfect circle of pale caps; ether-touched or mundane?"},
+        {"name": "rocky outcrop", "weight": 3, "desc": "Boulders thrust from earth; good vantage point"},
+        {"name": "fallen giant", "weight": 2, "desc": "Massive trunk blocks the path; hollow interior large enough to shelter in"},
+        {"name": "dense thicket", "weight": 4, "desc": "Thorny undergrowth; impassable without cutting or crawling"}
+      ],
+      "structures": [
+        {"name": "woodcutter's ruin", "weight": 3, "desc": "Stone foundation and chimney; roof long collapsed"},
+        {"name": "old waystone", "weight": 2, "desc": "Carved marker from a vanished road; moss-covered glyphs"},
+        {"name": "hunter's blind", "weight": 3, "desc": "Platform nailed between trees; rotting but climbable"},
+        {"name": "druid circle", "weight": 1, "desc": "Standing stones in a clearing; flowers grow between regardless of season"}
+      ],
+      "historical": [
+        {"name": "battlefield bones", "weight": 2, "desc": "Scattered remains half-buried in leaf litter; armor fragments"},
+        {"name": "abandoned camp", "weight": 3, "desc": "Cold fire pit, torn canvas, drag marks into the brush"},
+        {"name": "ward-stone", "weight": 1, "desc": "Carved with protective sigils; still faintly warm to touch"}
+      ],
+      "ether": [
+        {"name": "glowing moss", "weight": 2, "desc": "Patches of bioluminescent growth; brighter near thin-veil areas"},
+        {"name": "whispering hollow", "weight": 1, "desc": "Voices carry from within the trunk of a dead tree; nonsense words"}
+      ]
+    },
+    "marsh": {
+      "water": [
+        {"name": "deep pool", "weight": 5, "desc": "Murky water of unknown depth; reeds hide the edge"},
+        {"name": "bubbling vent", "weight": 3, "desc": "Sulfurous gas rises from underwater; smells of rot"},
+        {"name": "peat stream", "weight": 4, "desc": "Tea-dark water flowing sluggishly; tastes of earth"}
+      ],
+      "natural": [
+        {"name": "hummock island", "weight": 4, "desc": "Raised mound of solid ground amid bog; rare dry footing"},
+        {"name": "dead tree stand", "weight": 5, "desc": "Skeletal trunks rising from water; roots provide footholds"},
+        {"name": "reed maze", "weight": 3, "desc": "Tall reeds block sight in every direction; easy to get turned around"},
+        {"name": "sinkhole", "weight": 2, "desc": "Ground gives way without warning; test each step"}
+      ],
+      "structures": [
+        {"name": "causeway pylons", "weight": 3, "desc": "Stone pillars of a sunken road; path between them is passable at low water"},
+        {"name": "sunken shrine", "weight": 2, "desc": "Half-submerged stonework; offerings of bone and cord hang from exposed beams"},
+        {"name": "stilt platform", "weight": 2, "desc": "Wooden platform on rotting stilts; recent repairs suggest use"}
+      ],
+      "historical": [
+        {"name": "mireling burrow", "weight": 4, "desc": "Packed-mud tunnel entrance; scraping sounds from within"},
+        {"name": "pre-Sundering column", "weight": 2, "desc": "Carved stone rising from the muck; glyphs illegible from erosion"},
+        {"name": "sunken bones", "weight": 3, "desc": "Peat-preserved remains visible through water; delver gear still attached"}
+      ],
+      "ether": [
+        {"name": "will-o-wisp trail", "weight": 3, "desc": "Faint lights drift over the water; following them leads deeper into the fen"},
+        {"name": "green glow pool", "weight": 2, "desc": "Bioluminescent — or ether bleed? The water is warm"},
+        {"name": "echo mist", "weight": 1, "desc": "Fog that repeats sounds from hours or days past"}
+      ]
+    },
+    "farmland": {
+      "water": [
+        {"name": "village well", "weight": 4, "desc": "Stone-lined; bucket and rope in good repair"},
+        {"name": "irrigation ditch", "weight": 5, "desc": "Channels water from a distant source; muddy banks"},
+        {"name": "pond", "weight": 3, "desc": "Livestock watering hole; geese patrol the bank"}
+      ],
+      "natural": [
+        {"name": "hedgerow", "weight": 5, "desc": "Dense boundary between fields; berries in season"},
+        {"name": "lone elm", "weight": 3, "desc": "Shade tree at field center; initials carved in bark"},
+        {"name": "wildflower patch", "weight": 2, "desc": "Untilled corner bursting with color; bees everywhere"}
+      ],
+      "structures": [
+        {"name": "stone wall", "weight": 5, "desc": "Dry-stacked boundary wall; old and well-maintained"},
+        {"name": "barn ruin", "weight": 3, "desc": "Collapsed roof; weathered timbers; stored hay rotting"},
+        {"name": "mile marker", "weight": 4, "desc": "Registry stone with distance to nearest settlement"},
+        {"name": "shrine", "weight": 2, "desc": "Small roadside altar; fresh flowers suggest regular visitors"}
+      ],
+      "historical": [
+        {"name": "old fortification", "weight": 2, "desc": "Ash Century earthwork repurposed as sheep pen"},
+        {"name": "burial mound", "weight": 2, "desc": "Grassy hillock; locals know not to dig here"},
+        {"name": "abandoned cottage", "weight": 3, "desc": "Intact but empty; belongings left mid-meal"}
+      ],
+      "ether": [
+        {"name": "crop circle", "weight": 1, "desc": "Perfect geometric pattern in the wheat; appeared overnight"}
+      ]
+    },
+    "road": {
+      "water": [
+        {"name": "roadside spring", "weight": 4, "desc": "Clean water piped into a stone trough; traveler's blessing"},
+        {"name": "bridge crossing", "weight": 3, "desc": "Stone arch over a stream; worn smooth by centuries of traffic"}
+      ],
+      "natural": [
+        {"name": "shade trees", "weight": 4, "desc": "Planted in a line; deliberate rest stop from a bygone era"},
+        {"name": "rockslide", "weight": 2, "desc": "Fresh debris narrows the road; passable on foot but not by cart"}
+      ],
+      "structures": [
+        {"name": "waystation", "weight": 4, "desc": "Roof, fire ring, and hitching post; no walls"},
+        {"name": "toll ruin", "weight": 2, "desc": "Gatehouse with no gate; arrow slits watch empty road"},
+        {"name": "mile post", "weight": 5, "desc": "Registry marker with distances to major settlements"},
+        {"name": "merchant camp", "weight": 3, "desc": "Fire ring, wheel ruts, scattered feed — recently departed"}
+      ],
+      "historical": [
+        {"name": "gallows tree", "weight": 2, "desc": "Iron cage swings from a branch; empty now"},
+        {"name": "war memorial", "weight": 2, "desc": "Names carved in stone; too many to read"}
+      ],
+      "ether": [
+        {"name": "flickering signpost", "weight": 1, "desc": "The destination text changes when you're not looking directly"}
+      ]
+    },
+    "hills": {
+      "water": [
+        {"name": "hillside spring", "weight": 4, "desc": "Crystal water flows from between rocks; ice cold"},
+        {"name": "rain pool", "weight": 3, "desc": "Natural basin in stone; fills after rain, dry otherwise"}
+      ],
+      "natural": [
+        {"name": "boulder field", "weight": 4, "desc": "Scattered stones from an ancient rockslide; good cover"},
+        {"name": "windswept ridge", "weight": 3, "desc": "Bare hilltop; can see for miles in clear weather"},
+        {"name": "ravine", "weight": 3, "desc": "Deep cut in the hillside; difficult to cross without rope"},
+        {"name": "cave entrance", "weight": 2, "desc": "Dark opening in the hillside; animal den or more?"}
+      ],
+      "structures": [
+        {"name": "shepherd's bothy", "weight": 3, "desc": "Stone shelter with turf roof; dry inside"},
+        {"name": "watchtower base", "weight": 2, "desc": "First three stories of a tower; stairs end at sky"},
+        {"name": "cairn", "weight": 4, "desc": "Stacked stones marking a path or a grave"}
+      ],
+      "historical": [
+        {"name": "mine entrance", "weight": 2, "desc": "Timber-framed opening; partially collapsed. Ore veins visible"},
+        {"name": "hill fort earthwork", "weight": 2, "desc": "Concentric ditches from a pre-Registry defense; overgrown but clear from above"}
+      ],
+      "ether": [
+        {"name": "standing stone", "weight": 2, "desc": "Single monolith on the hilltop; hums at dawn and dusk"}
+      ]
+    },
+    "cliff": {
+      "water": [
+        {"name": "waterfall", "weight": 3, "desc": "Cascade dropping into mist below; roar drowns conversation"},
+        {"name": "cliff seep", "weight": 4, "desc": "Water weeps from rock face; mineral stains mark the flow"}
+      ],
+      "natural": [
+        {"name": "ledge path", "weight": 4, "desc": "Narrow trail along the cliff face; exposed to wind"},
+        {"name": "nesting colony", "weight": 3, "desc": "Birds crowd every ledge; guano coats the stone"},
+        {"name": "wind-carved arch", "weight": 2, "desc": "Natural stone bridge between two pinnacles; terrifying to cross"}
+      ],
+      "structures": [
+        {"name": "rope bridge", "weight": 3, "desc": "Swaying span between cliffs; some planks missing"},
+        {"name": "carved steps", "weight": 3, "desc": "Chiseled into the rock face; ancient and worn smooth"},
+        {"name": "hermit cave", "weight": 2, "desc": "Modified natural cavity; smoke-stained ceiling, sleeping niche"}
+      ],
+      "historical": [
+        {"name": "abandoned nest", "weight": 2, "desc": "Something large nested here; shed scales or feathers remain"},
+        {"name": "cliff tomb", "weight": 1, "desc": "Sealed chamber cut into the rock face; ward-marks on the door"}
+      ],
+      "ether": [
+        {"name": "lightning scar", "weight": 2, "desc": "Glass-smooth furrow in the stone; faint static charge remains"},
+        {"name": "echo point", "weight": 2, "desc": "Words spoken here return minutes later, sometimes altered"}
+      ]
+    },
+    "tundra": {
+      "water": [
+        {"name": "ice lake", "weight": 3, "desc": "Frozen surface; dark shapes visible beneath the ice"},
+        {"name": "thermal vent", "weight": 2, "desc": "Steam rises from cracked earth; warm circle in the snow"}
+      ],
+      "natural": [
+        {"name": "ice formation", "weight": 4, "desc": "Wind-carved pillars of ice; beautiful and treacherous"},
+        {"name": "snow drift", "weight": 5, "desc": "Deep accumulation; hides terrain features and possibly dangers"},
+        {"name": "permafrost cliff", "weight": 3, "desc": "Exposed frozen earth; ancient objects sometimes melt free"}
+      ],
+      "structures": [
+        {"name": "ice cairn", "weight": 3, "desc": "Frozen marker; Winter Court boundary or burial?"},
+        {"name": "collapsed shelter", "weight": 2, "desc": "Hide tent crushed by snow; contents may be recoverable"}
+      ],
+      "historical": [
+        {"name": "frozen army", "weight": 1, "desc": "Preserved soldiers in ice; expressions of terror"},
+        {"name": "aurora pillar", "weight": 2, "desc": "Stone column that glows when the aurora is visible overhead"}
+      ],
+      "ether": [
+        {"name": "frost shimmer", "weight": 2, "desc": "Air distortion like heat haze, but freezing cold; ether interface"},
+        {"name": "preserved whispers", "weight": 1, "desc": "Sounds frozen in the air; warming them releases old voices"}
+      ]
+    },
+    "coast": {
+      "water": [
+        {"name": "tidal pool", "weight": 5, "desc": "Trapped sea life between rocks; some bioluminescent at night"},
+        {"name": "freshwater inlet", "weight": 3, "desc": "Stream meets sea; brackish but drinkable upstream"}
+      ],
+      "natural": [
+        {"name": "sea cave", "weight": 3, "desc": "Accessible at low tide; floods at high. Echoes strangely"},
+        {"name": "driftwood pile", "weight": 4, "desc": "Storm debris; firewood and occasionally something useful"},
+        {"name": "sand dunes", "weight": 3, "desc": "Shifting hills of sand; paths change with wind"}
+      ],
+      "structures": [
+        {"name": "beached hull", "weight": 2, "desc": "Half a ship; barnacle-covered. Cargo hold accessible"},
+        {"name": "fishing weir", "weight": 3, "desc": "Stone trap for fish; maintained by nearby villagers"},
+        {"name": "lighthouse ruin", "weight": 1, "desc": "Crumbling tower; light mechanism long removed or destroyed"}
+      ],
+      "historical": [
+        {"name": "whale bones arch", "weight": 2, "desc": "Ancient boundary marker; Aquarid origin according to scholars"},
+        {"name": "sunken pier", "weight": 3, "desc": "Stone pillars extend into deep water; port for larger vessels once"}
+      ],
+      "ether": [
+        {"name": "ghost tide", "weight": 1, "desc": "Water retreats impossibly far on certain nights; things walk the exposed seabed"}
+      ]
+    },
+    "ruins": {
+      "water": [
+        {"name": "cistern", "weight": 4, "desc": "Underground water storage; cracked but partially full"},
+        {"name": "flooded cellar", "weight": 3, "desc": "Water-filled basement accessible through collapsed floor"}
+      ],
+      "natural": [
+        {"name": "overgrown courtyard", "weight": 4, "desc": "Nature reclaiming stone; roots crack walls"},
+        {"name": "collapsed section", "weight": 5, "desc": "Rubble pile; might be passable with care"}
+      ],
+      "structures": [
+        {"name": "intact wall section", "weight": 4, "desc": "Standing masonry; provides shelter from wind"},
+        {"name": "gate arch", "weight": 3, "desc": "Entrance to nothing; the rest is rubble"},
+        {"name": "tower stump", "weight": 2, "desc": "First floor of what was tall; spiral stairs go nowhere"},
+        {"name": "vault entrance", "weight": 2, "desc": "Heavy door, sealed or jammed; leads underground"}
+      ],
+      "historical": [
+        {"name": "inscription wall", "weight": 3, "desc": "Carved text in old script; partially legible"},
+        {"name": "shattered idol", "weight": 2, "desc": "Pieces of a large statue; deity unidentifiable"},
+        {"name": "trapped corridor", "weight": 2, "desc": "Mechanism still active despite centuries of decay"}
+      ],
+      "ether": [
+        {"name": "residual haunting", "weight": 3, "desc": "Shadows replay old events at certain hours; harmless but unsettling"},
+        {"name": "ward-break scar", "weight": 2, "desc": "Blackened stone where protective magic failed violently"}
+      ]
+    },
+    "settlement": {
+      "water": [
+        {"name": "town well", "weight": 5, "desc": "Central water source; social gathering point"},
+        {"name": "fountain", "weight": 2, "desc": "Decorative water feature; may or may not work"}
+      ],
+      "natural": [
+        {"name": "town green", "weight": 4, "desc": "Open grass area; market days and festivals"},
+        {"name": "old tree", "weight": 3, "desc": "Ancient specimen in the square; meetings held beneath it"}
+      ],
+      "structures": [
+        {"name": "inn", "weight": 4, "desc": "Rest and rumors; ale quality varies"},
+        {"name": "smithy", "weight": 3, "desc": "Forge heat and hammer ring; repairs and basic weapons"},
+        {"name": "general store", "weight": 4, "desc": "Supplies, rations, rope, lanterns — the essentials"},
+        {"name": "temple", "weight": 2, "desc": "Place of worship; healing services may be available"},
+        {"name": "Registry office", "weight": 2, "desc": "Map stamps, claim filings, death registrations"}
+      ],
+      "historical": [
+        {"name": "war memorial", "weight": 2, "desc": "Names of the fallen; sobering reminder"},
+        {"name": "old quarter", "weight": 2, "desc": "Oldest buildings; architecture from a different era"}
+      ],
+      "ether": [
+        {"name": "ward boundary", "weight": 2, "desc": "Chalk marks on buildings; protective magic maintained weekly"}
+      ]
+    },
+    "plains": {
+      "water": [
+        {"name": "watering hole", "weight": 4, "desc": "Shallow depression collects rainwater; animal tracks converge"},
+        {"name": "dry creek bed", "weight": 3, "desc": "Sandy channel; flows only after heavy rain"}
+      ],
+      "natural": [
+        {"name": "tall grass sea", "weight": 5, "desc": "Grass above head height; can hide anything"},
+        {"name": "lone tree", "weight": 3, "desc": "Single specimen for miles; landmark for navigation"},
+        {"name": "prairie dog town", "weight": 3, "desc": "Extensive burrow network; ground unstable for horses"},
+        {"name": "wildflower meadow", "weight": 2, "desc": "Seasonal bloom; insects everywhere in summer"}
+      ],
+      "structures": [
+        {"name": "surveyor's stake", "weight": 3, "desc": "Registry marker; mapping in progress"},
+        {"name": "road marker", "weight": 4, "desc": "Pile of stones indicating direction to settlement"},
+        {"name": "windmill ruin", "weight": 2, "desc": "Stone base remains; sails long gone"}
+      ],
+      "historical": [
+        {"name": "battlefield", "weight": 2, "desc": "Weapons and bones surface after heavy rain"},
+        {"name": "nomad campsite", "weight": 3, "desc": "Fire ring and tent-stake holes; used seasonally"}
+      ],
+      "ether": [
+        {"name": "grass circle", "weight": 1, "desc": "Perfect ring where nothing grows; ground is warm"}
+      ]
+    },
+    "mountains": {
+      "water": [
+        {"name": "mountain lake", "weight": 3, "desc": "Crystal clear and freezing; fed by snowmelt"},
+        {"name": "glacier runoff", "weight": 3, "desc": "Milky-white water rushing over stones; loud"}
+      ],
+      "natural": [
+        {"name": "scree slope", "weight": 4, "desc": "Loose rock; every step sends stones tumbling"},
+        {"name": "alpine meadow", "weight": 3, "desc": "Brief flat area between peaks; wildflowers in summer"},
+        {"name": "narrow pass", "weight": 3, "desc": "Only way through for miles; ambush territory"}
+      ],
+      "structures": [
+        {"name": "mountain hut", "weight": 3, "desc": "Emergency shelter; tradition says leave supplies for next traveler"},
+        {"name": "bridge remnant", "weight": 2, "desc": "Anchors on both sides; the span is gone"},
+        {"name": "mine shaft", "weight": 2, "desc": "Timber-framed entrance; ore or something else drew miners here"}
+      ],
+      "historical": [
+        {"name": "dwarf road cobbles", "weight": 2, "desc": "Expertly fitted stones beneath soil; trade road from another age"},
+        {"name": "summit shrine", "weight": 1, "desc": "Offering cairn at the peak; coins from many realms"}
+      ],
+      "ether": [
+        {"name": "peak lightning", "weight": 2, "desc": "Strikes the same point repeatedly; glass formation grows"},
+        {"name": "thin air visions", "weight": 1, "desc": "Altitude or ether? Climbers report seeing impossible things above treeline"}
+      ]
+    },
+    "lake": {
+      "water": [
+        {"name": "deep center", "weight": 3, "desc": "Dark water; locals claim it's bottomless"},
+        {"name": "reed shore", "weight": 5, "desc": "Thick reeds line the bank; good cover for approach or ambush"},
+        {"name": "island", "weight": 2, "desc": "Small landmass visible from shore; unreachable without a boat"}
+      ],
+      "natural": [
+        {"name": "muddy bank", "weight": 4, "desc": "Prints of many creatures; deer, wolves, and something larger"},
+        {"name": "willow grove", "weight": 3, "desc": "Weeping trees line the shore; peaceful in daylight"}
+      ],
+      "structures": [
+        {"name": "fishing dock", "weight": 3, "desc": "Wooden platform; rope and hook marks on posts"},
+        {"name": "boathouse", "weight": 2, "desc": "Roofed shed at water's edge; may contain a vessel"}
+      ],
+      "historical": [
+        {"name": "lake offering", "weight": 2, "desc": "Weapons thrown in as tribute; visible in shallows"},
+        {"name": "crannog ruins", "weight": 1, "desc": "Rotting stilts of a lake dwelling; pre-Registry construction"}
+      ],
+      "ether": [
+        {"name": "mirror surface", "weight": 2, "desc": "On still nights the reflection shows a different sky"}
+      ]
+    },
+    "river": {
+      "water": [
+        {"name": "rapids", "weight": 3, "desc": "White water over rocks; dangerous crossing"},
+        {"name": "calm bend", "weight": 4, "desc": "Slow water at the curve; deep enough to swim"},
+        {"name": "ford", "weight": 3, "desc": "Shallow crossing; stones placed to assist. Known to locals"}
+      ],
+      "natural": [
+        {"name": "gravel bar", "weight": 4, "desc": "Exposed mid-stream; dry at low water"},
+        {"name": "undercut bank", "weight": 3, "desc": "Eroded overhang; could collapse; fish shelter beneath"}
+      ],
+      "structures": [
+        {"name": "old bridge", "weight": 3, "desc": "Stone arch; intact but narrow. Cart-width only"},
+        {"name": "ferry post", "weight": 2, "desc": "Bell and rope; ring for service (if anyone's still running it)"},
+        {"name": "watermill", "weight": 2, "desc": "Wheel turns or sits still; grinding grain or abandoned"}
+      ],
+      "historical": [
+        {"name": "sunken wagon", "weight": 2, "desc": "Cargo scattered downstream; crossing gone wrong"},
+        {"name": "boundary stone", "weight": 3, "desc": "Marks where one territory ends and another begins"}
+      ],
+      "ether": [
+        {"name": "singing current", "weight": 1, "desc": "The water produces musical tones over certain rocks; melody changes seasonally"}
+      ]
+    },
+    "steppe": {
+      "water": [
+        {"name": "oasis pool", "weight": 2, "desc": "Rare water source; animal tracks thick around it"},
+        {"name": "seasonal stream", "weight": 3, "desc": "Dry bed most of the year; raging after storms"}
+      ],
+      "natural": [
+        {"name": "wind-eroded pillars", "weight": 3, "desc": "Natural stone columns shaped by centuries of grit"},
+        {"name": "grass tussocks", "weight": 5, "desc": "Clumped vegetation on otherwise bare ground"},
+        {"name": "badger warren", "weight": 2, "desc": "Extensive burrow network; ground collapses possible"}
+      ],
+      "structures": [
+        {"name": "nomad camp traces", "weight": 4, "desc": "Fire ring, tent stake holes, horse droppings — recent"},
+        {"name": "bone shrine", "weight": 2, "desc": "Stacked animal bones forming a crude altar; offerings of cord and feather"}
+      ],
+      "historical": [
+        {"name": "war totem", "weight": 3, "desc": "Carved post with skull; territorial marker"},
+        {"name": "buried foundation", "weight": 2, "desc": "Stone corners visible at surface; old building consumed by earth"}
+      ],
+      "ether": [
+        {"name": "dust phantom", "weight": 1, "desc": "Whirlwind that holds a humanoid shape; follows for a time, then disperses"}
+      ]
+    },
+    "desert": {
+      "water": [
+        {"name": "buried spring", "weight": 2, "desc": "Damp sand indicates water just below surface; digging reveals it"},
+        {"name": "salt flat", "weight": 4, "desc": "White crust; blinding in sun. Water was here once"}
+      ],
+      "natural": [
+        {"name": "rock arch", "weight": 3, "desc": "Wind-carved natural bridge; shade beneath"},
+        {"name": "sand sea", "weight": 4, "desc": "Dunes shift daily; no fixed landmarks"},
+        {"name": "mesa", "weight": 2, "desc": "Flat-topped rise; defensible and visible for miles"}
+      ],
+      "structures": [
+        {"name": "buried wall", "weight": 3, "desc": "Top of a structure protruding from sand; excavation possible"},
+        {"name": "waypost", "weight": 2, "desc": "Tall stake with directional carvings; may be unreliable"}
+      ],
+      "historical": [
+        {"name": "glass crater", "weight": 2, "desc": "Sand fused by ancient magic or impact; center still radiates faint heat"},
+        {"name": "petrified garden", "weight": 1, "desc": "Stone trees and flowers; once living, now mineral"}
+      ],
+      "ether": [
+        {"name": "mirage gate", "weight": 1, "desc": "Shimmering arch that sometimes shows another place entirely"}
+      ]
+    },
+    "cavern-mouth": {
+      "water": [
+        {"name": "underground stream exit", "weight": 4, "desc": "Water flowing from the cave mouth; source unknown"},
+        {"name": "drip pool", "weight": 3, "desc": "Mineral-rich water collected drop by drop over centuries"}
+      ],
+      "natural": [
+        {"name": "bat colony", "weight": 4, "desc": "Thousands roost inside; emerge at dusk in a dark cloud"},
+        {"name": "overgrown entrance", "weight": 3, "desc": "Vines and roots curtain the opening; deliberate or natural?"},
+        {"name": "rockfall", "weight": 3, "desc": "Partially blocks entrance; passable but tight"}
+      ],
+      "structures": [
+        {"name": "old gate", "weight": 2, "desc": "Iron bars across the opening; rusted but holding. Lock ancient"},
+        {"name": "warning post", "weight": 3, "desc": "Registry marker: danger rating, last survey date, death count"}
+      ],
+      "historical": [
+        {"name": "delver cache", "weight": 2, "desc": "Hidden stash near entrance; rope, pitons, oil flask (some taken)"},
+        {"name": "scratched map", "weight": 1, "desc": "Previous party's route carved into rock face; accuracy unknown"}
+      ],
+      "ether": [
+        {"name": "cold breath", "weight": 2, "desc": "Air from within is unnaturally cold; temperature drops the deeper you listen"},
+        {"name": "depth echo", "weight": 2, "desc": "Sounds return from below with different words than spoken"}
+      ]
+    }
+  },
+  "featureCountByTerrain": {
+    "road": {"min": 2, "max": 3},
+    "settlement": {"min": 3, "max": 5},
+    "farmland": {"min": 2, "max": 4},
+    "forest": {"min": 3, "max": 5},
+    "marsh": {"min": 3, "max": 5},
+    "hills": {"min": 2, "max": 4},
+    "cliff": {"min": 2, "max": 4},
+    "tundra": {"min": 2, "max": 3},
+    "coast": {"min": 2, "max": 4},
+    "ruins": {"min": 3, "max": 5},
+    "plains": {"min": 2, "max": 4},
+    "mountains": {"min": 2, "max": 4},
+    "lake": {"min": 2, "max": 4},
+    "river": {"min": 2, "max": 4},
+    "steppe": {"min": 2, "max": 3},
+    "desert": {"min": 2, "max": 3},
+    "cavern-mouth": {"min": 3, "max": 5}
+  }
+}

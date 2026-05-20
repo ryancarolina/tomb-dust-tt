@@ -124,29 +124,26 @@ def handle_save(args: argparse.Namespace, _ctx_unused: CommandContext | None = N
 
 
 def handle_initiative(args: argparse.Namespace, _ctx_unused: CommandContext | None = None) -> dict:
-    import random
-
-    from tomb_gm.rules.bridge import initiative_total, roll_d20
+    from tomb_gm.services.simulation.combat import roll_round_initiative
 
     ctx = _ctx(args)
     session_id = _session_id(ctx)
     if not session_id:
         return {"ok": False, "error": "NO_ACTIVE_SESSION"}
+    campaign = None
     row = ctx.conn.execute(
-        "SELECT initiative_json FROM combat_state WHERE session_id = ? AND active = 1",
-        (session_id,),
+        "SELECT campaign_slug FROM sessions WHERE id = ?", (session_id,)
     ).fetchone()
-    if not row:
-        return {"ok": False, "error": "no active combat"}
-    rng = random.Random(args.seed) if args.seed is not None else random.Random()
-    order = json.loads(row["initiative_json"] or "[]")
-    rolls = []
-    for entry in order:
-        nat = roll_d20(rng)
-        total = initiative_total(natural=nat, agi_mod=0)
-        rolls.append({**entry, "natural": nat, "initiative": total})
-    rolls.sort(key=lambda r: r["initiative"], reverse=True)
-    return {"ok": True, "initiative": rolls}
+    if row:
+        campaign = row["campaign_slug"]
+    return roll_round_initiative(
+        ctx.conn,
+        session_id,
+        content_root=ctx.config.content_root,
+        campaign_slug=campaign,
+        seed=args.seed,
+        increment_round=bool(getattr(args, "new_round", False)),
+    )
 
 
 def handle_table(args: argparse.Namespace, _ctx_unused: CommandContext | None = None) -> dict:

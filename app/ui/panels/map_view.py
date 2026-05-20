@@ -1,4 +1,4 @@
-"""AV-GRID map — node-based view of known locations with connections."""
+"""AV-GRID map — top-down 3x3 grid showing immediate surroundings."""
 
 from __future__ import annotations
 
@@ -7,9 +7,40 @@ import pygame
 from pathlib import Path
 from ui.theme import (
     BG_SIDEBAR, TEXT_MUTED, TEXT_SECONDARY, TEXT_PRIMARY, BORDER,
-    MAP_CELL, MAP_CELL_ACTIVE, MAP_CELL_VISITED, MAP_BORDER,
     PANEL_PADDING, FONT_SIZE_SMALL,
 )
+
+TERRAIN_COLORS = {
+    "forest": (34, 80, 34),
+    "marsh": (50, 60, 40),
+    "farmland": (90, 100, 50),
+    "road": (100, 90, 70),
+    "cliff": (90, 85, 80),
+    "tundra": (180, 200, 220),
+    "coast": (50, 90, 130),
+    "ruins": (70, 50, 50),
+    "settlement": (110, 90, 60),
+    "plains": (80, 100, 50),
+    "hills": (70, 85, 55),
+    "mountains": (100, 100, 110),
+    "cavern-mouth": (40, 35, 45),
+    "lake": (40, 70, 120),
+    "river": (50, 80, 130),
+    "desert": (140, 120, 70),
+    "steppe": (110, 100, 60),
+}
+
+DANGER_BORDER_COLORS = {
+    None: (60, 65, 70),
+    "hazard": (60, 100, 60),
+    "skirmisher": (130, 130, 50),
+    "elite": (160, 60, 40),
+    "boss": (130, 30, 30),
+}
+
+FOG_COLOR = (30, 32, 38)
+PLAYER_COLOR = (220, 200, 80)
+COMPASS_COLOR = (140, 150, 160)
 
 
 class MapView:
@@ -17,11 +48,15 @@ class MapView:
         self.rect = rect
         self.current_address = "32-C"
         self.visited: set[str] = set()
+        self.scene_index = 1
+        self.scene_max = 3
+        self.heading = "N"
+        self.mode = "surface"
+        self.dungeon_room: str | None = None
+        self.dungeon_exits: list[str] = []
         self._addresses: dict[str, dict] = {}
-        self._surface_cells: list[dict] = []
         self._font = None
-        self._node_rects: list[tuple[pygame.Rect, str, str]] = []
-        self._hover_addr: str | None = None
+        self._font_small = None
         if content_root:
             self._load_grid(content_root)
 
@@ -30,35 +65,33 @@ class MapView:
         if grid_path.is_file():
             data = json.loads(grid_path.read_text(encoding="utf-8"))
             self._addresses = data.get("addresses", {})
-            self._surface_cells = [
-                v for v in self._addresses.values()
-                if isinstance(v, dict) and not v.get("layerStack")
-            ]
-            self._surface_cells.sort(key=lambda c: (c.get("column", 0), c.get("row", "A")))
 
     def _ensure_fonts(self):
         if not self._font:
             self._font = pygame.font.SysFont("Consolas", FONT_SIZE_SMALL)
+            self._font_small = pygame.font.SysFont("Consolas", max(9, FONT_SIZE_SMALL - 2))
 
-    def update_position(self, address: str):
+    def update_position(self, address: str, scene_index: int = 1, scene_max: int = 3,
+                        heading: str = "N", mode: str = "surface",
+                        dungeon_room: str | None = None, dungeon_exits: list[str] | None = None):
         if address:
             self.visited.add(self.current_address)
             self.current_address = address
+            self.visited.add(address)
+        self.scene_index = scene_index
+        self.scene_max = scene_max
+        self.heading = heading
+        self.mode = mode
+        self.dungeon_room = dungeon_room
+        self.dungeon_exits = dungeon_exits or []
 
     def resize(self, rect: pygame.Rect):
         self.rect = rect
 
     def handle_hover(self, pos: tuple[int, int]):
-        self._hover_addr = None
-        for node_rect, addr, _ in self._node_rects:
-            if node_rect.collidepoint(pos):
-                self._hover_addr = addr
-                break
+        pass
 
     def handle_click(self, pos: tuple[int, int]) -> str | None:
-        for node_rect, addr, _ in self._node_rects:
-            if node_rect.collidepoint(pos) and addr != self.current_address:
-                return addr
         return None
 
     def draw(self, screen: pygame.Surface):
@@ -66,102 +99,158 @@ class MapView:
         pygame.draw.rect(screen, BG_SIDEBAR, self.rect)
         pygame.draw.rect(screen, BORDER, self.rect, 1)
 
+        if self.mode == "dungeon":
+            self._draw_dungeon(screen)
+        else:
+            self._draw_surface(screen)
+
+    def _draw_surface(self, screen: pygame.Surface):
+        """Draw 3x3 top-down grid centered on current cell."""
         x = self.rect.left + PANEL_PADDING
         y = self.rect.top + PANEL_PADDING
 
-        label = self._font.render("WORLD MAP", True, TEXT_MUTED)
-        screen.blit(label, (x, y))
-        y += label.get_height() + 6
+        # Title
+        title = self._font.render("MAP", True, TEXT_MUTED)
+        screen.blit(title, (x, y))
+        y += title.get_height() + 4
 
-        self._node_rects.clear()
+        # Get current cell data
+        current = self._addresses.get(self.current_address, {})
+        col = current.get("column", 32)
+        row = current.get("row", "C")
+        row_ord = ord(row)
 
-        current_data = self._addresses.get(self.current_address, {})
-        children = current_data.get("childAddresses", [])
+        # Compute available space for the 3x3 grid
+        available_w = self.rect.width - PANEL_PADDING * 2
+        available_h = self.rect.height - (y - self.rect.top) - PANEL_PADDING - 60
 
-        nodes_to_show = self._get_nearby_nodes()
+        cell_size = min(available_w // 3, available_h // 3, 60)
+        grid_w = cell_size * 3
+        grid_h = cell_size * 3
+        grid_x = x + (available_w - grid_w) // 2
+        grid_y = y + 14
 
-        available_h = self.rect.bottom - y - PANEL_PADDING
-        node_h = 22
-        max_visible = available_h // node_h
+        # Compass labels
+        compass_n = self._font_small.render("N", True, COMPASS_COLOR)
+        compass_s = self._font_small.render("S", True, COMPASS_COLOR)
+        compass_e = self._font_small.render("E", True, COMPASS_COLOR)
+        compass_w = self._font_small.render("W", True, COMPASS_COLOR)
 
-        for i, node in enumerate(nodes_to_show[:max_visible]):
-            addr = node["id"]
-            name = node.get("displayName", addr)
-            is_current = addr == self.current_address
-            is_child = addr in children
-            is_hover = addr == self._hover_addr
-            is_visited = addr in self.visited
+        screen.blit(compass_n, (grid_x + grid_w // 2 - compass_n.get_width() // 2, grid_y - 12))
+        screen.blit(compass_s, (grid_x + grid_w // 2 - compass_s.get_width() // 2, grid_y + grid_h + 2))
+        screen.blit(compass_w, (grid_x - 12, grid_y + grid_h // 2 - compass_w.get_height() // 2))
+        screen.blit(compass_e, (grid_x + grid_w + 3, grid_y + grid_h // 2 - compass_e.get_height() // 2))
 
-            node_rect = pygame.Rect(x, y + i * node_h, self.rect.width - PANEL_PADDING * 2, node_h - 2)
-            self._node_rects.append((node_rect, addr, name))
+        # Draw 3x3 grid (row A = north, so row_ord-1 = north)
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                cell_col = col + dx
+                cell_row_ord = row_ord + dy
+                if cell_row_ord < ord("A") or cell_row_ord > ord("Z"):
+                    continue
+                if cell_col < 1 or cell_col > 60:
+                    continue
 
-            if is_current:
-                bg_color = MAP_CELL_ACTIVE
-                text_color = TEXT_PRIMARY
-            elif is_hover:
-                bg_color = (60, 80, 100)
-                text_color = TEXT_PRIMARY
-            elif is_visited:
-                bg_color = MAP_CELL_VISITED
-                text_color = TEXT_SECONDARY
-            else:
-                bg_color = MAP_CELL
-                text_color = TEXT_SECONDARY
+                cell_id = f"{cell_col}-{chr(cell_row_ord)}"
+                cell_data = self._addresses.get(cell_id)
 
-            pygame.draw.rect(screen, bg_color, node_rect, border_radius=3)
+                gx = grid_x + (dx + 1) * cell_size
+                gy = grid_y + (dy + 1) * cell_size
+                cell_rect = pygame.Rect(gx, gy, cell_size - 2, cell_size - 2)
 
-            prefix = ""
-            if is_current:
-                prefix = "> "
-            elif is_child:
-                prefix = "  v "
-            elif is_visited:
-                prefix = "  . "
-            else:
-                prefix = "  - "
+                is_current = (dx == 0 and dy == 0)
+                is_visited = cell_id in self.visited
 
-            display = f"{prefix}{name}"
-            addr_tag = f" [{addr}]"
-            name_w = self._font.size(display)[0]
-            if name_w + self._font.size(addr_tag)[0] < node_rect.width - 4:
-                display += addr_tag
+                if cell_data and (is_visited or is_current):
+                    terrain = cell_data.get("terrain", "plains")
+                    bg = TERRAIN_COLORS.get(terrain, (50, 55, 60))
+                    danger = cell_data.get("dangerRating")
+                    border_color = DANGER_BORDER_COLORS.get(danger, (60, 65, 70))
+                else:
+                    bg = FOG_COLOR
+                    border_color = (45, 48, 52)
 
-            text_surf = self._font.render(display, True, text_color)
-            screen.blit(text_surf, (node_rect.left + 4, node_rect.top + 2))
+                pygame.draw.rect(screen, bg, cell_rect)
+                border_w = 2 if is_current else 1
+                pygame.draw.rect(screen, border_color, cell_rect, border_w)
 
-    def _get_nearby_nodes(self) -> list[dict]:
-        """Get current location + its children + adjacent surface cells."""
-        current_data = self._addresses.get(self.current_address)
-        if not current_data or not isinstance(current_data, dict):
-            return [{"id": self.current_address, "displayName": self.current_address}]
+                if is_current:
+                    # Draw player marker
+                    center = cell_rect.center
+                    pygame.draw.circle(screen, PLAYER_COLOR, center, cell_size // 6)
+                    # Heading arrow
+                    arrow_len = cell_size // 4
+                    arrow_offsets = {"N": (0, -arrow_len), "S": (0, arrow_len),
+                                     "E": (arrow_len, 0), "W": (-arrow_len, 0)}
+                    off = arrow_offsets.get(self.heading, (0, -arrow_len))
+                    pygame.draw.line(screen, PLAYER_COLOR, center,
+                                     (center[0] + off[0], center[1] + off[1]), 2)
+                elif is_visited and cell_data:
+                    # Small visited dot
+                    pygame.draw.circle(screen, (100, 110, 90), cell_rect.center, 3)
 
-        result = [current_data]
-        children = current_data.get("childAddresses", [])
-        for child_addr in children:
-            child = self._addresses.get(child_addr)
-            if child and isinstance(child, dict):
-                result.append(child)
+                # Settlement/landmark indicator
+                if cell_data and cell_data.get("population") in ("town", "fortress", "city"):
+                    # Small square indicator
+                    ind_size = 5
+                    ind_rect = pygame.Rect(cell_rect.right - ind_size - 3, cell_rect.top + 3, ind_size, ind_size)
+                    pygame.draw.rect(screen, (180, 160, 80), ind_rect)
 
-        current_col = current_data.get("column", 0)
-        current_row = current_data.get("row", "A")
+        # Location name and scene progress below grid
+        info_y = grid_y + grid_h + 16
+        display_name = current.get("displayName", self.current_address)
+        name_surf = self._font.render(display_name, True, TEXT_PRIMARY)
+        screen.blit(name_surf, (x, info_y))
+        info_y += name_surf.get_height() + 3
 
-        for cell in self._surface_cells:
-            addr = cell.get("id", "")
-            if addr == self.current_address:
-                continue
-            col = cell.get("column", 0)
-            row = cell.get("row", "A")
-            if abs(col - current_col) <= 2 and abs(ord(row) - ord(current_row)) <= 2:
-                result.append(cell)
+        # Scene progress dots
+        scene_text = f"Scene {self.scene_index}/{self.scene_max}"
+        dots = ""
+        for i in range(self.scene_max):
+            dots += "●" if i < self.scene_index else "○"
+        scene_surf = self._font_small.render(f"{scene_text}  {dots}  [{self.heading}]", True, TEXT_SECONDARY)
+        screen.blit(scene_surf, (x, info_y))
 
-        seen = set()
-        deduped = []
-        for node in result:
-            nid = node.get("id", "")
-            if nid not in seen:
-                seen.add(nid)
-                deduped.append(node)
-        return deduped
+    def _draw_dungeon(self, screen: pygame.Surface):
+        """Draw dungeon room view with exits."""
+        x = self.rect.left + PANEL_PADDING
+        y = self.rect.top + PANEL_PADDING
+
+        title = self._font.render("DUNGEON", True, TEXT_MUTED)
+        screen.blit(title, (x, y))
+        y += title.get_height() + 8
+
+        # Current room
+        room_name = self.dungeon_room or "Unknown Room"
+        room_surf = self._font.render(room_name, True, TEXT_PRIMARY)
+        screen.blit(room_surf, (x, y))
+        y += room_surf.get_height() + 6
+
+        # Room box
+        box_size = min(self.rect.width - PANEL_PADDING * 2, 80)
+        box_x = x + (self.rect.width - PANEL_PADDING * 2 - box_size) // 2
+        box_rect = pygame.Rect(box_x, y, box_size, box_size)
+        pygame.draw.rect(screen, (50, 45, 55), box_rect)
+        pygame.draw.rect(screen, (100, 80, 60), box_rect, 2)
+
+        # Player dot in center
+        pygame.draw.circle(screen, PLAYER_COLOR, box_rect.center, 5)
+        y += box_size + 8
+
+        # Exits
+        if self.dungeon_exits:
+            exits_label = self._font_small.render("Exits:", True, TEXT_MUTED)
+            screen.blit(exits_label, (x, y))
+            y += exits_label.get_height() + 3
+            for exit_name in self.dungeon_exits[:6]:
+                exit_surf = self._font_small.render(f"  > {exit_name}", True, TEXT_SECONDARY)
+                screen.blit(exit_surf, (x, y))
+                y += exit_surf.get_height() + 2
+
+        # Address
+        y += 4
+        addr_surf = self._font_small.render(f"[{self.current_address}]", True, TEXT_MUTED)
+        screen.blit(addr_surf, (x, y))
 
     def _parse_address(self, address: str) -> tuple[int, str]:
         parts = address.split("-")

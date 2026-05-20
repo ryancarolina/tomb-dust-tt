@@ -1,0 +1,48 @@
+{
+  "id": "ash-shade",
+  "rulesVersion": "1.1.0",
+  "displayName": "Ash Shade",
+  "docPath": "systems/monsters/ash-shade.md",
+  "lore": {
+    "origin": "Necromantic residue from Army of Ash and thin-veil bleed.",
+    "description": "Humanoid silhouettes of cinder that claw at warmth.",
+    "weaknesses": "Radiant damage; bright light suppresses merge."
+  },
+  "statBlocks": [
+    {
+      "id": "hazard",
+      "displayName": "Ash Shade",
+      "tier": "hazard",
+      "ac": 13,
+      "hp": 14,
+      "move": 6,
+      "pb": 2,
+      "attributes": { "STR": 1, "AGI": 2, "STA": 0, "INT": -2, "SPI": 0 },
+      "actions": [
+        {
+          "name": "Cinder Claw",
+          "text": "1d6+2 slashing.",
+          "attack": { "toHit": 4, "damage": "1d6+2", "damageType": "slashing" }
+        }
+      ]
+    },
+    {
+      "id": "elite",
+      "displayName": "Ash Herald",
+      "tier": "elite",
+      "ac": 15,
+      "hp": 45,
+      "move": 8,
+      "pb": 3,
+      "attributes": { "STR": 2, "AGI": 3, "STA": 2, "INT": 0, "SPI": 1 },
+      "actions": [
+        {
+          "name": "Grave Claw",
+          "text": "2d6+3 necrotic.",
+          "attack": { "toHit": 6, "damage": "2d6+3", "damageType": "necrotic" }
+        }
+      ]
+    }
+  ],
+  "treasure": []
+}

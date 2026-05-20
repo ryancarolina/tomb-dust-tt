@@ -8,11 +8,14 @@ tts:
   mode: speak_dialogue
   voice: en-US-GuyNeural
   rate: "+0%"
-  npc_voice_default: en-US-JennyNeural
+  npc_voice_default_male: en-US-AndrewNeural
+  npc_voice_default_female: en-US-JennyNeural
   npc_voices:
     marshal-garrick-holt: en-US-SteffanNeural
     postern-clerk: en-US-ChristopherNeural
     breley-sergeant: en-US-EricNeural
+    npc-male: en-US-AndrewNeural
+    npc-female: en-US-JennyNeural
 
 ui:
   window_width: 1280

@@ -36,13 +36,15 @@ Mastery at high levels is expressed through **techniques** at levels 3, 6, and 9
 `d20 + AGI mod + PB + weapon skill bonus` vs **AC**
 
 **Spell attack:**  
-`d20 + INT mod + PB + Spellcasting skill bonus` vs **AC**
+`d20 + casting_mod + PB + Spellcasting skill bonus` vs **AC**
+
+**Casting mod:** **INT** for arcane tradition; **SPI** for divine tradition (see [magic/schools.md](../magic/schools.md)).
 
 **Spell save DC** (when the effect allows a save):  
-`DC = 8 + INT mod + PB` (caster)
+`DC = 8 + casting_mod + PB + Spellcasting skill bonus` (+1 if **Spell Focus** matches the spell’s school)
 
-**Save:**  
-`d20 + SPI mod + PB + Magical Defense skill bonus` (vs. magical effects; see below)
+**Save vs spell:**  
+`d20 + SPI mod + PB + Magical Defense skill bonus` vs caster’s spell save DC (+2 vs one school if **Spell Resistance** matches)
 
 ## Magical Defense (SPI)
 

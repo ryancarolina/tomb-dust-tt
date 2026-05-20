@@ -1,0 +1,56 @@
+[
+  {
+    "id": "pyromancy",
+    "rulesVersion": "1.1.0",
+    "displayName": "Pyromancy",
+    "tradition": "arcane",
+    "themes": ["fire", "heat", "smoke"],
+    "typicalSites": ["forges", "ash wights"],
+    "docPath": "systems/magic/schools.md"
+  },
+  {
+    "id": "ward",
+    "rulesVersion": "1.1.0",
+    "displayName": "Ward",
+    "tradition": "arcane",
+    "themes": ["barriers", "dismissal", "binding"],
+    "typicalSites": ["tombs", "registry wards"],
+    "docPath": "systems/magic/schools.md"
+  },
+  {
+    "id": "biomancy",
+    "rulesVersion": "1.1.0",
+    "displayName": "Biomancy",
+    "tradition": "arcane",
+    "themes": ["plants", "poison", "healing sap"],
+    "typicalSites": ["woods", "verdant vale"],
+    "docPath": "systems/magic/schools.md"
+  },
+  {
+    "id": "necromancy",
+    "rulesVersion": "1.1.0",
+    "displayName": "Necromancy",
+    "tradition": "arcane",
+    "themes": ["dead", "fear", "cold grave"],
+    "typicalSites": ["undercrypts", "shadowfen"],
+    "docPath": "systems/magic/schools.md"
+  },
+  {
+    "id": "ether",
+    "rulesVersion": "1.1.0",
+    "displayName": "Ether",
+    "tradition": "arcane",
+    "themes": ["thin-veil", "force", "disruption"],
+    "typicalSites": ["EP layers", "larvae"],
+    "docPath": "systems/magic/schools.md"
+  },
+  {
+    "id": "divine",
+    "rulesVersion": "1.1.0",
+    "displayName": "Divine",
+    "tradition": "divine",
+    "themes": ["light", "consecration", "mend"],
+    "typicalSites": ["chapels", "novice paths"],
+    "docPath": "systems/magic/schools.md"
+  }
+]

@@ -20,6 +20,7 @@ Conditions modify AC, movement, actions, attacks, and saves. They stack unless t
 | **Prone** | Normal | Crawl only (half speed) or stand (half speed) | Melee vs you **advantage**; ranged vs you **disadvantage**; your attacks **disadvantage** | — | Stand as movement |
 | **Invisible** | Normal | Normal | Attacks vs you **disadvantage**; your attacks **advantage** | — | Ends when you attack or are hit (unless ability says otherwise) |
 | **Poisoned** | Normal | Normal | **Disadvantage** on attacks and ability checks | Often STA vs poison DC | Duration or antidote; see effect |
+| **Downed** | Normal | **0** | Conscious; **no attacks**; may heal, stabilize others, Disengage | Normal | Heal above 0 HP; see [encounter.md](encounter.md) |
 | **Dying** | Normal | **0** | Unconscious; cannot act | Auto-**fail** STR/AGI saves | Stabilize (Medicine DC 13); see [encounter.md](encounter.md) |
 
 ---
@@ -130,11 +131,24 @@ Toxins, venom, or alchemical affliction.
 
 ---
 
+## Downed
+
+At **0 HP**, **conscious**, not yet dead (see [encounter.md](encounter.md)).
+
+- **Prone** unless a rule keeps you standing.
+- **Speed 0** unless **Disengage** or a technique allows crawling away.
+- May take **only** actions that **restore HP**, **stabilize** an ally, **Disengage**, or **flee**—**no attacks**, casts that deal damage, or similar.
+- Any **damage** while Downed causes **death**.
+
+**Ends when:** healed above 0 HP, or death.
+
+---
+
 ## Dying
 
-At **0 HP** and not yet dead (see [encounter.md](encounter.md)).
+At **0 HP**, **unconscious**, not yet dead (failed the consciousness roll at 0 HP; see [encounter.md](encounter.md)).
 
-- **Unconscious** and **prone** (unless a rule keeps you standing).
+- **Unconscious** and **prone**.
 - **Speed 0**; cannot take **actions**, **bonus actions**, or **reactions**.
 - **Auto-fail** STR and AGI saves.
 - Any **damage** while Dying causes **death**.

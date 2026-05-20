@@ -124,6 +124,19 @@ def starting_kit(content_root: Path, base_class: str) -> dict[str, Any]:
     return kit
 
 
+def starting_kit_inventory(content_root: Path, base_class: str) -> dict[str, Any]:
+    """Build unified v3 inventory from class starting kit."""
+    from tomb_gm.domain.inventory import empty_inventory, kit_to_pack
+    from tomb_gm.services.content import ContentService
+
+    kit = starting_kit(content_root, base_class)
+    content = ContentService(content_root)
+    pack = kit_to_pack(kit.get("items", []), item_lookup=content.items_lookup())
+    inv = empty_inventory()
+    inv["pack"] = pack
+    return inv
+
+
 def run_creation_pipeline(
     *,
     content_root: Path,

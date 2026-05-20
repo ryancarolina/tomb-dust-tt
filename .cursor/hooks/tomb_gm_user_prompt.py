@@ -111,8 +111,8 @@ def _active_session_context() -> str | None:
     if prompts:
         lines.append(f"- **Prompt:** {prompts[0]}")
 
-    lines.append("- **Dice:** GM rolls via CLI (`roll attributes`, `roll d20`, …) — never ask players to roll.")
-    lines.append("- Follow `.cursor/skills/tomb-gm/SKILL.md` (GM Orchestrator).")
+    lines.append("- **Play:** users run the PyGame app (`app/main.py`) — do NOT suggest `@tomb-gm` or CLI for playing.")
+    lines.append("- **CLI here is developer/debug only** — not player instructions.")
     return "\n".join(lines)
 
 

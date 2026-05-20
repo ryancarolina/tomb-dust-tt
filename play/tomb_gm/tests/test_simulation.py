@@ -1,89 +1,35 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
-REPO = Path(__file__).resolve().parents[3]
-PLAY = REPO / "play"
-WORKSPACE = PLAY / "workspace"
+PLAY = Path(__file__).resolve().parents[3] / "play"
 
 
-def _run(*args: str, seed: int | None = None) -> dict:
-    import os
-
-    cmd = [sys.executable, "-m", "tomb_gm", "--workspace", str(WORKSPACE)]
-    if seed is not None:
-        cmd.extend(["--seed", str(seed)])
-    cmd.extend(args)
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=str(PLAY),
-        env=os.environ,
-    )
-    assert proc.returncode == 0, proc.stderr or proc.stdout
-    return json.loads(proc.stdout)
-
-
-def _run_json(*args: str, seed: int | None = None) -> dict:
-    import os
-
-    cmd = [sys.executable, "-m", "tomb_gm", "--workspace", str(WORKSPACE)]
-    if seed is not None:
-        cmd.extend(["--seed", str(seed)])
-    cmd.extend(args)
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=str(PLAY),
-        env=os.environ,
-    )
-    return json.loads(proc.stdout or proc.stderr)
-
-
-def _db() -> sqlite3.Connection:
-    from tomb_gm.config import load_config
-
-    cfg = load_config(WORKSPACE)
-    conn = sqlite3.connect(cfg.db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _seed_session(session_id: str = "test-session-ws6") -> None:
-    from tomb_gm.config import load_config
-
-    cfg = load_config(WORKSPACE)
+def _seed_session(test_config, test_db, session_id: str = "test-session-ws6") -> None:
     now = datetime.now(timezone.utc).isoformat()
-    conn = _db()
-    conn.execute(
+    test_db.execute(
         "INSERT OR IGNORE INTO campaigns (slug, display_name, created_at, updated_at) "
         "VALUES (?, ?, ?, ?)",
         ("test-campaign", "Test", now, now),
     )
-    conn.execute(
+    test_db.execute(
         "INSERT OR REPLACE INTO sessions (id, campaign_slug, started_at, phase) VALUES (?, ?, ?, ?)",
         (session_id, "test-campaign", now, "delve"),
     )
-    conn.execute(
+    test_db.execute(
         "INSERT OR REPLACE INTO party_state (session_id, address, mode, phase) "
         "VALUES (?, ?, ?, ?)",
         (session_id, "32-C", "surface", "delve"),
     )
-    conn.commit()
-    cfg.active_path.write_text(
+    test_db.commit()
+    test_config.active_path.write_text(
         json.dumps({"session_id": session_id, "campaign_slug": "test-campaign"}),
         encoding="utf-8",
     )
-    conn.close()
 
 
 def test_bridge_skill_bonus():
@@ -93,9 +39,9 @@ def test_bridge_skill_bonus():
     assert skill_bonus(10) == 4
 
 
-def test_roll_d20_seeded():
-    _run("init")
-    out = _run("roll", "d20", "--mod", "5", "--dc", "13", "--reason", "test", seed=42)
+def test_roll_d20_seeded(run_tomb_gm):
+    run_tomb_gm("init")
+    out = run_tomb_gm("roll", "d20", "--mod", "5", "--dc", "13", "--reason", "test", seed=42)
     assert out["ok"] is True
     assert out["natural"] == 4
     assert out["total"] == 9
@@ -103,13 +49,11 @@ def test_roll_d20_seeded():
     assert out["roll_id"].startswith("evt-")
 
 
-def test_roll_d20_logs_event():
-    _run("init")
-    out = _run("roll", "d20", "--mod", "0", "--dc", "10", seed=1)
+def test_roll_d20_logs_event(run_tomb_gm, test_db):
+    run_tomb_gm("init")
+    out = run_tomb_gm("roll", "d20", "--mod", "0", "--dc", "10", seed=1)
     evt_id = int(out["roll_id"].split("-", 1)[1])
-    conn = _db()
-    row = conn.execute("SELECT type, payload_json FROM events WHERE id = ?", (evt_id,)).fetchone()
-    conn.close()
+    row = test_db.execute("SELECT type, payload_json FROM events WHERE id = ?", (evt_id,)).fetchone()
     assert row is not None
     assert row["type"] == "roll"
     payload = json.loads(row["payload_json"])
@@ -117,9 +61,9 @@ def test_roll_d20_logs_event():
     assert payload["natural"] == out["natural"]
 
 
-def test_roll_attack_vs_ghoul_ac():
-    _run("init")
-    out = _run(
+def test_roll_attack_vs_ghoul_ac(run_tomb_gm):
+    run_tomb_gm("init")
+    out = run_tomb_gm(
         "roll",
         "attack",
         "--ability-mod",
@@ -144,20 +88,10 @@ def test_roll_attack_vs_ghoul_ac():
     assert out["damage"] == 17
 
 
-def test_combat_start_status_end():
-    from tomb_gm.config import load_config
-
-    _run("init")
-    _seed_session()
-    cfg = load_config(WORKSPACE)
-    try:
-        _combat_start_status_end(cfg)
-    finally:
-        cfg.active_path.unlink(missing_ok=True)
-
-
-def _combat_start_status_end(cfg) -> None:
-    start = _run("combat", "start", "--monsters", "grave-ghoul:1", seed=7)
+def test_combat_start_status_end(run_tomb_gm, test_config, test_db):
+    run_tomb_gm("init")
+    _seed_session(test_config, test_db)
+    start = run_tomb_gm("combat", "start", "--monsters", "grave-ghoul:1", seed=7)
     assert start["ok"] is True
     assert len(start["combatants"]) == 1
     ghoul = start["combatants"][0]
@@ -165,47 +99,41 @@ def _combat_start_status_end(cfg) -> None:
     assert ghoul["hp"] == 28
     assert ghoul["ac"] == 13
 
-    status = _run("combat", "status")
+    status = run_tomb_gm("combat", "status")
     assert status["ok"] is True
     assert status["round"] == 1
     assert len(status["combatants"]) == 1
 
-    ended = _run("combat", "end")
+    ended = run_tomb_gm("combat", "end")
     assert ended["ok"] is True
 
-    after = _run_json("combat", "status")
+    after = run_tomb_gm("combat", "status", expect_ok=False)
     assert after["ok"] is False
 
 
-def test_combat_unknown_monster():
-    from tomb_gm.config import load_config
+def test_combat_unknown_monster(run_tomb_gm, test_config, test_db, isolated_workspace):
+    import os
 
-    _run("init")
-    _seed_session()
-    cfg = load_config(WORKSPACE)
-    try:
-        import os
-
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tomb_gm",
-                "--workspace",
-                str(WORKSPACE),
-                "combat",
-                "start",
-                "--monsters",
-                "not-a-real-monster:1",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=str(PLAY),
-            env=os.environ,
-        )
-        assert proc.returncode != 0
-    finally:
-        cfg.active_path.unlink(missing_ok=True)
+    run_tomb_gm("init")
+    _seed_session(test_config, test_db)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tomb_gm",
+            "--workspace",
+            str(isolated_workspace),
+            "combat",
+            "start",
+            "--monsters",
+            "not-a-real-monster:1",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(PLAY),
+        env=os.environ,
+    )
+    assert proc.returncode != 0
 
 
 def test_resolve_attack_walkthrough():

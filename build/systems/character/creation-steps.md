@@ -72,6 +72,17 @@ Choose skills only from the canon skill files ([skills/README.md](../skills/READ
 
 The other two starting skills may be **any** valid skills (including another class-matching skill).
 
+### Step 3 — Schools and spells (Apprentice / Novice with Spellcasting)
+
+If your class is **Apprentice** or **Novice** and you took **Spellcasting**:
+
+| Class | Schools | Starting spells |
+|-------|---------|-----------------|
+| **Apprentice** | Pick **2 arcane** schools | Pick **2 tier-1** spells from those schools |
+| **Novice** | **Divine** + **1 other** school | Pick **2 tier-1** spells (at least one divine) |
+
+Record spell IDs on the sheet (`knownSpells`). See [magic/schools.md](../magic/schools.md) and [magic/spells.md](../magic/spells.md). Data: [`data/character/starting-spells.json`](../../data/character/starting-spells.json).
+
 ### Optional — skill on tier promotion
 
 When you **promote to a new class tier** ([classes/progression.md](../classes/progression.md)), you may gain **+1 additional skill at level 1** (GM table rule). This is optional; groups that prefer slower breadth can skip it. Promoted characters still raise existing skills through XP and gold per [skills/progression.md](../skills/progression.md).

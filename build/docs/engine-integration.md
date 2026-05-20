@@ -9,9 +9,9 @@ Contract between **this repository** (canon rules + world data) and any **playab
 | Repo | Owns | Does not own |
 |------|------|--------------|
 | **`build/`** | `systems/` rules prose, `data/av-grid/`, content JSON, validators, `tools/rules_engine/` | Session saves, player SQLite |
-| **`play/`** | `workspace/` saves, `tomb_gm/` engine, Cursor AI GM — [play/README.md](../../play/README.md) | Canon edits; does not replace `build/data` or `build/systems` |
+| **`play/`** | `workspace/` saves, `tomb_gm/` engine (used by the app) — [play/README.md](../../play/README.md) | Canon edits; does not replace `build/data` or `build/systems` |
 | **Game project** (e.g. sibling Unity/Godot build) | Runtime sim, UI, persistence implementation, content hot-load | Authoritative rule changes without syncing this repo |
-| **Cursor AI GM** (planned) | Agent + `play/tomb_gm` CLI — [play/docs/cursor-tomb-gm-spec.md](../../play/docs/cursor-tomb-gm-spec.md) | Rule changes without content PRs in `build/` |
+| **Standalone app** | [`app/main.py`](../../app/main.py) — PyGame + LLM GM via `GameBridge` | Rule changes without content PRs in `build/` |
 
 **Rule of thumb:** if it affects **d20 math**, **AV-GRID**, or **mechanical content IDs**, it lands here first; the game **consumes** pinned exports.
 
@@ -72,12 +72,32 @@ Engines should resolve monster **`id`** slugs, not display names.
 
 ---
 
+## Inventory v3 (character sheet + account stash)
+
+**Version:** `inventory.inventoryVersion === 3` on character sheets and `account_state.stash`.
+
+| Concept | Location | Notes |
+|---------|----------|--------|
+| Personal pack | `characters.sheet_json.inventory.pack[]` | 14 equipment slots; stackables use `quantity` / `uses` |
+| Account stash | `campaigns.account_state_json.stash.pack[]` | Persists on PC death; hub-only transfer |
+| Instance IDs | `instanceId` (`it-xxxxxxxx`) | Re-issue on corpse→looter and stash cross-boundary via `clone_pack_entries(reid=True)` |
+| Loot grants | `grant_loot()` in `play/tomb_gm/services/loot_resolver.py` | All mechanical loot; never narration-only |
+| Hub gates | `party_state.mode === "surface"` + AV-GRID `services.stash` / `vendorIds` / `fence` | See `play/tomb_gm/services/hub.py` |
+
+**CLI:** `inventory list|equip|unequip|use` · `economy buy|sell|stash` (by `--instance` where applicable)
+
+**Migration:** v2→v3 on `ensure_normalized()` — `body`→`chest`, `rations-N`→`rations` + `uses`, stack merge.
+
+**Deferred:** encumbrance (TD-023/TD-057); composable loot-table v2 JSON (v1 adapter active); ammo auto-decrement on ranged attacks (use `inventory use` manually).
+
+---
+
 ## Drift prevention
 
 | Change type | Required action |
 |-------------|----------------|
 | New location | `av-grid.json` + validate + location markdown AV-GRID field |
-| New weapon/spell | JSON + schema + `systems/` doc sync |
+| New weapon/spell | JSON + schema + `systems/magic/` doc sync |
 | Rule math change | Bump `rulesVersion`; update `tools/rules_engine` tests |
 | Breaking grid | Bump `av-grid.json` `version` |
 
@@ -90,4 +110,6 @@ Do **not** fork parallel rule files (`option-d-*`). One d20 system only.
 - [AGENTS.md](../../AGENTS.md) — agent and content workflow
 - [data/schemas/README.md](../data/schemas/README.md) — entity schemas
 - [RULESCHANGELOG.md](../RULESCHANGELOG.md) — semver history (when bumped)
-- [play/docs/cursor-tomb-gm-spec.md](../../play/docs/cursor-tomb-gm-spec.md) — Cursor AI GM
+- [app/README.md](../../app/README.md) — **how to play** (PyGame client)
+- [tmp/app-gamebridge-spec.md](../../tmp/app-gamebridge-spec.md) — app ↔ engine API
+- [tmp/app-master-spec.md](../../tmp/app-master-spec.md) — app development spec registry

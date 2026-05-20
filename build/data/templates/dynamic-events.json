@@ -1,0 +1,140 @@
+{
+  "_doc": "Dynamic event tables rolled during scene advancement. 1d6: 1=encounter, 2=NPC/event, 3-6=quiet. Context-specific tables by region and terrain.",
+  "version": "1.0.0",
+  "encountersByRegion": {
+    "silversea_coast": [
+      "Coastal bandits demand toll (2-3 thugs)",
+      "Giant crab emerges from tide pool",
+      "Sea-wolves (aquatic pack hunters)",
+      "Smuggler crew caught mid-transfer — hostile or bribable"
+    ],
+    "frostspire": [
+      "Ice wolf pack (3-4)",
+      "Yeti territorial warning display",
+      "Frost elemental forming from blizzard",
+      "Winter Court patrol — papers required"
+    ],
+    "skyreach": [
+      "Sky serpent swooping from above",
+      "Dusk bat swarm (disturbed colony)",
+      "Rock slide (AGI DC 12 to dodge)",
+      "Mountain lion stalking from ledge"
+    ],
+    "whispering_marches": [
+      "Thornwolf pack (2-4)",
+      "Ether larva cluster (thin-veil bleed)",
+      "Bandit ambush (unlicensed delvers)",
+      "Giant spider web blocking path"
+    ],
+    "heartlands": [
+      "Bandit highwayman demands gold",
+      "Wild boar charges from undergrowth",
+      "Deserter militia squad — desperate",
+      "Grave ghouls from disturbed burial mound"
+    ],
+    "transition": [
+      "Thornwolf pack (3-5, larger than normal)",
+      "Bandit camp scouting party",
+      "Iron Pact enforcers — hostile to unlicensed",
+      "Displaced creature (from deeper wilderness)"
+    ],
+    "shadowfen": [
+      "Mireling ambush from bog pools (3-5)",
+      "Fen stalker hunting",
+      "Gloomspider nest disturbed",
+      "Etherwraith manifestation (thin-veil surge)"
+    ],
+    "eastern_wastes": [
+      "Orc raiding party (4-6)",
+      "Centaur nomad warriors — territorial",
+      "Sand wyrm rumbling underfoot",
+      "Scavenger beast pack"
+    ],
+    "northern_highlands": [
+      "Mountain troll blocking pass",
+      "Eagle swarm (nesting season)",
+      "Rock golem awakened by vibration",
+      "Bandit camp at chokepoint"
+    ],
+    "central_plains": [
+      "Aurochs stampede (AGI DC 13 to avoid)",
+      "Bandit mounted patrol",
+      "Wild dog pack (4-6)",
+      "Prairie fire approaching (escape or burn)"
+    ]
+  },
+  "npcEventsByRegion": {
+    "silversea_coast": [
+      "Aquarid trader surfaces with pearls to barter",
+      "Shipwrecked sailor needs rescue — or is setting a trap",
+      "Lighthouse keeper's ghost seeking completion",
+      "Fisherman warns of sea creature sightings"
+    ],
+    "frostspire": [
+      "Ice prospector shares campfire — has rumors of sealed tombs",
+      "Winter Court messenger demands passage priority",
+      "Lost mountaineer — frostbitten, delirious, possibly seeing real visions",
+      "Hermit scholar studying aurora patterns"
+    ],
+    "skyreach": [
+      "Monastery monk on pilgrimage — silent but will trade healing",
+      "Lightning glass trader with wares",
+      "Injured sky serpent researcher needs escort down",
+      "Wind-reader offering weather prophecy for coin"
+    ],
+    "whispering_marches": [
+      "Druid from Verdant Vale observing — will trade information for a favor",
+      "Registry surveyor mapping — will pay for guard escort",
+      "Woodcutter gathering rare timber — knows the paths",
+      "Potion brewer harvesting fungi — sells consumables"
+    ],
+    "heartlands": [
+      "Merchant caravan heading to Breley — offers ride and rumors",
+      "Knight patrol checking papers — friendly if legitimate",
+      "Traveling tinker with unusual wares",
+      "Farmer fleeing something from the fields — quest hook"
+    ],
+    "transition": [
+      "Unlicensed delver fleeing Iron Pact — information for safe passage",
+      "Hermit warning travelers to turn back",
+      "Wounded soldier from an unknown engagement",
+      "Scavenger offering map fragment for gold"
+    ],
+    "shadowfen": [
+      "Fen guide offering escort for steep fee",
+      "Registry clerk Mira Ashret on survey mission — will hire",
+      "Survivor of a failed delving party — traumatized, has intel",
+      "Iron Pact agent tracking a claim-jumper"
+    ],
+    "eastern_wastes": [
+      "Centaur nomad willing to trade — curious about westerners",
+      "Refugee from deeper east — fleeing something unnamed",
+      "Orc trader (unusual — non-hostile if respected)",
+      "Surveyor staking new Registry claims — paying for escorts"
+    ],
+    "northern_highlands": [
+      "Dwarf merchant traveling alone — tough and well-armed",
+      "Shepherd with knowledge of hidden passes",
+      "Abandoned caravan — goods present, owners missing",
+      "Prospector celebrating a find — loose-lipped in celebration"
+    ],
+    "central_plains": [
+      "Merchant caravan — safety in numbers, offers space",
+      "Registry courier with sealed messages — won't share content",
+      "Farmer reporting strange tracks in fields",
+      "Traveling performer seeking audience (and scouting)"
+    ]
+  },
+  "weatherByRegion": {
+    "silversea_coast": ["Sea fog rolls in thick", "Salt spray stings eyes", "Storm approaching from sea"],
+    "frostspire": ["Blizzard visibility drops to 10 feet", "Aurora flare — ether sensitive", "Ice wind cuts through armor"],
+    "skyreach": ["Lightning storm — metal attracts strikes", "Updraft gusts (DC 10 to keep footing)", "Cloud cover blankets the peaks"],
+    "whispering_marches": ["Dense fog (visibility 30 ft)", "Drizzle soaks everything slowly", "Veil shimmer distorts distances"],
+    "heartlands": ["Clear day — pleasant traveling", "Thunderstorm approaching", "Harvest wind carries smoke from distant fires"],
+    "transition": ["Unnatural fog forms without moisture source", "Temperature drops suddenly", "Wind carries sounds from wrong directions"],
+    "shadowfen": ["Acid mist (1d4 damage per hour unprotected)", "Methane bubbles ignite briefly", "Thick mist — compass unreliable"],
+    "eastern_wastes": ["Dust storm (disadvantage on Perception)", "Heat shimmer (mirage risk)", "Dry lightning — fire danger"],
+    "northern_highlands": ["Cold snap — fatigue if unprepared", "Mountain fog obscures trail", "Hail (seek shelter or take 1d4)"],
+    "central_plains": ["Strong wind — ranged attacks at disadvantage", "Rain turns roads to mud", "Clear sky — excellent visibility"]
+  }
+}

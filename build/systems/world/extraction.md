@@ -6,7 +6,7 @@ Tomb Dust is a **hardcore extraction** setting: parties enter dangerous sites, t
 
 1. **Literal:** cremated ash or scraped remains of delvers left in sites too dangerous to retrieve.  
 2. **Social:** slang for anyone disposable on a bad map—“You’ll end up Tomb Dust.”  
-3. **Mechanical tone:** defeat teaches; new characters inherit world progress (Registry notes, faction standing), not old HP. See [death-and-persistence.md](../meta/death-and-persistence.md).
+3. **Mechanical tone:** defeat teaches; **death ends the run**—corpse on the map, **new game**, fresh character. See [death-and-persistence.md](../meta/death-and-persistence.md).
 
 ## The delving economy
 
@@ -95,7 +95,7 @@ Extract ends when the party crosses the **ingress boundary** back to the safe hu
 | **Costs** | **Ash tithe** and Registry tax on sales; fence margin; debt repayment; storage fees for **account stash**; skill training gold/XP |
 | **Failure modes** | Unregistered sale → fine or blacklist; counterfeit salvage; patron seizes contract share; debt spiral blocks next **preparation**; faction rep loss if grotto desecration exposed |
 
-Survivors gain **map knowledge** and **faction rep** at account level; dead delvers do not—inheritance rules in [death-and-persistence.md](../meta/death-and-persistence.md).
+Survivors gain **map knowledge** and **faction rep** for that run; a dead delver leaves a **corpse**—**account stash and stashGp persist** for the successor; body gear does not. See [death-and-persistence.md](../meta/death-and-persistence.md).
 
 ---
 
@@ -168,6 +168,7 @@ Disputes: **Registry Moot** ([factions/delvers-registry.md](../factions/delvers-
 |-------|------|
 | **Ingress** | Gear on your sheet past the threshold = **body loot** until hub extract |
 | **Death in site** | All body loot stays on map ([death-and-persistence.md](../meta/death-and-persistence.md)) |
+| **Account stash** | **Persists across character death** — successor withdraws at hub (`services.stash`) |
 | **Successful extract** | Carried salvage becomes **portable**; deposit to **account stash** at safe hub |
 | **Stash hub** | Registry strongbox, licensed fence escrow, patron vault — **not** mid-delve camps |
 | **Appraisal** | Aftermath: **Appraisal** vs fence offer (see below) |

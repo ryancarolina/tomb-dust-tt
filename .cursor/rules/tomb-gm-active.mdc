@@ -1,22 +1,22 @@
 ---
-description: When Tomb Dust table play is active, enforce GM orchestrator workflow and CLI transitions
+description: When a Tomb Dust save exists, do not suggest obsolete Cursor/CLI play
 alwaysApply: true
 ---
 
-# Active Tomb Dust GM session
+# Active Tomb Dust save
 
-If `play/workspace/.local/active.json` exists:
+If `play/workspace/.local/active.json` exists, a game save may be in progress under `play/workspace/`.
 
-1. Read `.cursor/skills/tomb-gm/SKILL.md` and act as **GM Orchestrator**.
-2. At the start of every turn, run:
-   `cd play && python -m tomb_gm --workspace workspace status`
-   then `check`, then `suggest`.
-3. If `check.blocked` is true, do not advance fiction until blockers are resolved.
-4. All state changes via `python -m tomb_gm` only; require `"ok": true` in JSON output.
-5. After every narration response, write `play/workspace/.local/latest-narration.txt` and run:
-   `python -m tomb_gm --workspace play/workspace narrate push --file play/workspace/.local/latest-narration.txt`
-   unless `tts.mode` is `text_only`. On speak errors, note once and continue play.
-6. After every narration, update the scene canvas at `canvases/tomb-dust-scene.canvas.tsx`
-   with the current scene data (narration lines, location, stats, awaiting prompt).
+## Do not suggest obsolete play
 
-If there is no active play session, this rule does not change normal behavior.
+- **Never** tell users to play via `@tomb-gm`, Cursor chat GM, or `[P1]`…`[P4]` lines.
+- **Never** tell **players** to run `python -m tomb_gm` or edit saves by hand.
+- **Canonical play:** [app/README.md](../../app/README.md) — `cd app && python main.py`
+
+## When developing
+
+- Engine changes: use `python -m pytest play/tomb_gm/tests` and CLI for debugging only.
+- App changes: use `GameBridge` (`app/gm/bridge.py`) and run the PyGame client.
+- Content changes: edit `build/` per [AGENTS.md](../../AGENTS.md); do not treat chat as the save game.
+
+If the user asks how to play or continue a campaign, answer with the **PyGame app** — not this rule's retired orchestrator workflow.

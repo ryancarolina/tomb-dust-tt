@@ -51,7 +51,14 @@ def test_filter_speak_dialogue_keeps_opener_and_quotes():
     lines = parse_scene(HOLT_SCENE)
     filtered = filter_for_mode(lines, "speak_dialogue")
     assert filtered[0]["voice"] == "narrator"
-    assert all(line["voice"] != "narrator" or i == 0 for i, line in enumerate(filtered))
+    has_npc = any(line["voice"] != "narrator" for line in filtered)
+    assert has_npc
+    narrator_between = [
+        line for i, line in enumerate(filtered)
+        if line["voice"] == "narrator" and 0 < i < len(filtered) - 1
+    ]
+    for n in narrator_between:
+        assert len(n["text"].split()) >= 20
 
 
 def test_resolve_voice_uses_npc_map():

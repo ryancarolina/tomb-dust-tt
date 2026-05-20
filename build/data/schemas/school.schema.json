@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/school.json",
+  "title": "Tomb Dust Magic School",
+  "type": "object",
+  "required": ["id", "rulesVersion", "displayName", "tradition"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/slug" },
+    "rulesVersion": { "$ref": "common.schema.json#/$defs/rulesVersion" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "tradition": { "type": "string", "enum": ["arcane", "divine"] },
+    "themes": { "type": "array", "items": { "type": "string" } },
+    "typicalSites": { "type": "array", "items": { "type": "string" } },
+    "docPath": { "$ref": "common.schema.json#/$defs/markdownPath" }
+  }
+}

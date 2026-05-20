@@ -1,0 +1,252 @@
+[
+  {
+    "id": "backpack",
+    "rulesVersion": "1.0.0",
+    "displayName": "Backpack",
+    "kind": "gear",
+    "costGp": 2,
+    "weight": 2
+  },
+  {
+    "id": "bedroll",
+    "rulesVersion": "1.0.0",
+    "displayName": "Bedroll",
+    "kind": "gear",
+    "costGp": 1,
+    "weight": 1
+  },
+  {
+    "id": "flint-steel",
+    "rulesVersion": "1.0.0",
+    "displayName": "Flint and steel",
+    "kind": "gear",
+    "costGp": 1,
+    "weight": 0
+  },
+  {
+    "id": "healers-kit",
+    "rulesVersion": "1.0.0",
+    "displayName": "Healer's kit",
+    "kind": "gear",
+    "costGp": 5,
+    "weight": 1
+  },
+  {
+    "id": "herbalism-kit",
+    "rulesVersion": "1.0.0",
+    "displayName": "Herbalism kit",
+    "kind": "gear",
+    "costGp": 5,
+    "weight": 1
+  },
+  {
+    "id": "holy-symbol",
+    "rulesVersion": "1.0.0",
+    "displayName": "Holy symbol",
+    "kind": "gear",
+    "costGp": 5,
+    "weight": 0
+  },
+  {
+    "id": "ink-quill",
+    "rulesVersion": "1.0.0",
+    "displayName": "Ink and quill",
+    "kind": "gear",
+    "costGp": 1,
+    "weight": 0
+  },
+  {
+    "id": "pouch",
+    "rulesVersion": "1.0.0",
+    "displayName": "Pouch",
+    "kind": "gear",
+    "costGp": 1,
+    "weight": 0
+  },
+  {
+    "id": "rations-3",
+    "rulesVersion": "1.0.0",
+    "displayName": "Rations (3 days)",
+    "kind": "consumable",
+    "costGp": 3,
+    "weight": 3,
+    "defaultUses": 3
+  },
+  {
+    "id": "rations-5",
+    "rulesVersion": "1.0.0",
+    "displayName": "Rations (5 days)",
+    "kind": "consumable",
+    "costGp": 5,
+    "weight": 5,
+    "defaultUses": 5
+  },
+  {
+    "id": "rope-50ft",
+    "rulesVersion": "1.0.0",
+    "displayName": "Rope (50 ft)",
+    "kind": "gear",
+    "costGp": 1,
+    "weight": 2
+  },
+  {
+    "id": "spellbook",
+    "rulesVersion": "1.0.0",
+    "displayName": "Spellbook",
+    "kind": "gear",
+    "costGp": 25,
+    "weight": 2
+  },
+  {
+    "id": "thieves-tools",
+    "rulesVersion": "1.0.0",
+    "displayName": "Thieves' tools",
+    "kind": "gear",
+    "costGp": 25,
+    "weight": 1
+  },
+  {
+    "id": "waterskin",
+    "rulesVersion": "1.0.0",
+    "displayName": "Waterskin",
+    "kind": "gear",
+    "costGp": 1,
+    "weight": 1
+  },
+  {
+    "id": "rations",
+    "rulesVersion": "2.0.0",
+    "displayName": "Rations",
+    "kind": "consumable",
+    "rarity": "common",
+    "stackable": true,
+    "maxStack": 99,
+    "defaultUses": 1,
+    "costGp": 1,
+    "weight": 1
+  },
+  {
+    "id": "arrows",
+    "rulesVersion": "2.0.0",
+    "displayName": "Arrows",
+    "kind": "ammo",
+    "rarity": "common",
+    "stackable": true,
+    "maxStack": 99,
+    "costGp": 1,
+    "weight": 0.05
+  },
+  {
+    "id": "burial-goods-junk",
+    "rulesVersion": "2.0.0",
+    "displayName": "Burial goods (junk)",
+    "kind": "material",
+    "rarity": "junk",
+    "stackable": true,
+    "maxStack": 99,
+    "costGp": 1,
+    "weight": 1
+  },
+  {
+    "id": "iron-ingot-junk",
+    "rulesVersion": "2.0.0",
+    "displayName": "Iron ingot (junk)",
+    "kind": "material",
+    "rarity": "junk",
+    "stackable": true,
+    "maxStack": 99,
+    "costGp": 2,
+    "weight": 2
+  },
+  {
+    "id": "fen-peat-junk",
+    "rulesVersion": "2.0.0",
+    "displayName": "Fen peat (junk)",
+    "kind": "material",
+    "rarity": "junk",
+    "stackable": true,
+    "maxStack": 99,
+    "costGp": 1,
+    "weight": 1
+  },
+  {
+    "id": "tomb-map-scrap-uncommon",
+    "rulesVersion": "2.0.0",
+    "displayName": "Tomb map scrap",
+    "kind": "material",
+    "rarity": "uncommon",
+    "stackable": false,
+    "costGp": 15,
+    "weight": 0
+  },
+  {
+    "id": "reliquary-shard-uncommon",
+    "rulesVersion": "2.0.0",
+    "displayName": "Reliquary shard",
+    "kind": "material",
+    "rarity": "uncommon",
+    "stackable": false,
+    "costGp": 20,
+    "weight": 0
+  },
+  {
+    "id": "gloom-silk-rare",
+    "rulesVersion": "2.0.0",
+    "displayName": "Gloom silk",
+    "kind": "material",
+    "rarity": "rare",
+    "stackable": false,
+    "costGp": 45,
+    "weight": 0
+  },
+  {
+    "id": "shadow-glass-rare",
+    "rulesVersion": "2.0.0",
+    "displayName": "Shadow glass",
+    "kind": "material",
+    "rarity": "rare",
+    "stackable": false,
+    "costGp": 50,
+    "weight": 0
+  },
+  {
+    "id": "veil-crystal-rare",
+    "rulesVersion": "2.0.0",
+    "displayName": "Veil crystal",
+    "kind": "material",
+    "rarity": "rare",
+    "stackable": false,
+    "costGp": 75,
+    "weight": 0
+  },
+  {
+    "id": "scroll-ember-touch",
+    "rulesVersion": "2.0.0",
+    "displayName": "Scroll of Ember Touch",
+    "kind": "consumable",
+    "rarity": "uncommon",
+    "stackable": false,
+    "costGp": 25,
+    "weight": 0
+  },
+  {
+    "id": "scroll-mend-light",
+    "rulesVersion": "2.0.0",
+    "displayName": "Scroll of Mend Light",
+    "kind": "consumable",
+    "rarity": "uncommon",
+    "stackable": false,
+    "costGp": 20,
+    "weight": 0
+  },
+  {
+    "id": "registry-seal-chip",
+    "rulesVersion": "2.0.0",
+    "displayName": "Registry seal chip",
+    "kind": "material",
+    "rarity": "master",
+    "stackable": false,
+    "costGp": 100,
+    "weight": 0
+  }
+]

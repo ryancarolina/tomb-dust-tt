@@ -157,7 +157,6 @@ def build_sheet(
     race_id: str | None = None,
     gold_gp: int = 0,
     inventory: dict[str, Any] | None = None,
-    armor: dict[str, Any] | None = None,
     creation_audit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     base_class = base_class.lower()
@@ -184,11 +183,16 @@ def build_sheet(
         "mp": compute_mp(attributes["INT"], base_class),
         "fortune": {"current": fortune_max, "max": fortune_max},
         "goldGp": gold_gp,
-        "inventory": inventory or {"body": [], "pack": []},
-        "armor": armor or {"wornId": None, "shieldId": None},
+        "inventory": inventory or {"inventoryVersion": 3, "pack": []},
         "conditions": [],
         "deed_counters": {},
         "flags": {},
+        "knownSpells": [],
+        "spellSchools": [],
+        "spellFocusSchool": None,
+        "concentration": None,
+        "spellsCastTotal": 0,
+        "spellsBySchool": {},
     }
     if race_id:
         sheet["raceId"] = race_id
@@ -221,8 +225,9 @@ def create_character(
     race_id: str | None = None,
     gold_gp: int = 0,
     inventory: dict[str, Any] | None = None,
-    armor: dict[str, Any] | None = None,
     creation_audit: dict[str, Any] | None = None,
+    known_spell_ids: list[str] | None = None,
+    spell_school_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     if not campaign_exists(conn, campaign_slug):
         raise CharacterError(f"Campaign not found: {campaign_slug}")
@@ -246,9 +251,16 @@ def create_character(
         race_id=race_id,
         gold_gp=gold_gp,
         inventory=inventory,
-        armor=armor,
         creation_audit=creation_audit,
     )
+    if known_spell_ids is not None:
+        sheet["knownSpells"] = list(known_spell_ids)
+    elif "spellcasting" in skills:
+        from tomb_gm.services.simulation.spell_service import default_known_spells
+
+        sheet["knownSpells"] = default_known_spells(base_class.lower())
+    if spell_school_ids is not None:
+        sheet["spellSchools"] = list(spell_school_ids)
     conn.execute(
         "INSERT INTO characters (id, campaign_slug, slot, sheet_json, alive, created_at) "
         "VALUES (?, ?, NULL, ?, 1, ?)",

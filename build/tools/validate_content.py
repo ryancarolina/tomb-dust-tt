@@ -12,6 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WEAPONS_PATH = ROOT / "data" / "weapons" / "weapons.json"
 SPELLS_PATH = ROOT / "data" / "spells" / "spells.json"
+SCHOOLS_PATH = ROOT / "data" / "spells" / "schools.json"
+STARTING_SPELLS_PATH = ROOT / "data" / "character" / "starting-spells.json"
 DEEDS_PATH = ROOT / "data" / "deeds" / "promotions.json"
 LOOT_PATH = ROOT / "data" / "loot" / "tables.json"
 ENCOUNTERS_PATH = ROOT / "data" / "encounters" / "wilderness.json"
@@ -39,7 +41,8 @@ THREAT_TIERS = frozenset({"hazard", "skirmisher", "elite", "boss"})
 SAVE_ABILITIES = frozenset({"STR", "AGI", "STA", "INT", "SPI"})
 ATTR_KEYS = ("STR", "AGI", "STA", "INT", "SPI")
 EXPECTED_WEAPON_COUNT = 17
-EXPECTED_SPELL_COUNT = 30
+EXPECTED_SPELL_COUNT = 41
+EXPECTED_SCHOOL_COUNT = 6
 EXPECTED_PROMOTION_COUNT = 8
 
 
@@ -218,7 +221,7 @@ def _load_array_or_wrapper(path: Path, key: str | None = None) -> list[dict]:
 def validate_spell(spell: dict, path: str) -> None:
     if not isinstance(spell, dict):
         _err(path, "spell must be object")
-    for key in ("id", "rulesVersion", "displayName", "school", "tier", "mpCost", "castingTime", "range"):
+    for key in ("id", "rulesVersion", "displayName", "school", "tier", "mpCost", "castingTime", "range", "effectType"):
         if key not in spell:
             _err(path, f"missing required field {key}")
     _check_slug(spell["id"], path)
@@ -231,22 +234,58 @@ def validate_spell(spell: dict, path: str) -> None:
     _check_int(spell["mpCost"], path, "mpCost", minimum=0)
     if spell["castingTime"] not in SPELL_CAST_TIMES:
         _err(path, f"invalid castingTime: {spell['castingTime']!r}")
-    if not any(k in spell for k in ("attack", "save", "effect")):
-        _err(path, "spell must include attack, save, or effect")
+    if not any(k in spell for k in ("attack", "save", "effect", "heal", "summon")):
+        _err(path, "spell must include attack, save, heal, summon, or effect")
     if "attack" in spell:
         atk = spell["attack"]
         if not isinstance(atk, dict):
             _err(path, "attack must be object")
         if "damage" in atk:
             _check_dice(atk["damage"], path, "attack.damage")
+    if "effectType" in spell and spell["effectType"] not in (
+        "attack", "save", "heal", "buff", "utility", "summon", "counter", "terrain",
+    ):
+        _err(path, f"invalid effectType: {spell['effectType']!r}")
     if "save" in spell:
         save = spell["save"]
         if not isinstance(save, dict):
             _err(path, "save must be object")
         if "dc" in save:
-            _check_int(save["dc"], path, "save.dc", minimum=1)
-        if "ability" in save and save["ability"] not in SAVE_ABILITIES:
+            _err(path, "save.dc is obsolete; use caster spell save DC")
+        if "ability" not in save:
+            _err(path, "save.ability is required")
+        elif save["ability"] not in SAVE_ABILITIES:
             _err(path, f"invalid save ability: {save['ability']!r}")
+    if spell.get("heal"):
+        heal = spell["heal"]
+        if not isinstance(heal, dict):
+            _err(path, "heal must be object")
+        if "dice" in heal:
+            _check_dice(heal["dice"], path, "heal.dice")
+
+
+def validate_schools_file(path: Path | None = None) -> list[str]:
+    path = path or SCHOOLS_PATH
+    errors: list[str] = []
+    try:
+        schools = _load_array_or_wrapper(path)
+    except (OSError, json.JSONDecodeError, ContentValidationError) as exc:
+        return [str(exc)]
+    if len(schools) != EXPECTED_SCHOOL_COUNT:
+        errors.append(f"{path}: expected {EXPECTED_SCHOOL_COUNT} schools, got {len(schools)}")
+    seen: set[str] = set()
+    for i, school in enumerate(schools):
+        item_path = f"{path}[{i}]"
+        if not isinstance(school, dict):
+            errors.append(f"{item_path}: school must be object")
+            continue
+        sid = school.get("id")
+        if sid not in SPELL_SCHOOLS:
+            errors.append(f"{item_path}: invalid school id {sid!r}")
+        if sid in seen:
+            errors.append(f"{item_path}: duplicate id {sid!r}")
+        seen.add(sid)
+    return errors
 
 
 def validate_spells_file(path: Path | None = None) -> list[str]:
@@ -572,18 +611,82 @@ def _try_jsonschema(weapons: list[dict]) -> list[str]:
     return errors
 
 
+def validate_loot_catalog_refs(path: Path | None = None) -> list[str]:
+    path = path or LOOT_PATH
+    errors: list[str] = []
+    migration_path = ROOT / "data" / "loot" / "lootIdMigration.json"
+    migrations: dict[str, str] = {}
+    if migration_path.is_file():
+        migrations = json.loads(migration_path.read_text(encoding="utf-8")).get("migrations") or {}
+
+    def _load_items() -> set[str]:
+        ids: set[str] = set()
+        for rel in ("weapons/weapons.json", "armor/armor.json", "gear/gear.json"):
+            p = ROOT / "data" / rel
+            if p.is_file():
+                for row in json.loads(p.read_text(encoding="utf-8")):
+                    if isinstance(row, dict) and "id" in row:
+                        ids.add(str(row["id"]))
+        return ids
+
+    catalog = _load_items()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"{path}: {exc}"]
+
+    for tier, table in (data.get("tables") or {}).items():
+        for i, item in enumerate(table.get("items") or []):
+            raw_id = str(item.get("id", ""))
+            resolved = migrations.get(raw_id, raw_id)
+            if resolved not in catalog and raw_id not in catalog:
+                errors.append(
+                    f"{path}/tables/{tier}/items[{i}]: itemId {raw_id!r} "
+                    f"(resolved {resolved!r}) not in catalog or migration target"
+                )
+    return errors
+
+
+def validate_starting_kit_item_refs() -> list[str]:
+    kits_path = ROOT / "data" / "character" / "starting-kits.json"
+    errors: list[str] = []
+    if not kits_path.is_file():
+        return errors
+    data = json.loads(kits_path.read_text(encoding="utf-8"))
+    catalog: set[str] = set()
+    for rel in ("weapons/weapons.json", "armor/armor.json", "gear/gear.json"):
+        p = ROOT / "data" / rel
+        if p.is_file():
+            for row in json.loads(p.read_text(encoding="utf-8")):
+                if isinstance(row, dict) and "id" in row:
+                    catalog.add(str(row["id"]))
+    catalog.add("rations")
+    for class_id, kit in (data.get("kits") or {}).items():
+        for i, item in enumerate(kit.get("items") or []):
+            item_id = str(item.get("itemId", ""))
+            if item_id.startswith("rations-"):
+                continue
+            if item_id not in catalog:
+                errors.append(f"{kits_path}: kits/{class_id}/items[{i}] unknown itemId {item_id!r}")
+    return errors
+
+
 def main() -> int:
     weapon_errors = validate_weapons_file()
     monster_errors = validate_monsters_dir()
     spell_errors = validate_spells_file()
+    school_errors = validate_schools_file()
     deed_errors = validate_deeds_file()
     site_errors = validate_sites_dir()
     loot_errors = validate_loot_file()
+    loot_catalog_errors = validate_loot_catalog_refs()
+    kit_errors = validate_starting_kit_item_refs()
     encounter_errors = validate_encounters_file()
     ledger_errors = validate_ledger_file()
     errors = (
-        weapon_errors + monster_errors + spell_errors + deed_errors
-        + site_errors + loot_errors + encounter_errors + ledger_errors
+        weapon_errors + monster_errors + spell_errors + school_errors + deed_errors
+        + site_errors + loot_errors + loot_catalog_errors + kit_errors
+        + encounter_errors + ledger_errors
     )
 
     if not errors:

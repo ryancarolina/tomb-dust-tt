@@ -24,6 +24,12 @@ _SPEAKER_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bsergeant\b|\bbreley\s+blue\b", re.I), "breley-sergeant"),
     (re.compile(r"\bpostern\s+clerk\b|\bclerk\b|\bledger\b|\bquill\b", re.I), "postern-clerk"),
 ]
+_FEMALE_PATTERNS = re.compile(
+    r"\bshe\s+(?:says|whispers|hisses|murmurs|calls|replies|speaks|asks|snaps|growls)"
+    r"|\bwoman\b|\bgirl\b|\blady\b|\bpriestess\b|\bmaiden\b|\bwitch\b|\bmother\b|\bsister\b"
+    r"|\bher\s+(?:voice|eyes|lips|hand|face)\b",
+    re.I,
+)
 
 
 def _normalize_quotes(text: str) -> str:
@@ -100,15 +106,30 @@ def _strip_ui(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _infer_voice(context: str, local: str = "") -> str:
+def _infer_voice_from_rules(text: str) -> str | None:
+    """Check if text matches any known speaker rule. Returns None if no match."""
     for pattern, voice_id in _SPEAKER_RULES:
-        if local and pattern.search(local):
+        if pattern.search(text):
             return voice_id
-    window = context[-400:]
-    for pattern, voice_id in _SPEAKER_RULES:
-        if pattern.search(window):
-            return voice_id
-    return "npc"
+    return None
+
+
+def _infer_voice(context: str, local: str, current_speaker: str | None) -> str:
+    """Determine who is speaking. Uses rules, then scene context, then current speaker."""
+    if local:
+        match = _infer_voice_from_rules(local)
+        if match:
+            return match
+    window = context[-600:]
+    match = _infer_voice_from_rules(window)
+    if match:
+        return match
+    if current_speaker:
+        return current_speaker
+    combined = (local or "") + " " + window
+    if _FEMALE_PATTERNS.search(combined):
+        return "npc-female"
+    return "npc-male"
 
 
 def _split_paragraph(
@@ -124,17 +145,15 @@ def _split_paragraph(
         if narration:
             lines.append({"text": narration, "voice": "narrator"})
             context = f"{context}\n{narration}"
-            speaker = _infer_voice("", narration)
-            if speaker != "npc":
-                current_speaker = speaker
+            detected = _infer_voice_from_rules(narration)
+            if detected:
+                current_speaker = detected
         quote = match.group(1) or match.group(2) or ""
         quote = quote.strip()
         if quote:
-            voice = _infer_voice(context, narration)
-            if voice == "npc" and current_speaker:
-                voice = current_speaker
+            voice = _infer_voice(context, narration or "", current_speaker)
             lines.append({"text": quote, "voice": voice})
-            if voice != "narrator" and voice != "npc":
+            if voice != "narrator":
                 current_speaker = voice
             context = f"{context}\n{para[:end]}"
         cursor = end
@@ -142,9 +161,9 @@ def _split_paragraph(
     if tail:
         lines.append({"text": tail, "voice": "narrator"})
         context = f"{context}\n{tail}"
-        speaker = _infer_voice("", tail)
-        if speaker != "npc":
-            current_speaker = speaker
+        detected = _infer_voice_from_rules(tail)
+        if detected:
+            current_speaker = detected
     return lines, context, current_speaker
 
 
@@ -153,10 +172,20 @@ def _strip_brackets(text: str) -> str:
     return re.sub(r"\[[^\]]*\]", "", text)
 
 
+def _strip_markup(text: str) -> str:
+    """Remove markdown formatting characters (* _ # `) that should not be spoken."""
+    text = re.sub(r"\*+", "", text)
+    text = re.sub(r"_+", " ", text)
+    text = re.sub(r"`+", "", text)
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+    return text
+
+
 def parse_scene(text: str) -> list[dict[str, str]]:
     """Turn GM narration prose into ordered speak lines."""
     cleaned = _strip_ui(_normalize_quotes(text))
     cleaned = _strip_brackets(cleaned)
+    cleaned = _strip_markup(cleaned)
     if not cleaned:
         return []
 
@@ -174,7 +203,11 @@ def parse_scene(text: str) -> list[dict[str, str]]:
     return _merge_adjacent(out)
 
 
+_SHORT_NARRATOR_THRESHOLD = 12
+
+
 def _merge_adjacent(lines: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Merge adjacent same-voice lines AND absorb short narrator fragments into NPC lines."""
     merged: list[dict[str, str]] = []
     for line in lines:
         text = line["text"].strip()
@@ -184,29 +217,78 @@ def _merge_adjacent(lines: list[dict[str, str]]) -> list[dict[str, str]]:
             merged[-1]["text"] = f"{merged[-1]['text']} {text}"
         else:
             merged.append({"text": text, "voice": line["voice"]})
-    return merged
+
+    return _absorb_short_fragments(merged)
+
+
+def _absorb_short_fragments(lines: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Remove short narrator lines sandwiched between NPC dialogue.
+
+    A narrator line under ~12 words that sits between two NPC lines (same voice)
+    is a stage direction like "he says" or "He leans forward," — not worth
+    voicing separately. Absorb it into the next NPC line as a pause.
+    """
+    if len(lines) < 3:
+        return lines
+
+    result: list[dict[str, str]] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if (
+            line["voice"] == "narrator"
+            and len(line["text"].split()) <= _SHORT_NARRATOR_THRESHOLD
+            and i > 0
+            and i < len(lines) - 1
+            and result
+            and result[-1]["voice"] != "narrator"
+            and lines[i + 1]["voice"] != "narrator"
+        ):
+            i += 1
+            continue
+        result.append(line)
+        i += 1
+    return result
+
+
+_LONG_NARRATOR_THRESHOLD = 20
 
 
 def filter_for_mode(lines: list[dict[str, str]], mode: str) -> list[dict[str, str]]:
+    """Filter lines based on TTS mode.
+
+    speak_all: everything
+    speak_dialogue: opener narration + all NPC dialogue + significant narrator
+                    lines (>20 words) between dialogue + closing narration
+    text_only: nothing
+    """
     if mode == "text_only":
         return []
     if mode != "speak_dialogue":
         return lines
+
+    if not lines:
+        return []
+
+    first_dialogue_idx = -1
     last_dialogue_idx = -1
     for i, line in enumerate(lines):
         if line["voice"] != "narrator":
+            if first_dialogue_idx == -1:
+                first_dialogue_idx = i
             last_dialogue_idx = i
 
     filtered: list[dict[str, str]] = []
-    opener_done = False
     for i, line in enumerate(lines):
         if line["voice"] != "narrator":
             filtered.append(line)
-        elif not opener_done:
+        elif i < first_dialogue_idx:
             filtered.append(line)
-            opener_done = True
         elif i > last_dialogue_idx:
             filtered.append(line)
+        elif len(line["text"].split()) >= _LONG_NARRATOR_THRESHOLD:
+            filtered.append(line)
+
     return filtered
 
 

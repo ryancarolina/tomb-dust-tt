@@ -1,0 +1,11 @@
+{
+  "rulesVersion": "1.1.0",
+  "rolls": [
+    {"d6": 1, "id": "backlash", "effect": "2d6 force to caster; spell fails"},
+    {"d6": 2, "id": "flare", "effect": "DC 12 STA or blinded until end of next turn in 10 ft"},
+    {"d6": 3, "id": "surge", "effect": "Reroll spell damage dice; use higher"},
+    {"d6": 4, "id": "veil-bleed", "effect": "+1 threat clock segment in delve"},
+    {"d6": 5, "id": "fortune-spark", "effect": "Refresh 1 Fortune (max pool)"},
+    {"d6": 6, "id": "controlled", "effect": "Spell resolves; count survived_magical_mishap deed"}
+  ]
+}

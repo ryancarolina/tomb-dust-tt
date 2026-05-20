@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tomb-dust.local/schemas/inventory-item.json",
+  "title": "Tomb Dust inventory pack entry (v3)",
+  "type": "object",
+  "required": ["instanceId", "itemId", "kind", "equipped"],
+  "additionalProperties": false,
+  "properties": {
+    "instanceId": {
+      "type": "string",
+      "pattern": "^it-[a-f0-9]{8}$"
+    },
+    "itemId": { "$ref": "common.schema.json#/$defs/slug" },
+    "kind": {
+      "type": "string",
+      "enum": ["weapon", "armor", "shield", "jewelry", "ammo", "consumable", "material", "gear"]
+    },
+    "equipped": { "type": "boolean" },
+    "slot": {
+      "type": "string",
+      "enum": [
+        "mainHand", "offHand", "helm", "shoulders", "chest", "bracers",
+        "gloves", "legs", "boots", "ring1", "ring2", "trinket1", "trinket2",
+        "body"
+      ]
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Stackables only."
+    },
+    "uses": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "enchantIds": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/slug" }
+    }
+  }
+}

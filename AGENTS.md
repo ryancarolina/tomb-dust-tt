@@ -24,6 +24,44 @@ Read this before changing game content, world data, or rules docs. **If anything
 
 ---
 
+## App development specs (mandatory for `app/`)
+
+**Specs are the source of truth for app development and testing. Drift between spec and code is NEVER allowed.**
+
+| Priority | Location | Holds |
+|----------|----------|--------|
+| **A1** | [`tmp/app-master-spec.md`](tmp/app-master-spec.md) | Registry of all app domain specs, drift policy, agent workflow |
+| **A2** | `tmp/app-*-spec.md` (domain specs) | Behavior, task checklist, tests, changelog for each app area |
+| **A3** | `app/**` code | Must match the domain spec — update spec in the same change |
+
+### Rules
+
+1. **Every change under `app/`** must update the **respective domain spec** (see registry in app master spec) before or alongside code.
+2. **Specs define tests** — acceptance criteria and pytest/smoke commands live in the spec; passing them is done.
+3. **Changelog required** — mark checklist items and append a dated changelog entry when work lands.
+4. **No orphan behavior** — if it is not in a spec, add it to a spec first.
+5. **No stale specs** — spec and code update together; never leave drift.
+
+### Domain spec index (quick)
+
+| Spec file | Owns |
+|-----------|------|
+| `tmp/app-shell-config-spec.md` | `main.py`, config, deps |
+| `tmp/app-session-persistence-spec.md` | Saves, resume, `new game` |
+| `tmp/app-pygame-ui-spec.md` | `ui/**` |
+| `tmp/app-gamebridge-spec.md` | `gm/bridge.py` |
+| `tmp/app-character-creation-spec.md` | Creation state machine |
+| `tmp/app-llm-orchestrator-spec.md` | Turn loop, tools, prompt |
+| `tmp/app-exploration-delve-spec.md` | Travel, sites, delves |
+| `tmp/app-combat-play-spec.md` | Combat FSM |
+| `tmp/app-economy-inventory-play-spec.md` | Pack, stash, vendors (app) |
+| `tmp/app-tts-narration-spec.md` | Voice + narration panel |
+| `tmp/app-logging-qa-spec.md` | JSONL logs, `app/tests/` |
+
+**Only `tmp/app-*-spec.md` files are development specs.** Canon mechanics: `build/systems/` + `build/docs/engine-integration.md`.
+
+---
+
 ## AV-GRID (world coordinates)
 
 Every place has an address: surface **`CC-R`** (e.g. `23-A`), then layers:
@@ -111,14 +149,14 @@ Tone: `build/systems/world/extraction.md`, `build/systems/character/creation.md`
 ## Repository layout (quick)
 
 ```
-build/                 ← BUILD: data/, systems/, tools/, docs/, backlog/
-play/                  ← PLAY: workspace/ saves, tomb_gm/ engine
+build/                 ← BUILD: data/, systems/, tools/, docs/
+app/                   ← PLAY: PyGame client (canonical player entry)
+play/                  ← Engine + workspace saves (used by app)
   workspace/           ← SQLite, campaigns, active session
-.cursor/               ← tomb-gm skill
 AGENTS.md              ← this file
 ```
 
-**Build vs play:** edit canon under `build/`; run sessions under `play/` ([play/README.md](play/README.md)).
+**Build vs play:** edit canon under `build/`; **play via `app/main.py`** ([app/README.md](../app/README.md)). The `play/tomb_gm` CLI is for engine development and tests only — not for running a session at the table.
 
 Entry: `build/systems/README.md` · Setting: `build/systems/world/README.md`
 
@@ -136,8 +174,20 @@ python build/tools/validate_content.py
 python -m pytest build/tools/rules_engine
 ```
 
-**Game integration contract:** [build/docs/engine-integration.md](build/docs/engine-integration.md)  
-**AI GM (play):** [play/docs/tomb-gm-implementation-spec.md](play/docs/tomb-gm-implementation-spec.md)
+**Game integration contract:** [build/docs/engine-integration.md](build/docs/engine-integration.md)
+
+**Play the game:** [app/README.md](../app/README.md) (`python main.py`).  
+**App development specs:** [tmp/app-master-spec.md](../tmp/app-master-spec.md) — **mandatory for all `app/` changes** (only spec location)  
+**Engine integration:** [build/docs/engine-integration.md](build/docs/engine-integration.md) — canon ↔ `play/tomb_gm/`
+
+---
+
+## Checklist before finishing an app task
+
+- [ ] Correct domain spec identified in [`tmp/app-master-spec.md`](../tmp/app-master-spec.md)
+- [ ] Spec updated: behavior, tasks, tests, changelog — **no drift from code**
+- [ ] Tests listed in the spec pass
+- [ ] Cross-domain changes reflected in each affected spec
 
 ---
 

@@ -8,7 +8,6 @@ Everything here defines **what Tomb Dust is**. Agents and tools treat this tree 
 | [`systems/`](systems/README.md) | Rules and lore markdown |
 | [`tools/`](tools/) | `av_grid.py`, `validate_content.py`, `rules_engine/` |
 | [`docs/`](docs/engine-integration.md) | Engine integration, content pipeline |
-| [`backlog/`](backlog/README.md) | Design backlog and checklists |
 | [`assets/`](assets/) | Art and reference archives (not runtime canon) |
 
 ## Common commands (from repo root)
@@ -22,5 +21,9 @@ python -m pytest build/tools/rules_engine
 
 ## Do not put here
 
-- Player saves, SQLite, or session logs → [`play/workspace/`](../play/workspace/)
+- Player saves, SQLite, or session logs → [`play/workspace/`](../play/workspace/) (managed by the app)
 - Active campaign state → `play/workspace/.local/`
+
+## Play the game
+
+See **[`app/README.md`](../app/README.md)** — not Cursor chat or the `tomb_gm` CLI.

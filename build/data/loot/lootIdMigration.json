@@ -1,0 +1,13 @@
+{
+  "rulesVersion": "2.0.0",
+  "migrations": {
+    "burial-goods": "burial-goods-junk",
+    "iron-ingot": "iron-ingot-junk",
+    "fen-peat": "fen-peat-junk",
+    "tomb-map-scrap": "tomb-map-scrap-uncommon",
+    "reliquary-shard": "reliquary-shard-uncommon",
+    "gloom-silk": "gloom-silk-rare",
+    "shadow-glass": "shadow-glass-rare",
+    "veil-crystal": "veil-crystal-rare"
+  }
+}

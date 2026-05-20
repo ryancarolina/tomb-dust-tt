@@ -40,7 +40,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     start.add_argument(
         "--include-party",
         action="store_true",
-        help="Add roster PCs to initiative",
+        default=True,
+        help="Add roster PCs to initiative (default: true)",
+    )
+    start.add_argument(
+        "--no-party",
+        action="store_true",
+        help="Omit roster from combat",
     )
     start.add_argument("--campaign", default=None, help="Campaign slug (required with --include-party)")
     start.set_defaults(handler=handle_start)
@@ -106,8 +112,9 @@ def handle_start(args: argparse.Namespace, _ctx_unused: CommandContext | None) -
     ctx = _ctx(args)
     session_id = _require_session(ctx)
     campaign = args.campaign or _campaign_from_session(ctx, session_id)
-    if args.include_party and not campaign:
-        return {"ok": False, "error": "campaign required with --include-party"}
+    include_party = bool(args.include_party) and not bool(getattr(args, "no_party", False))
+    if include_party and not campaign:
+        return {"ok": False, "error": "campaign required when including party"}
     return start_combat(
         ctx.conn,
         session_id=session_id,
@@ -115,7 +122,7 @@ def handle_start(args: argparse.Namespace, _ctx_unused: CommandContext | None) -
         monster_specs=args.monsters,
         tier=args.tier,
         seed=args.seed,
-        include_party=bool(args.include_party),
+        include_party=include_party,
         campaign_slug=campaign,
     )
 

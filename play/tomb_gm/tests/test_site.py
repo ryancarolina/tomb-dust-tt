@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import argparse
 import json
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
@@ -21,34 +18,25 @@ from tomb_gm.cli.cmd_site import (
     handle_site_where,
 )
 from tomb_gm.cli.cmd_core import handle_init
-from tomb_gm.config import load_config
-from tomb_gm.db.connection import connect, run_migrations
-
-REPO = Path(__file__).resolve().parents[3]
-PLAY = REPO / "play"
-WORKSPACE = PLAY / "workspace"
-
-
-def _ns(**kwargs) -> argparse.Namespace:
-    base = {"workspace": str(WORKSPACE)}
-    base.update(kwargs)
-    return argparse.Namespace(**base)
+from tomb_gm.db.connection import run_migrations
+from helpers import seed_campaign, utc_now
 
 
 def _seed_session(
+    args_ns,
+    test_config,
+    test_db,
     *,
     phase: str = "delve",
     address: str = "32-C-UG-1",
     gold: int = 200,
     stamp_primary: str = "32-C-UG-1",
 ) -> str:
-    handle_init(_ns(), None)
-    cfg = load_config(WORKSPACE)
-    conn = connect(cfg.db_path)
-    run_migrations(conn)
+    handle_init(args_ns(), None)
+    run_migrations(test_db)
     slug = "ws7-test"
     session_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = utc_now()
     stamp = {
         "primary": stamp_primary,
         "surfaceEntry": "32-C",
@@ -57,21 +45,15 @@ def _seed_session(
         "validDays": 30,
         "issuedAt": now.replace("+00:00", "Z"),
     }
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO campaigns (slug, display_name, content_pin_json, account_state_json, created_at, updated_at)
-        VALUES (?, ?, '{}', '{}', ?, ?)
-        """,
-        (slug, "WS7 Test", now, now),
-    )
-    conn.execute(
+    seed_campaign(test_db, slug, "WS7 Test")
+    test_db.execute(
         """
         INSERT INTO sessions (id, campaign_slug, started_at, ended_at, phase)
         VALUES (?, ?, ?, NULL, ?)
         """,
         (session_id, slug, now, phase),
     )
-    conn.execute(
+    test_db.execute(
         """
         INSERT INTO party_state (
           session_id, address, mode, site_id, site_node_id, phase,
@@ -87,9 +69,8 @@ def _seed_session(
             gold,
         ),
     )
-    conn.commit()
-    conn.close()
-    cfg.active_path.write_text(
+    test_db.commit()
+    test_config.active_path.write_text(
         json.dumps({"campaign_slug": slug, "session_id": session_id}),
         encoding="utf-8",
     )
@@ -97,56 +78,55 @@ def _seed_session(
 
 
 @pytest.fixture
-def session_id():
-    sid = _seed_session()
+def session_id(args_ns, test_config, test_db):
+    sid = _seed_session(args_ns, test_config, test_db)
     yield sid
-    cfg = load_config(WORKSPACE)
-    if cfg.active_path.exists():
-        cfg.active_path.unlink()
+    if test_config.active_path.exists():
+        test_config.active_path.unlink()
 
 
-def test_site_enter_move_where_exits(session_id):
-    enter = handle_site_enter(_ns(site_id="breley-undercrypt"), None)
+def test_site_enter_move_where_exits(args_ns, session_id):
+    enter = handle_site_enter(args_ns(site_id="breley-undercrypt"), None)
     assert enter["ok"] is True
     assert enter["mode"] == "site"
     assert enter["node_id"] == "chapel-stairs"
 
-    where = handle_site_where(_ns(), None)
+    where = handle_site_where(args_ns(), None)
     assert where["node_id"] == "chapel-stairs"
     assert "entry" in where["node"]["tags"]
 
-    exits = handle_site_exits(_ns(), None)
+    exits = handle_site_exits(args_ns(), None)
     assert any(e["to"] == "ossuary-hall" and e["passable"] for e in exits["exits"])
 
-    moved = handle_site_move(_ns(to_node="ossuary-hall"), None)
-    assert moved["to"] == "ossuary-hall"
+    move = handle_site_move(args_ns(to_node="ossuary-hall"), None)
+    assert move["to"] == "ossuary-hall"
 
-    where2 = handle_site_where(_ns(), None)
+    where2 = handle_site_where(args_ns(), None)
     assert where2["node_id"] == "ossuary-hall"
 
 
-def test_clock_tick_updates_party(session_id):
-    tick = handle_clock_tick(_ns(clock="delve", reason="loud fight", segments=1), None)
+def test_clock_tick_updates_party(args_ns, session_id):
+    tick = handle_clock_tick(args_ns(clock="delve", reason="loud fight", segments=1), None)
     assert tick["clocks"]["delve"] == 1
 
-    show = handle_clock_show(_ns(), None)
+    show = handle_clock_show(args_ns(), None)
     assert show["clocks"]["delve"] == 1
 
 
-def test_phase_set_and_registry_stamp_buy(session_id):
-    extract = handle_phase_set(_ns(phase="extract"), None)
+def test_phase_set_and_registry_stamp_buy(args_ns, session_id):
+    extract = handle_phase_set(args_ns(phase="extract"), None)
     assert extract["phase"] == "extract"
 
     buy = handle_registry_stamp_buy(
-        _ns(address="32-C-UG-1", danger="skirmisher", surface_entry=None),
+        args_ns(address="32-C-UG-1", danger="skirmisher", surface_entry=None),
         None,
     )
     assert buy["stamp"]["primary"] == "32-C-UG-1"
     assert buy["gold_in_transit"] < 200
 
 
-def test_locked_edge_blocks_move(session_id):
-    handle_site_enter(_ns(site_id="breley-undercrypt"), None)
-    handle_site_move(_ns(to_node="ossuary-hall"), None)
+def test_locked_edge_blocks_move(args_ns, session_id):
+    handle_site_enter(args_ns(site_id="breley-undercrypt"), None)
+    handle_site_move(args_ns(to_node="ossuary-hall"), None)
     with pytest.raises(Exception, match="locked"):
-        handle_site_move(_ns(to_node="marshal-tomb"), None)
+        handle_site_move(args_ns(to_node="marshal-tomb"), None)

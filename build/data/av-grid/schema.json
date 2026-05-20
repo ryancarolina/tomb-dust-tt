@@ -92,10 +92,10 @@
       "required": ["id", "column", "row", "surfaceRoot", "layerStack", "biomes", "region"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "minLength": 4 },
+        "id": { "type": "string", "minLength": 3 },
         "column": { "type": "integer", "minimum": 1, "maximum": 99 },
         "row": { "type": "string", "pattern": "^[A-Z]$" },
-        "surfaceRoot": { "type": "string", "pattern": "^[0-9]{2}-[A-Z]$" },
+        "surfaceRoot": { "type": "string", "pattern": "^[0-9]{1,2}-[A-Z]$" },
         "parent": { "type": ["string", "null"] },
         "layerStack": {
           "type": "array",
@@ -117,6 +117,31 @@
         "displayName": { "type": "string" },
         "summary": { "type": "string" },
         "history": { "type": "string" },
+        "terrain": {
+          "type": "string",
+          "enum": [
+            "forest", "marsh", "farmland", "road", "cliff", "tundra",
+            "coast", "ruins", "settlement", "plains", "hills", "mountains",
+            "cavern-mouth", "lake", "river", "desert", "steppe"
+          ]
+        },
+        "population": {
+          "type": "string",
+          "enum": ["uninhabited", "sparse", "village", "town", "fortress", "city"]
+        },
+        "loreHooks": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tradeRoute": {
+          "type": ["string", "null"],
+          "enum": ["kings-road", "silverlake-run", "fen-causeway", "high-pass", "coast-trail", "north-pass", null]
+        },
+        "sceneCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
         "dangerRating": {
           "type": ["string", "null"],
           "enum": ["hazard", "skirmisher", "elite", "boss", null]
@@ -146,6 +171,18 @@
         "childAddresses": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stash": { "type": "boolean" },
+            "vendorIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "fence": { "type": "boolean" }
+          }
         }
       }
     }

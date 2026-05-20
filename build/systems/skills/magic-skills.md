@@ -9,7 +9,7 @@ Spell math uses [combat/calculations.md](../combat/calculations.md). **Skill bon
 **Description:** Proficiency in casting and controlling magic.
 
 **Spell attack:** d20 + INT mod + PB + Spellcasting skill bonus vs AC  
-**Spell save DC:** 8 + INT mod + PB (target rolls SPI save vs this DC unless the spell says otherwise)
+**Spell save DC:** 8 + casting mod + PB + Spellcasting skill bonus (+1 if Spell Focus matches spell school). Arcane = INT; divine = SPI ([combat/calculations.md](../combat/calculations.md)).
 
 **Techniques**
 - **Level 3 — Spell Focus:** +1 to spell attack rolls and save DC for one chosen school of magic.

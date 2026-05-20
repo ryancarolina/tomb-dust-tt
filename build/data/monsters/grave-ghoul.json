@@ -13,6 +13,7 @@
       "id": "skirmisher",
       "displayName": "Grave Ghoul",
       "tier": "skirmisher",
+      "downedBehavior": "feast",
       "ac": 13,
       "hp": 28,
       "move": 8,

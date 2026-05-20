@@ -70,6 +70,9 @@ def build_suggest(
             ]
         )
         prompts.append("Collect [P1]…[P4] actions then run beat")
+        for r in status.get("roster", []):
+            for sp in r.get("known_spells") or []:
+                prompts.append(f"Cast {sp.replace('-', ' ')}")
         prompts.append(
             "After narration: write .local/latest-narration.txt then narrate push --file (required unless tts.mode text_only)"
         )

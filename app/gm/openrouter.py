@@ -24,6 +24,7 @@ def chat_completion(
     model: str,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] = "auto",
     max_tokens: int = 2048,
     temperature: float = 0.8,
 ) -> dict:
@@ -35,7 +36,7 @@ def chat_completion(
     }
     if tools:
         kwargs["tools"] = tools
-        kwargs["tool_choice"] = "auto"
+        kwargs["tool_choice"] = tool_choice
 
     response = client.chat.completions.create(**kwargs)
     choice = response.choices[0]

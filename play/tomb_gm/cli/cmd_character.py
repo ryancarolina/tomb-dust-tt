@@ -124,7 +124,6 @@ def handle_create(args: argparse.Namespace, _ctx_unused: CommandContext | None =
     race_id = getattr(args, "race", None)
     gold_gp = 0
     inventory = None
-    armor = None
     creation_audit = None
 
     if getattr(args, "full", False):
@@ -145,13 +144,9 @@ def handle_create(args: argparse.Namespace, _ctx_unused: CommandContext | None =
         gold_gp = int(pipeline.get("goldGp", 0))
         creation_audit = pipeline.get("audit")
         if not getattr(args, "no_kit", False):
-            kit = pipeline["kit"]
-            inventory = {
-                "body": [],
-                "pack": list(kit.get("items", [])),
-                "weapons": list(kit.get("weapons", [])),
-            }
-            armor = dict(kit.get("armor") or {})
+            from tomb_gm.domain.creation import starting_kit_inventory
+
+            inventory = starting_kit_inventory(ctx.config.content_root, args.base_class)
     elif getattr(args, "roll_attributes", False):
         if attrs:
             return {
@@ -173,7 +168,6 @@ def handle_create(args: argparse.Namespace, _ctx_unused: CommandContext | None =
             race_id=race_id,
             gold_gp=gold_gp,
             inventory=inventory,
-            armor=armor,
             creation_audit=creation_audit,
         )
     except CharacterError as exc:

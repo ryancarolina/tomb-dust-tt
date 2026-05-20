@@ -1,6 +1,8 @@
 # Play workspace (saves & sessions)
 
-Runtime data for Tomb Dust lives here. **Canon** is in [`build/`](../../build/) — never store rule edits or new monsters only in this folder.
+Runtime data for Tomb Dust. **Canon** is in [`build/`](../../build/) — never store rule edits or new monsters only in this folder.
+
+The **PyGame app** (`app/main.py`) reads and writes this workspace via `GameBridge`. Players do not manage these files by hand.
 
 | Path | Purpose |
 |------|---------|
@@ -8,6 +10,4 @@ Runtime data for Tomb Dust lives here. **Canon** is in [`build/`](../../build/) 
 | `.local/` | `memory.db`, `active.json`, TTS cache (gitignored) |
 | `campaigns/` | Per-campaign logs and exports |
 
-The **`@tomb-gm`** agent uses `--workspace play/workspace` (or equivalent) for all CLI calls.
-
-See [../README.md](../README.md) and [../docs/cursor-tomb-gm-spec.md](../docs/cursor-tomb-gm-spec.md).
+See [../README.md](../README.md) and [../../app/README.md](../../app/README.md).

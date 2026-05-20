@@ -3,7 +3,7 @@
   "$id": "https://tomb-dust.local/schemas/spell.json",
   "title": "Tomb Dust Spell",
   "type": "object",
-  "required": ["id", "rulesVersion", "displayName", "school", "tier", "mpCost", "castingTime", "range"],
+  "required": ["id", "rulesVersion", "displayName", "school", "tier", "mpCost", "castingTime", "range", "effectType"],
   "additionalProperties": false,
   "properties": {
     "id": { "$ref": "common.schema.json#/$defs/slug" },
@@ -18,6 +18,10 @@
     "range": { "type": "string", "minLength": 1 },
     "duration": { "type": "string" },
     "concentration": { "type": "boolean" },
+    "effectType": {
+      "type": "string",
+      "enum": ["attack", "save", "heal", "buff", "utility", "summon", "counter", "terrain"]
+    },
     "attack": {
       "type": "object",
       "additionalProperties": false,
@@ -29,17 +33,55 @@
     "save": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["ability"],
       "properties": {
-        "dc": { "type": "integer", "minimum": 1 },
         "ability": { "type": "string", "enum": ["STR", "AGI", "STA", "INT", "SPI"] }
       }
     },
+    "damage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dice": { "$ref": "common.schema.json#/$defs/diceNotation" },
+        "damageType": { "type": "string" },
+        "halfOnSave": { "type": "boolean" }
+      }
+    },
+    "heal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dice": { "$ref": "common.schema.json#/$defs/diceNotation" },
+        "addAbility": { "type": "string", "enum": ["INT", "SPI", "none"] }
+      }
+    },
+    "summon": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "monsterId": { "$ref": "common.schema.json#/$defs/slug" },
+        "count": { "type": "integer", "minimum": 1 },
+        "tier": { "type": "string" }
+      }
+    },
     "effect": { "type": "string" },
-    "tags": { "type": "array", "items": { "type": "string" } }
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "onSaveFail": { "type": "boolean" }
+        }
+      }
+    }
   },
   "anyOf": [
     { "required": ["attack"] },
     { "required": ["save"] },
-    { "required": ["effect"] }
+    { "required": ["heal"] },
+    { "required": ["effect"] },
+    { "required": ["summon"] }
   ]
 }

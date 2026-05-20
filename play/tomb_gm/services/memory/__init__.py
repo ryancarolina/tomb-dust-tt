@@ -8,6 +8,31 @@ from typing import Any
 from tomb_gm.services.memory import episodic, semantic
 
 
+def _memories_for_roster(
+    memories: list[dict[str, Any]],
+    roster_names: list[str],
+) -> list[dict[str, Any]]:
+    """Drop stale character facts when they do not match the active roster."""
+    if not roster_names:
+        blocked_prefixes = ("Character registered:", "Character creation:")
+        return [
+            m for m in memories
+            if not str(m.get("fact", "")).startswith(blocked_prefixes)
+        ]
+
+    allowed = {name.lower() for name in roster_names}
+    kept: list[dict[str, Any]] = []
+    for mem in memories:
+        fact = str(mem.get("fact", ""))
+        lower = fact.lower()
+        if fact.startswith("Character registered:") or fact.startswith("Character creation:"):
+            if any(name in lower for name in allowed):
+                kept.append(mem)
+            continue
+        kept.append(mem)
+    return kept
+
+
 def remember_fact(
     conn: sqlite3.Connection,
     campaign_slug: str,
@@ -52,6 +77,7 @@ def build_recap(
     campaign_slug: str,
     session_id: str | None,
     party: dict[str, Any] | None = None,
+    roster_names: list[str] | None = None,
 ) -> dict[str, Any]:
     summaries = []
     if session_id:
@@ -80,6 +106,7 @@ def build_recap(
         recent_events = list(reversed(episodic.list_events(conn, session_id, limit=10)))
 
     memories = semantic.open_memories(conn, campaign_slug, limit=15)
+    memories = _memories_for_roster(memories, roster_names or [])
     lines = []
     if summaries:
         lines.append(summaries[0]["text"])

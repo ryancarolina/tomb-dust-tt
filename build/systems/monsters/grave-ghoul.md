@@ -24,6 +24,8 @@
 
 **Traits** **Rise Again.** When reduced to 0 HP, DC 13 consecration or decapitation within 1 round or returns to 1d6 HP once.
 
+**Downed behavior:** **feast** — prefers Downed and Dying delvers; keeps clawing until they stop moving.
+
 **Actions**
 - **Claw.** +5 to hit. *Hit:* 1d6+3 slashing + 1d4 necrotic; DC 12 STA save or **Paralyzed** until end of next turn (one target per ghoul per round).
 

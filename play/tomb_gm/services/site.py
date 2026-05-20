@@ -291,7 +291,6 @@ def search_site(
     import random
 
     from tomb_gm.rules.bridge import roll_d20
-    from tomb_gm.services.loot import roll_loot_table
 
     active = _read_active(ctx.config)
     party = _party_row(ctx, active["session_id"])
@@ -329,12 +328,29 @@ def search_site(
         if clues:
             payload["clues"] = clues
         if "loot" in node.tags:
-            loot = roll_loot_table(
-                ctx.config.content_root,
-                graph.danger_rating,
+            from tomb_gm.services.content import ContentService
+            from tomb_gm.services.loot_resolver import LootResolver, grant_loot
+
+            content = ContentService(ctx.config.content_root)
+            resolver = LootResolver(ctx.config.content_root)
+            loot = resolver.roll(
+                tier=graph.danger_rating,
+                loot_table_ref=party["site_id"],
                 rng=rng,
             )
             payload["loot"] = loot
+            if loot.get("ok"):
+                session_row = ctx.conn.execute(
+                    "SELECT campaign_slug FROM sessions WHERE id = ?",
+                    (active["session_id"],),
+                ).fetchone()
+                if session_row:
+                    payload["loot_granted"] = grant_loot(
+                        ctx.conn,
+                        content,
+                        campaign_slug=session_row["campaign_slug"],
+                        loot_result=loot,
+                    )
     else:
         payload["message"] = "Nothing useful turns up this pass."
 

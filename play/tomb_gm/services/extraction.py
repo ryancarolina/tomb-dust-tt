@@ -62,6 +62,28 @@ def set_phase(ctx: CommandContext, phase: str) -> dict[str, Any]:
     return {"ok": True, "phase": phase, "previous": current}
 
 
+def advance_phase_for_dungeon_entry(ctx: CommandContext) -> dict[str, Any]:
+    """Walk preparation→ingress→delve when the party enters an underground site."""
+    active = _read_active(ctx.config)
+    party = _party_row(ctx, active["session_id"])
+    current = party["phase"]
+
+    if current == "delve":
+        return {"ok": True, "phase": "delve", "previous": current}
+    if current == "preparation":
+        ingress = set_phase(ctx, "ingress")
+        if not ingress.get("ok"):
+            return ingress
+        current = "ingress"
+    if current == "ingress":
+        return set_phase(ctx, "delve")
+    return {
+        "ok": False,
+        "error": f"Cannot enter dungeon from phase {current}",
+        "phase": current,
+    }
+
+
 def clock_show(ctx: CommandContext) -> dict[str, Any]:
     active = _read_active(ctx.config)
     party = _party_row(ctx, active["session_id"])

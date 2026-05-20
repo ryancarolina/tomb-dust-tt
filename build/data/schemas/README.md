@@ -293,7 +293,7 @@ Optional full JSON Schema validation (e.g. `pip install check-jsonschema`); `val
 check-jsonschema --schemafile data/schemas/monster.schema.json data/monsters/grave-ghoul.json
 ```
 
-CI integration is future work (TD backlog).
+CI integration is future work.
 
 ## Related docs
 

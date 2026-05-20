@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import pygame
 from ui.theme import (
-    BG_PANEL, TEXT_MUTED, BORDER, PANEL_PADDING, SCROLLBAR_WIDTH,
+    BG_PANEL, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, BORDER, PANEL_PADDING, SCROLLBAR_WIDTH,
     FONT_SIZE, FONT_SIZE_SMALL, get_voice_color,
 )
-from ui.rich_text import render_wrapped_line, StyledSpan
+from ui.rich_text import (
+    render_wrapped_line, render_table, StyledSpan,
+    parse_markdown_spans, is_table_line, is_separator_line,
+)
 
 
 VOICE_LABELS = {
@@ -17,6 +20,8 @@ VOICE_LABELS = {
     "postern-clerk": "Clerk",
     "breley-sergeant": "Sergeant",
     "npc": "NPC",
+    "npc-male": "NPC",
+    "npc-female": "NPC",
     "player": "You",
 }
 
@@ -82,22 +87,72 @@ class NarrationPanel:
             label_surf = self._font_small.render(f"  {label}", True, TEXT_MUTED)
             self._rendered.append(label_surf)
 
-            is_narrator = voice in ("narrator", "gm")
-            if is_narrator:
-                spans = [StyledSpan(text, color, italic=True)]
+            if voice == "player":
+                spans = parse_markdown_spans(text, color)
+                wrapped = render_wrapped_line(
+                    spans, self._font, self._font_bold, self._font_italic, max_width
+                )
+                self._rendered.extend(wrapped)
             else:
-                spans = [StyledSpan(f"\u201c{text}\u201d", color, bold=False)]
+                self._render_gm_text(text, color, max_width)
+
+            spacer = pygame.Surface((max_width, 8), pygame.SRCALPHA)
+            self._rendered.append(spacer)
+
+        self._total_height = sum(s.get_height() for s in self._rendered)
+        self._dirty = False
+
+    def _render_gm_text(self, text: str, color: tuple, max_width: int):
+        """Render GM text with markdown support: bold, italic, tables, state lines."""
+        import re
+
+        raw_lines = text.split("\n")
+        i = 0
+        while i < len(raw_lines):
+            line = raw_lines[i]
+
+            if is_table_line(line):
+                table_block = []
+                while i < len(raw_lines) and (is_table_line(raw_lines[i]) or is_separator_line(raw_lines[i])):
+                    table_block.append(raw_lines[i])
+                    i += 1
+                table_surfs = render_table(
+                    table_block,
+                    self._font_small, self._font_bold,
+                    max_width,
+                    header_color=(220, 200, 140),
+                    cell_color=(200, 200, 210),
+                )
+                self._rendered.extend(table_surfs)
+                spacer = pygame.Surface((max_width, 4), pygame.SRCALPHA)
+                self._rendered.append(spacer)
+                continue
+
+            if re.match(r"^\[.+\]$", line.strip()):
+                state_color = (120, 130, 150)
+                state_surf = self._font_small.render(line.strip(), True, state_color)
+                self._rendered.append(state_surf)
+                i += 1
+                continue
+
+            stripped = line.strip()
+            if not stripped:
+                spacer = pygame.Surface((max_width, 4), pygame.SRCALPHA)
+                self._rendered.append(spacer)
+                i += 1
+                continue
+
+            if stripped.startswith("* ") or stripped.startswith("- "):
+                bullet_text = stripped[2:]
+                spans = parse_markdown_spans(f"  \u2022 {bullet_text}", color)
+            else:
+                spans = parse_markdown_spans(stripped, color)
 
             wrapped = render_wrapped_line(
                 spans, self._font, self._font_bold, self._font_italic, max_width
             )
             self._rendered.extend(wrapped)
-
-            spacer = pygame.Surface((max_width, 6), pygame.SRCALPHA)
-            self._rendered.append(spacer)
-
-        self._total_height = sum(s.get_height() for s in self._rendered)
-        self._dirty = False
+            i += 1
 
     def resize(self, rect: pygame.Rect):
         self.rect = rect
