@@ -24,11 +24,11 @@
 ### Agent workflow (every `app/` change)
 
 1. Read this master spec → open the **domain spec** for the area you touch.
-2. Add or update tasks, behavior bullets, and test checklist items in that spec.
-3. Implement in code to match the spec.
-4. Run tests listed in the spec + `python -m pytest app/tests play/tomb_gm/tests` (when applicable).
-5. Mark checklist items done; append **Changelog** entry with date and summary.
-6. If the change spans domains, update **each** affected spec.
+2. Pick or create a **backlog ticket** in [`backlog/README.md`](backlog/README.md) (`open` → `in_progress`).
+3. Implement in code to match the domain spec; stay within ticket **Expected files**.
+4. Run tests listed in the spec + ticket acceptance criteria.
+5. Close ticket (`done`); append **Changelog** entry in the domain spec.
+6. If the change spans domains, update **each** affected spec and ticket.
 
 ### When specs disagree with code
 
@@ -55,6 +55,8 @@ Each spec is named for **what it changes**. One spec owns one domain.
 | Logging & QA | [`app-logging-qa-spec.md`](app-logging-qa-spec.md) | `gm/logger.py`, `app/logs/`, `app/tests/` | CI |
 
 **Only `app-*-spec.md` files belong in `tmp/`.** Canon mechanics: `build/systems/` + [`build/docs/engine-integration.md`](../build/docs/engine-integration.md).
+
+**Work tracking:** [`backlog/README.md`](backlog/README.md) — one ticket per task; each ticket links to exactly one domain spec above.
 
 ---
 
@@ -93,11 +95,15 @@ app-shell-config
 
 ## Global definition of done (app release)
 
-- [ ] Every domain spec checklist reflects current code (no drift).
-- [ ] `python -m pytest app/tests` green (when suite exists).
-- [ ] `python -m pytest play/tomb_gm/tests` green.
-- [ ] `python build/tools/validate_content.py` clean.
-- [ ] Smoke: `cd app && python main.py` → `new game` → creation → one surface beat → save → resume.
+Tracked as release tickets in [`backlog/README.md`](backlog/README.md):
+
+| Ticket | Gate |
+|--------|------|
+| [APP-053](backlog/app-053-keep-domain-specs-drift-free.md) | Domain specs match code |
+| [APP-054](backlog/app-054-app-tests-pytest-green.md) | `python -m pytest app/tests` green |
+| [APP-055](backlog/app-055-tombgm-tests-pytest-green.md) | `python -m pytest play/tomb_gm/tests` green |
+| [APP-056](backlog/app-056-validatecontent-clean.md) | `validate_content.py` clean |
+| [APP-052](backlog/app-052-release-smoke-new-game-through-save-resume.md) | Full smoke: new game → creation → beat → save → resume |
 
 ---
 
@@ -108,7 +114,7 @@ Every domain spec MUST include:
 1. **Status** — `Not started` | `In progress` | `Complete` | section-level ✅  
 2. **Scope** — code paths owned  
 3. **Spec** — behavior the app must exhibit  
-4. **Task checklist** — `- [ ]` / `- [x]`  
+4. **Task checklist** — completed `- [x]` items; open work links to [`backlog/`](backlog/README.md) tickets  
 5. **Tests** — commands + scenarios (spec is the test spec)  
 6. **File map** — spec ↔ code  
 7. **Changelog** — dated entries when work lands  
@@ -123,3 +129,5 @@ Every domain spec MUST include:
 | 2026-05-20 | Removed non-app tmp docs; merged into domain specs |
 | 2026-05-20 | Renamed `*-plan.md` → `*-spec.md` |
 | 2026-05-20 | Removed `play/docs/*-spec.md` and `build/backlog/`; `tmp/` is the only spec tree (tracked in git) |
+| 2026-05-20 | Added `tmp/backlog/` ticket system (APP-001–057); no-ticket-no-change cursor rule |
+| 2026-05-20 | APP-056: `validate_content.py` clean (site edge remap via APP-001) |
