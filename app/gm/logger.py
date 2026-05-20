@@ -42,6 +42,26 @@ def log_gm_narration(narration: str):
     log_entry("gm_narration", {"text": narration})
 
 
+def log_creation_drift(data: dict):
+    """Structured alert when narration status disagrees with engine creation state."""
+    log_entry("creation_drift", data)
+
+
+def parse_narration_status_line(narration: str) -> dict[str, str | None]:
+    """Extract Phase and Awaiting from bracket status lines in GM narration."""
+    import re
+
+    phase = None
+    awaiting = None
+    phase_m = re.search(r"Phase:\s*([^|\]]+)", narration, re.I)
+    if phase_m:
+        phase = phase_m.group(1).strip()
+    awaiting_m = re.search(r"Awaiting:\s*([^|\]]+)", narration, re.I)
+    if awaiting_m:
+        awaiting = awaiting_m.group(1).strip()
+    return {"phase": phase, "awaiting": awaiting}
+
+
 def log_tool_call(name: str, args: dict, result: dict):
     log_entry("tool_call", {"name": name, "args": args, "result": result})
 

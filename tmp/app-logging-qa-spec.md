@@ -17,7 +17,7 @@
 | `tool_call` | Every tool name, args, result |
 | `gm_narration` | Final text to UI |
 | `error` | Exceptions, setup failures |
-| `creation_drift` | **(planned)** narration `[Phase:` / `[Awaiting:` disagrees with engine |
+| `creation_drift` | Narration `[Phase:` / `[Awaiting:` disagrees with engine during creation (`Orchestrator._check_creation_drift`) |
 | `creation_step` | **(planned)** `{creation.step, roster_len, awaiting}` each creation turn |
 
 ### QA suite
@@ -30,13 +30,8 @@
 ## Task checklist
 
 - [x] JSONL logger with core event types
-- [ ] Log `{creation.step, roster_len, awaiting, creation.active}` after each creation turn
-- [ ] Log `creation_drift` when narration phase ≠ engine step
-- [ ] Log `advanced_to` on every successful `_execute_creation_choice`
-- [ ] Log engine `status()` snapshot after `character_create` / finalize
-- [ ] Create `app/tests/` package + conftest
-- [ ] CI workflow or documented local gate (see Tests below)
-- [ ] Golden path fixture: mock LLM creation → enter undercrypt → one beat
+
+**Open work:** [APP-003](backlog/app-003-log-creation-step-snapshot-each-turn.md)–[APP-005](backlog/app-005-log-engine-status-after-finalize.md), [APP-049](backlog/app-049-create-app-tests-package.md)–[APP-051](backlog/app-051-golden-path-fixture-with-mock-llm.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -83,3 +78,4 @@ python -m tomb_gm --workspace play/workspace check
 | Date | Change |
 |------|--------|
 | 2026-05-20 | Spec created; merged sync-logging + regression-suite content |
+| 2026-05-20 | APP-002: `creation_drift` JSONL via `log_creation_drift` + orchestrator drift check |

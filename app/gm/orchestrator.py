@@ -43,9 +43,17 @@ from gm.system_prompt import SYSTEM_PROMPT
 from gm.tools import TOOLS, SET_CREATION_CHOICE_TOOL, COMBAT_ACTION_TOOL
 from gm.context import build_state_context, build_messages
 from gm.logger import (
-    log_player_input, log_gm_narration, log_tool_call,
-    log_llm_request, log_llm_response, log_error,
+    log_player_input,
+    log_gm_narration,
+    log_creation_drift,
+    parse_narration_status_line,
+    log_tool_call,
+    log_llm_request,
+    log_llm_response,
+    log_error,
 )
+
+_PREMATURE_EXPLORE_PHASES = frozenset({"delve", "ingress", "extract", "aftermath"})
 
 SPELL_QUERY_RE = re.compile(
     r"\b(what spells|spells do i know|my spells|known spells|spell list|do i know any spells)\b",
@@ -152,6 +160,61 @@ class Orchestrator:
     def import_creation_state(self, data: dict | None) -> None:
         if data and data.get("active"):
             self.creation = CreationState.from_dict(data)
+
+    def _creation_drift_scope(self) -> bool:
+        if self.creation.active:
+            return True
+        try:
+            status = self.bridge.status()
+        except Exception:
+            return False
+        return (
+            status.get("awaiting") == "CHARACTER_CREATION"
+            and not (status.get("roster") or [])
+        )
+
+    def _check_creation_drift(self, narration: str) -> None:
+        if not self._creation_drift_scope():
+            return
+        narrated = parse_narration_status_line(narration)
+        if not narrated.get("phase") and not narrated.get("awaiting"):
+            return
+        try:
+            status = self.bridge.status()
+        except Exception:
+            status = {}
+        roster = status.get("roster") or []
+        party = status.get("party") or {}
+        engine_phase = str(party.get("phase") or "").strip().lower()
+        engine_awaiting = str(status.get("awaiting") or "").strip().upper()
+        narrated_phase = str(narrated.get("phase") or "").strip().lower()
+        narrated_awaiting = str(narrated.get("awaiting") or "").strip().upper()
+
+        reasons: list[str] = []
+        if narrated_awaiting and narrated_awaiting != engine_awaiting:
+            reasons.append("awaiting_mismatch")
+        if narrated_phase and engine_phase and narrated_phase != engine_phase:
+            reasons.append("phase_mismatch")
+        if self.creation.active and narrated_phase in _PREMATURE_EXPLORE_PHASES:
+            reasons.append("premature_exploration_phase")
+
+        if not reasons:
+            return
+
+        log_creation_drift({
+            "step": self.creation.step,
+            "roster_len": len(roster),
+            "awaiting": status.get("awaiting"),
+            "creation.active": self.creation.active,
+            "narrated_phase": narrated.get("phase"),
+            "narrated_awaiting": narrated.get("awaiting"),
+            "engine_phase": party.get("phase"),
+            "reasons": reasons,
+        })
+
+    def _emit_narration(self, narration: str) -> None:
+        log_gm_narration(narration)
+        self._check_creation_drift(narration)
 
     def setup_new_game(self, campaign_slug: str = "salt-road") -> dict:
         """Wipe session/campaign data and start completely fresh. World corpses persist."""
@@ -327,7 +390,7 @@ class Orchestrator:
                     f"The body remains in **{where}** with all carried gear.\n\n"
                     "This run is over. A **new game** has started. What is your delver's name?"
                 )
-                log_gm_narration(death_msg)
+                self._emit_narration(death_msg)
                 return death_msg
             self._restore_history()
             self._sync_creation_from_status()
@@ -397,7 +460,7 @@ class Orchestrator:
         )
 
         narration = self._llm_loop(messages)
-        log_gm_narration(narration)
+        self._emit_narration(narration)
 
         self.history.append({"role": "user", "content": player_input})
         self.history.append({"role": "assistant", "content": narration})
@@ -498,7 +561,7 @@ class Orchestrator:
                 tool_choice = {"type": "function", "function": {"name": "set_creation_choice"}}
                 narration = self._creation_llm_loop(messages, tools, tool_choice, player_input)
 
-        log_gm_narration(narration)
+        self._emit_narration(narration)
         self.history.append({"role": "user", "content": player_input})
         self.history.append({"role": "assistant", "content": narration})
         return narration
@@ -1122,7 +1185,7 @@ class Orchestrator:
             narration = self._narrate_text(brief + "\n\nNarrate how combat ended.")
             self.combat.active = False
             self.combat.step = "COMBAT_IDLE"
-            log_gm_narration(narration)
+            self._emit_narration(narration)
             self.history.append({"role": "user", "content": player_input})
             self.history.append({"role": "assistant", "content": narration})
             return narration
@@ -1142,7 +1205,7 @@ class Orchestrator:
             mechanical = self._combat_auto_chain()
             death_narration = self._handle_player_death(mechanical)
             if death_narration:
-                log_gm_narration(death_narration)
+                self._emit_narration(death_narration)
                 self.history.append({"role": "user", "content": player_input})
                 self.history.append({"role": "assistant", "content": death_narration})
                 return death_narration
@@ -1153,7 +1216,7 @@ class Orchestrator:
                 brief = self._combat_mechanical_brief(mechanical)
                 narration = self._narrate_text(brief + "\n\nMonsters act. Narrate their attacks.")
 
-        log_gm_narration(narration)
+        self._emit_narration(narration)
         self.history.append({"role": "user", "content": player_input})
         self.history.append({"role": "assistant", "content": narration})
         if len(self.history) > 40:
@@ -1236,7 +1299,7 @@ class Orchestrator:
         mechanical.extend(auto)
         death_narration = self._handle_player_death(mechanical)
         if death_narration:
-            log_gm_narration(death_narration)
+            self._emit_narration(death_narration)
             self.history.append({"role": "assistant", "content": death_narration})
             return death_narration
         self._sync_combat_from_status()
