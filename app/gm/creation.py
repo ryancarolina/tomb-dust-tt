@@ -66,6 +66,24 @@ SKILL_CATEGORIES: dict[str, list[str]] = {
     "Other": ["medicine", "battlefield-awareness"],
 }
 
+CREATION_STATUS_LABELS: dict[str, str] = {
+    "NAME": "NAME_INPUT",
+    "RACE": "RACE_INPUT",
+    "ROLL_STATS": "STATS_REVIEW",
+    "CLASS": "CLASS_INPUT",
+    "SKILLS": "SKILLS_INPUT",
+    "SPELL_SCHOOLS": "SPELL_SCHOOLS_INPUT",
+    "SPELLS": "SPELLS_INPUT",
+    "EQUIPMENT_GOLD": "EQUIPMENT_GOLD_CONFIRMATION",
+    "FINALIZE": "FINALIZE",
+    "WORLD_INTRO": "RECEPTION_CHOICE",
+}
+
+_LLM_STATUS_TAG_RE = re.compile(
+    r"\[Location:[^\]]*\]|\[Phase:[^\]]*\]|^\s*Awaiting:\s*[A-Z0-9_]+\s*$",
+    re.I | re.MULTILINE,
+)
+
 CLARIFICATION_RE = re.compile(
     r"(don't see|dont see|not see|what are|what skills|list|show me|options|"
     r"which skills|help|\?|repeat|display|where are)",
@@ -499,6 +517,62 @@ def parse_player_spells(text: str, class_key: str, school_ids: list[str]) -> lis
     if len(found) == int(profile.get("spellPickCount", 2)):
         return found
     return None
+
+
+def strip_llm_status_tags(text: str) -> str:
+    """Remove LLM-invented status footer blocks; code owns Awaiting/Location lines."""
+    cleaned = _LLM_STATUS_TAG_RE.sub("", text or "")
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def format_creation_status(state: CreationState) -> str:
+    """Code-owned footer line for creation UI and suggestion parsing."""
+    label = CREATION_STATUS_LABELS.get(state.step, f"{state.step}_INPUT")
+    return f"Awaiting: {label}"
+
+
+def format_races_table() -> str:
+    lines = [
+        "Pick **one race**. Reply with the race name.",
+        "",
+        "| Race | Adjustments | Description |",
+        "|:------|:-------------|:-------------|",
+    ]
+    for name, info in RACES.items():
+        lines.append(
+            f"| {name.replace('-', ' ').title()} | {_format_mods(info['mods'])} | {info['description']} |"
+        )
+    return "\n".join(lines)
+
+
+def format_classes_table(eligible: list[str]) -> str:
+    lines = [
+        "Pick **one tier-1 class** you qualify for.",
+        "",
+        "| Class | Requirement | Key skills | Starting GP |",
+        "|:------|:-------------|:-----------|:------------|",
+    ]
+    for cls in eligible:
+        info = CLASS_INFO.get(cls)
+        if not info:
+            continue
+        keys = ", ".join(info["key_skills"][:4])
+        lines.append(
+            f"| {cls.title()} | {info['requirement']} | {keys} | {info['base_gp']} gp |"
+        )
+    return "\n".join(lines)
+
+
+def format_equipment_summary(state: CreationState) -> str:
+    """Kit and gold from ensure_equipment_gold — not LLM prose."""
+    ensure_equipment_gold(state)
+    skills = ", ".join(SKILL_DISPLAY.get(s, s) for s in state.chosen_skills)
+    return (
+        f"**Registry kit:** {state.equipment_kit}\n\n"
+        f"**Starting gold:** {state.starting_gold} gp\n\n"
+        f"**Skills on record:** {skills or '—'}\n\n"
+        f"Reply **yes** or **ready** to accept and finalize registration."
+    )
 
 
 def format_skills_table(chosen_class: str) -> str:

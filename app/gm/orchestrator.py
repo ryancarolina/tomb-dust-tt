@@ -17,10 +17,14 @@ from gm.creation import (
     CreationState,
     RACES,
     CLASS_INFO,
-    get_step_prompt,
     format_skills_table,
     format_schools_table,
     format_spells_table,
+    format_races_table,
+    format_classes_table,
+    format_equipment_summary,
+    format_creation_status,
+    strip_llm_status_tags,
     ensure_equipment_gold,
     is_equipment_confirm,
     is_equipment_objection,
@@ -57,6 +61,7 @@ from gm.logger import (
 )
 
 _PREMATURE_EXPLORE_PHASES = frozenset({"delve", "ingress", "extract", "aftermath"})
+_CREATION_FLAVOR_MAX_TOKENS = 120
 
 SPELL_QUERY_RE = re.compile(
     r"\b(what spells|spells do i know|my spells|known spells|spell list|do i know any spells)\b",
@@ -427,6 +432,8 @@ class Orchestrator:
                 log_error("session_resume", f"recovered save campaign: {result.get('campaign_slug')}")
             if status.get("awaiting") == "CHARACTER_CREATION" and not status.get("roster"):
                 if not self.creation.active:
+                    self._restore_history()
+                if not self.creation.active:
                     self.creation = CreationState(active=True, step="NAME")
                 return self._creation_turn(
                     "[SYSTEM: Resume character creation. Continue from the current step.]"
@@ -497,6 +504,63 @@ class Orchestrator:
 
         return narration
 
+    def _compose_creation_narration(
+        self,
+        flavor: str,
+        body: str = "",
+        *,
+        footer: str | None = None,
+    ) -> str:
+        """Thin LLM flavor + code body + code-owned status footer."""
+        parts: list[str] = []
+        cleaned = strip_llm_status_tags(flavor)
+        if cleaned:
+            parts.append(cleaned)
+        if body.strip():
+            parts.append(body.strip())
+        status_line = footer if footer is not None else format_creation_status(self.creation)
+        if status_line:
+            parts.append(status_line)
+        return "\n\n".join(parts)
+
+    def _creation_flavor_messages(self, instruction: str, player_input: str) -> list[dict[str, Any]]:
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": (
+                    "You are the GM for Tomb Dust at the Registry desk in Breley Keep.\n"
+                    f"Character: {self.creation.name or '(unnamed)'}\n"
+                    f"Creation step: {self.creation.step}\n\n"
+                    f"{instruction}\n\n"
+                    "Write 1-2 short sentences of in-character flavor ONLY.\n"
+                    "Do NOT include markdown tables, status lines, [Location:...], Phase, Awaiting, "
+                    "or mechanical numbers — code appends those."
+                ),
+            },
+            *self.history[-4:],
+            {"role": "user", "content": player_input},
+        ]
+
+    def _narrate_flavor(self, messages: list[dict[str, Any]]) -> str:
+        """Short LLM flavor during creation (~120 tokens, no tools)."""
+        log_llm_request(len(messages), self.model, 0)
+        try:
+            response = chat_completion(
+                self.client,
+                model=self.model,
+                messages=messages,
+                tools=None,
+                max_tokens=_CREATION_FLAVOR_MAX_TOKENS,
+                temperature=self.temperature,
+            )
+        except Exception as exc:
+            log_error("narrate_flavor", str(exc))
+            return "The clerk glances up from the ledger."
+        content = response.get("content", "") or "The clerk glances up from the ledger."
+        log_llm_response(content, [], response.get("finish_reason", ""))
+        return content
+
     # ─── Creation State Machine (code-enforced) ───────────────────────────
 
     def _creation_turn(self, player_input: str) -> str:
@@ -507,10 +571,7 @@ class Orchestrator:
             self._log_creation_step_snapshot()
 
     def _creation_turn_body(self, player_input: str) -> str:
-        if self.creation.step == "WORLD_INTRO" or (
-            not self.creation.active and self.creation.step != "FINALIZE"
-        ):
-            self.creation.active = False
+        if self.creation.step == "WORLD_INTRO" and not self.creation.active:
             return self.process_turn("look around")
 
         is_system_trigger = player_input.startswith("[SYSTEM:") or player_input.startswith("[Step advanced")
@@ -519,6 +580,27 @@ class Orchestrator:
             narration = self._auto_roll_stats(player_input)
         elif self.creation.step == "FINALIZE":
             narration = self._auto_finalize(player_input)
+        elif self.creation.step == "NAME" and (is_system_trigger or player_input.startswith("[SYSTEM:")):
+            narration = self._auto_present_name(player_input)
+        elif self.creation.step == "NAME":
+            narration = self._handle_creation_response(player_input) or self._auto_present_name(
+                player_input,
+                error="Give a name of at least two characters for the Registry ledger.",
+            )
+        elif self.creation.step == "RACE" and (is_system_trigger or not self.creation.race):
+            narration = self._auto_present_race(player_input)
+        elif self.creation.step == "RACE":
+            narration = self._handle_creation_response(player_input) or self._auto_present_race(
+                player_input,
+                error="Pick one race from the table.",
+            )
+        elif self.creation.step == "CLASS" and (is_system_trigger or not self.creation.chosen_class):
+            narration = self._auto_present_class(player_input)
+        elif self.creation.step == "CLASS":
+            narration = self._handle_creation_response(player_input) or self._auto_present_class(
+                player_input,
+                error="Pick one eligible class from the table.",
+            )
         elif self.creation.step == "SKILLS" and (is_system_trigger or not self.creation.skills_table_shown):
             narration = self._auto_present_skills(player_input)
         elif self.creation.step == "SKILLS":
@@ -549,23 +631,7 @@ class Orchestrator:
                 error="Say yes or ready when you accept the kit and starting gold.",
             )
         elif is_system_trigger:
-            step_prompt = get_step_prompt(self.creation)
-            if not step_prompt:
-                self.creation.active = False
-                return self.process_turn("look around")
-            context = (
-                f"You are the GM for Tomb Dust. You are guiding character creation.\n"
-                f"Current state: {json.dumps(self.creation.to_dict())}\n\n"
-                f"INSTRUCTION:\n{step_prompt}"
-            )
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "system", "content": context},
-            ]
-            if self.history:
-                messages.extend(self.history[-6:])
-            messages.append({"role": "user", "content": player_input})
-            narration = self._narrate_only(messages)
+            narration = self._auto_present_step_fallback(player_input)
         else:
             direct = self._handle_creation_response(player_input)
             if direct is not None:
@@ -573,36 +639,123 @@ class Orchestrator:
             elif self.creation.step in ("SKILLS", "SPELL_SCHOOLS", "SPELLS", "EQUIPMENT_GOLD"):
                 narration = "The clerk taps the form. That choice is not on the ledger — follow the instructions on the table."
             else:
-                step_prompt = get_step_prompt(self.creation)
-                if not step_prompt:
-                    self.creation.active = False
-                    return self.process_turn("look around")
-                context = (
-                    f"You are the GM for Tomb Dust. You are guiding character creation.\n"
-                    f"Current state: {json.dumps(self.creation.to_dict())}\n\n"
-                    f"INSTRUCTION:\n{step_prompt}"
+                narration = self._auto_present_step_fallback(
+                    player_input,
+                    error="That response does not match this step — follow the table or prompt.",
                 )
-                messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "system", "content": context},
-                ]
-                if self.history:
-                    messages.extend(self.history[-6:])
-                messages.append({"role": "user", "content": player_input})
-                tools = [SET_CREATION_CHOICE_TOOL]
-                tool_choice = {"type": "function", "function": {"name": "set_creation_choice"}}
-                narration = self._creation_llm_loop(messages, tools, tool_choice, player_input)
 
         self._emit_narration(narration)
         self.history.append({"role": "user", "content": player_input})
         self.history.append({"role": "assistant", "content": narration})
         return narration
 
+    def _auto_present_step_fallback(self, player_input: str, error: str | None = None) -> str:
+        step = self.creation.step
+        if step == "NAME":
+            return self._auto_present_name(player_input, error=error)
+        if step == "RACE":
+            return self._auto_present_race(player_input, error=error)
+        if step == "CLASS":
+            return self._auto_present_class(player_input, error=error)
+        if step == "SKILLS":
+            return self._auto_present_skills(player_input, error=error)
+        if step == "SPELL_SCHOOLS":
+            return self._auto_present_schools(player_input, error=error)
+        if step == "SPELLS":
+            return self._auto_present_spells(player_input, error=error)
+        if step == "EQUIPMENT_GOLD":
+            return self._auto_present_equipment(player_input, error=error)
+        return "The clerk waits for your next answer on the form."
+
+    def _auto_present_name(self, player_input: str, error: str | None = None) -> str:
+        err = f"**Note:** {error}\n\n" if error else ""
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                "A Registry clerk asks a new delver for their legal name.",
+                player_input,
+            )
+        )
+        body = f"{err}What name shall I put on the Registry ledger?"
+        return self._compose_creation_narration(flavor, body)
+
+    def _auto_present_race(self, player_input: str, error: str | None = None) -> str:
+        err = f"**Note:** {error}\n\n" if error else ""
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                f"The clerk writes down '{self.creation.name}' and asks about lineage.",
+                player_input,
+            )
+        )
+        body = err + format_races_table()
+        return self._compose_creation_narration(flavor, body)
+
+    def _auto_present_class(self, player_input: str, error: str | None = None) -> str:
+        err = f"**Note:** {error}\n\n" if error else ""
+        eligible = self.creation.roll_result.get("eligible_classes", ["peasant"])
+        attrs = self.creation.roll_result.get("final_attributes", {})
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                "Present the stat results briefly, then ask which tier-1 class path the delver chooses.",
+                player_input,
+            )
+        )
+        stat_bits = ", ".join(f"{k} {v}" for k, v in sorted(attrs.items()))
+        body = f"{err}**Final attributes:** {stat_bits}\n\n{format_classes_table(eligible)}"
+        return self._compose_creation_narration(flavor, body)
+
     def _handle_creation_response(self, player_input: str) -> str | None:
-        """Code-first handling for gated steps. Returns narration or None to defer to LLM."""
+        """Code-first handling for gated steps. Returns narration or None to defer."""
         step = self.creation.step
 
+        if step == "NAME":
+            text = player_input.strip()
+            if text.startswith("[") or len(text) < 2:
+                return None
+            if is_equipment_confirm(text):
+                return self._auto_present_name(
+                    player_input,
+                    error="A name is required — yes/ready is not valid here.",
+                )
+            result = self._execute_creation_choice("NAME", text, player_input=player_input)
+            if not result.get("ok"):
+                return self._auto_present_name(player_input, error=result.get("error"))
+            return self._chain_after_creation_choice("")
+
+        if step == "RACE":
+            if is_equipment_confirm(player_input):
+                return self._auto_present_race(
+                    player_input,
+                    error="Pick a race from the table — yes/ready is not valid here.",
+                )
+            race = parse_player_race(player_input)
+            if not race:
+                return None
+            result = self._execute_creation_choice("RACE", race, player_input=player_input)
+            if not result.get("ok"):
+                return self._auto_present_race(player_input, error=result.get("error"))
+            return self._chain_after_creation_choice("")
+
+        if step == "CLASS":
+            if is_equipment_confirm(player_input):
+                return self._auto_present_class(
+                    player_input,
+                    error="Pick a class from the table — yes/ready is not valid here.",
+                )
+            eligible = self.creation.roll_result.get("eligible_classes", ["peasant"])
+            chosen = parse_player_class(player_input, eligible)
+            if not chosen:
+                return None
+            result = self._execute_creation_choice("CLASS", chosen, player_input=player_input)
+            if not result.get("ok"):
+                return self._auto_present_class(player_input, error=result.get("error"))
+            return self._chain_after_creation_choice("")
+
         if step == "SKILLS":
+            if is_equipment_confirm(player_input):
+                return self._auto_present_skills(
+                    player_input,
+                    error="Name three skills from the table — yes/ready is not valid here.",
+                )
             skills = parse_player_skills(player_input, self.creation.chosen_class)
             if not skills:
                 return self._auto_present_skills(
@@ -626,6 +779,11 @@ class Orchestrator:
             return self._chain_after_creation_choice("")
 
         if step == "SPELL_SCHOOLS":
+            if is_equipment_confirm(player_input):
+                return self._auto_present_schools(
+                    player_input,
+                    error="Pick spell schools from the table — yes/ready is not valid here.",
+                )
             if not needs_spell_picks(self.creation):
                 skip_inapplicable_spell_steps(self.creation)
                 return self._chain_after_creation_choice("")
@@ -643,6 +801,11 @@ class Orchestrator:
             return self._chain_after_creation_choice("")
 
         if step == "SPELLS":
+            if is_equipment_confirm(player_input):
+                return self._auto_present_spells(
+                    player_input,
+                    error="Pick tier-1 spells from the table — yes/ready is not valid here.",
+                )
             spells = parse_player_spells(
                 player_input, self.creation.chosen_class, self.creation.chosen_schools,
             )
@@ -695,99 +858,59 @@ class Orchestrator:
         return prior or "The clerk waits."
 
     def _auto_present_skills(self, player_input: str, error: str | None = None) -> str:
-        """Deterministic skills table presentation."""
+        """Deterministic skills table — code body, thin LLM flavor."""
         self.creation.skills_table_shown = True
-        table = format_skills_table(self.creation.chosen_class)
-        err_block = f"\nNOTE: {error}\n" if error else ""
-        context = (
-            f"You are the GM for Tomb Dust. Character creation — skills selection.\n"
-            f"Character: {self.creation.name}, class: {self.creation.chosen_class}\n"
-            f"{err_block}\n"
-            f"Write 1-2 sentences in character (clerk asks about training), then output "
-            f"this EXACT markdown table:\n\n{table}\n\n"
-            f"End by asking the player to name 3 skills comma-separated.\n"
-            f"Do NOT call any tools. Do NOT accept invalid picks or advance to equipment — "
-            f"code validates skills after your message."
+        err = f"**Note:** {error}\n\n" if error else ""
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                f"Ask {self.creation.name} which three skills they trained in as a {self.creation.chosen_class}.",
+                player_input,
+            )
         )
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": context},
-        ]
-        if self.history:
-            messages.extend(self.history[-4:])
-        messages.append({"role": "user", "content": player_input})
-        return self._narrate_only(messages)
+        body = err + format_skills_table(self.creation.chosen_class)
+        return self._compose_creation_narration(flavor, body)
 
     def _auto_present_schools(self, player_input: str, error: str | None = None) -> str:
-        """Deterministic spell school table for caster creation."""
+        """Deterministic spell school table."""
         skip_inapplicable_spell_steps(self.creation)
         if self.creation.step != "SPELL_SCHOOLS":
             return self._chain_after_creation_choice("")
         self.creation.schools_table_shown = True
-        table = format_schools_table(self.creation.chosen_class)
-        err_block = f"\nNOTE: {error}\n" if error else ""
-        context = (
-            f"You are the GM for Tomb Dust. Character creation — spell schools.\n"
-            f"Character: {self.creation.name}, class: {self.creation.chosen_class}\n"
-            f"{err_block}\n"
-            f"Write 1-2 sentences in character, then output this EXACT markdown table:\n\n{table}\n\n"
-            f"End by asking the player to pick schools comma-separated.\n"
-            f"Do NOT call any tools."
+        err = f"**Note:** {error}\n\n" if error else ""
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                "Ask which magical schools the delver studied.",
+                player_input,
+            )
         )
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": context},
-        ]
-        if self.history:
-            messages.extend(self.history[-4:])
-        messages.append({"role": "user", "content": player_input})
-        return self._narrate_only(messages)
+        body = err + format_schools_table(self.creation.chosen_class)
+        return self._compose_creation_narration(flavor, body)
 
     def _auto_present_spells(self, player_input: str, error: str | None = None) -> str:
         """Deterministic starting spell table."""
         self.creation.spells_table_shown = True
-        table = format_spells_table(self.creation.chosen_class, self.creation.chosen_schools)
-        err_block = f"\nNOTE: {error}\n" if error else ""
-        context = (
-            f"You are the GM for Tomb Dust. Character creation — starting spells.\n"
-            f"Character: {self.creation.name}, schools: {', '.join(self.creation.chosen_schools)}\n"
-            f"{err_block}\n"
-            f"Write 1-2 sentences in character, then output this EXACT markdown table:\n\n{table}\n\n"
-            f"End by asking the player to pick spells comma-separated.\n"
-            f"Do NOT call any tools."
+        err = f"**Note:** {error}\n\n" if error else ""
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                "Ask which tier-1 spells the delver memorized from their chosen schools.",
+                player_input,
+            )
         )
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": context},
-        ]
-        if self.history:
-            messages.extend(self.history[-4:])
-        messages.append({"role": "user", "content": player_input})
-        return self._narrate_only(messages)
+        body = err + format_spells_table(self.creation.chosen_class, self.creation.chosen_schools)
+        return self._compose_creation_narration(flavor, body)
 
     def _auto_present_equipment(self, player_input: str, error: str | None = None) -> str:
-        """Present kit and gold; require explicit player confirm to advance."""
+        """Present kit and gold from ensure_equipment_gold; require explicit confirm."""
         ensure_equipment_gold(self.creation)
-        err_block = f"\nNOTE: {error}\n" if error else ""
-        context = (
-            f"You are the GM for Tomb Dust. Character creation — equipment & gold.\n"
-            f"Character: {self.creation.name}\n"
-            f"Kit: {self.creation.equipment_kit}\n"
-            f"Starting gold: {self.creation.starting_gold} gp\n"
-            f"Skills chosen: {', '.join(self.creation.chosen_skills)}\n"
-            f"{err_block}\n"
-            f"Narrate the clerk handing over the kit and coin pouch in character. "
-            f"Ask the player to confirm they accept (yes/ready) before registration is final.\n"
-            f"Do NOT call any tools."
+        err = f"**Note:** {error}\n\n" if error else ""
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                "Hand over the Registry kit and coin pouch; ask for explicit confirmation.",
+                player_input,
+            )
         )
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": context},
-        ]
-        if self.history:
-            messages.extend(self.history[-4:])
-        messages.append({"role": "user", "content": player_input})
-        return self._narrate_only(messages)
+        body = err + format_equipment_summary(self.creation)
+        return self._compose_creation_narration(flavor, body)
 
     def _auto_roll_stats(self, player_input: str) -> str:
         """ROLL_STATS is deterministic: code rolls, LLM narrates the table."""
@@ -876,9 +999,29 @@ class Orchestrator:
         self._log_creation_finalize_status(result)
         if not result.get("ok"):
             self.creation.active = True
-            return f"The clerk frowns at the paperwork. {result.get('error', 'Registration failed.')}"
+            self.creation.step = "EQUIPMENT_GOLD"
+            return self._auto_present_equipment(
+                player_input,
+                error=f"Registration failed: {result.get('error', 'unknown error')}",
+            )
+
+        try:
+            status = self.bridge.status()
+        except Exception as exc:
+            status = {"_error": str(exc)}
+        roster = status.get("roster") or []
+        if not roster:
+            self.creation.active = True
+            self.creation.step = "FINALIZE"
+            return (
+                "The clerk stamps the form but the roster ledger stays blank. "
+                f"Registration did not produce a living character ({result.get('error', 'empty roster')}). "
+                "Try confirming equipment again or start a new game."
+            )
+
         self._remember_creation_step("FINALIZE")
         self.creation.active = False
+        self.creation.step = "WORLD_INTRO"
 
         sta = attrs.get("STA", 10)
         hp = 10 + (sta * 5)
@@ -886,30 +1029,24 @@ class Orchestrator:
         base_mp = cls_info.get("base_mp", 5)
         int_score = attrs.get("INT", 10)
         mp = base_mp + (int_score * 3)
+        luc = max(1, 1 + (attrs.get("LUC", 10) - 10) // 2)
 
-        context = (
-            f"You are the GM for Tomb Dust. Character creation is COMPLETE.\n"
-            f"Character: {self.creation.name}, {self.creation.race} {self.creation.chosen_class}\n"
-            f"HP: {hp}, MP: {mp}, Gold: {remaining_gp}\n"
-            f"Skills: {', '.join(self.creation.chosen_skills)}\n"
-            f"Equipment: {cls_info.get('kit', 'basic gear')}\n\n"
-            f"Narrate the clerk stamping the form, then describe {self.creation.name} stepping "
-            f"out into Breley Keep (32-C). Paint the scene: the outer bailey, the garrison, "
-            f"distant King's Road, smoke from smithies, the postern gate where delvers depart. "
-            f"Mention exits (north, south, east, west, underground). "
-            f"End with: what does {self.creation.name} do first?\n"
-            f"Include status line: [Location: 32-C | Phase: preparation | HP: {hp}/{hp} | Fortune: {max(1, 1 + (attrs.get('LUC', 10) - 10) // 2)}/{max(1, 1 + (attrs.get('LUC', 10) - 10) // 2)} | GP: {remaining_gp}]\n"
-            f"Do NOT call any tools."
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                f"Character {self.creation.name} is registered. Describe them stepping into Breley Keep "
+                "(outer bailey, garrison, King's Road, smithies, postern gate). End by asking what they do first.",
+                player_input,
+            )
         )
-
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": context},
-        ]
-        if self.history:
-            messages.extend(self.history[-4:])
-        messages.append({"role": "user", "content": player_input})
-        return self._narrate_only(messages)
+        body = (
+            f"**{self.creation.name}** is registered — {self.creation.race.replace('-', ' ').title()} "
+            f"{self.creation.chosen_class.title()}.\n\n"
+            f"HP {hp}/{hp} · MP {mp} · Fortune {luc}/{luc} · GP {remaining_gp}\n\n"
+            f"Skills: {', '.join(self.creation.chosen_skills)}\n"
+            f"Kit: {cls_info.get('kit', 'basic gear')}"
+        )
+        footer = f"[Location: 32-C | Phase: preparation | HP: {hp}/{hp} | Fortune: {luc}/{luc} | GP: {remaining_gp}]\nAwaiting: RECEPTION_CHOICE"
+        return self._compose_creation_narration(flavor, body, footer=footer)
 
     def _narrate_only(self, messages: list[dict[str, Any]]) -> str:
         """Call LLM with NO tools — pure narration."""
@@ -1395,6 +1532,10 @@ class Orchestrator:
 
     def _llm_loop(self, messages: list[dict[str, Any]], depth: int = 0, allow_tools: bool = True) -> str:
         """Call LLM, execute tool calls, loop until we get narration text."""
+        if self.creation.active:
+            log_error("llm_loop", "blocked exploration loop during active creation")
+            return self._creation_turn("[SYSTEM: Finish character creation first.]")
+
         if depth == 0:
             self._last_tool_results = {}
         if depth > 4:

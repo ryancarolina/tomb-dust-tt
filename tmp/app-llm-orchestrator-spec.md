@@ -18,7 +18,7 @@ Turn loop: **player input → context → LLM (+ tools) → narration → UI/TTS
 
 | Mode | When | Behavior |
 |------|------|----------|
-| Creation | `creation.active` | Only creation handlers — no exploration tool loop |
+| Creation | `creation.active` | Only creation handlers — no exploration tool loop; `_llm_loop` blocked when active |
 | Combat | `combat.active` or engine combat | `combat_fsm` + combat tools |
 | Exploration | default | `status`/`check`/`suggest` context + full tool set |
 
@@ -40,13 +40,9 @@ Schemas must match `bridge.py` method signatures. When adding a tool:
 - [x] Tool dispatch to GameBridge
 - [x] LLM loop with depth limit for tool chains
 - [x] `build_state_context` from status + recap + inventory
-- [ ] Block exploration `_llm_loop` during creation (character-creation spec)
-- [ ] On all-tools-failed: no success fiction (combat-play spec)
-- [ ] Delve: prefer `enter_dungeon` over `set_phase(delve)` (exploration-delve spec)
-- [ ] **Transcript sanitize** — no orphan `tool` messages without preceding `tool_calls`
-- [ ] **400 retry** — on malformed transcript, repair/truncate history and retry once
-- [ ] **SQLite threading** — single connection per process or thread-local `GameBridge`
-- [ ] Log full tool-call chain on API errors (redact keys)
+- [x] Block `_llm_loop` during active character creation (APP-008)
+
+**Open work:** [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md), [APP-031](backlog/app-031-transcript-sanitize-orphan-tool-messages.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -81,4 +77,5 @@ Schemas must match `bridge.py` method signatures. When adding a tool:
 
 | Date | Change |
 |------|--------|
+| 2026-05-20 | APP-008: `_llm_loop` blocked when `creation.active` |
 | 2026-05-20 | Spec created; merged mechanical-truth + llm-transcript-resilience content |

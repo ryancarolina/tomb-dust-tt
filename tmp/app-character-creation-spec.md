@@ -26,7 +26,11 @@ Code-enforced state machine for new delvers at Registry (`32-C`).
 - Without Spellcasting → auto-skip schools/spells (`skip_inapplicable_spell_steps`).
 - Tables emitted **by code**, not LLM-only.
 - `character_create` + `roster_set` only in `_auto_finalize()` after equipment confirm.
-- LLM adds flavor only; cannot skip steps or emit false `[Phase: PRE_DELVE]`.
+- LLM adds **thin flavor only** (~120 tokens); cannot skip steps or emit false `[Phase: PRE_DELVE]`.
+
+### LLM during creation (APP-012 decision)
+
+**Chosen approach:** thin LLM wrapper — `_narrate_flavor()` for 1–2 sentences; **code** appends markdown tables, kit/GP numbers, and `format_creation_status()` footer. No exploration `_llm_loop` while `creation.active`. Interactive step validation is code-first (`_handle_creation_response`); LLM does not call tools for SKILLS/SCHOOLS/SPELLS/EQUIPMENT steps.
 
 ### Presentation pattern
 
@@ -35,6 +39,8 @@ flavor = optional short LLM (~120 tokens, no tables, no phase tags)
 body   = code-generated markdown (exact format_*_table output)
 footer = code-generated status line (format_creation_status)
 ```
+
+**Table catalog:** see [APP-059](backlog/app-059-standardize-creation-table-outputs.md) — canonical columns per step; enforced in `format_*_table()` (race/class/equipment still pending).
 
 ### Canon data
 
@@ -47,13 +53,16 @@ footer = code-generated status line (format_creation_status)
 
 - [x] `CreationState` + step enum + parsers (`parse_player_skills`, etc.)
 - [x] Code-first handling for SKILLS, schools, spells, equipment confirm
+- [x] Code appends `format_*_table()` + `format_equipment_summary()` (APP-006)
+- [x] `format_creation_status()` + strip LLM status tags (APP-007)
+- [x] Hard gate exploration during creation (APP-008)
+- [x] Finalize roster non-empty gate (APP-009)
+- [x] Resume restores creation step from session_state (APP-010)
+- [x] Invalid input at wrong step re-shows table + error (APP-011)
+- [x] LLM flavor decision documented and implemented (APP-012)
 - [x] `_auto_finalize` → `character_create` with kit cost guard
-- [ ] **Deterministic tables** — code appends `format_skills_table()`, `format_schools_table()`, `format_spells_table()`, kit/GP from `ensure_equipment_gold()`
-- [ ] **Code-owned status line** — `format_creation_status(creation)`; strip LLM `[Location: …]` blocks
-- [ ] **Hard gate** — no `_llm_loop` / exploration tools while `creation.active` (except FINALIZE/WORLD_INTRO)
-- [ ] **Finalize gate** — assert `bridge.status().roster` non-empty after finalize; stay in creation on failure
-- [ ] **Persist creation** — resume exact step from `session_state.json`; sync if engine has roster
-- [ ] Invalid input at wrong step (e.g. `Yes` at `SPELL_SCHOOLS`) → re-show table + error
+
+**Open work:** [APP-057](backlog/app-057-test-creation-flow.md), [APP-059](backlog/app-059-standardize-creation-table-outputs.md).
 
 ### Status line labels (code-owned)
 
@@ -87,9 +96,7 @@ python -m pytest app/tests/test_creation_flow.py -q   # when added
 
 ## Open decisions
 
-1. **LLM flavor during creation** — thin wrapper (recommended) or zero LLM until `WORLD_INTRO`?
-
----
+_All P0 creation decisions closed (APP-012: thin LLM flavor)._
 
 ## File map
 
@@ -105,4 +112,5 @@ python -m pytest app/tests/test_creation_flow.py -q   # when added
 
 | Date | Change |
 |------|--------|
+| 2026-05-20 | APP-006–012: code-owned tables/status, exploration gate, finalize roster gate, resume step restore, invalid-input guards, thin LLM flavor decision |
 | 2026-05-20 | Spec created; merged creation-orchestrator-hardening content |
