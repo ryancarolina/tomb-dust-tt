@@ -15,6 +15,7 @@ from gm.combat_fsm import (
 )
 from gm.creation import (
     CreationState,
+    CREATION_STATUS_LABELS,
     RACES,
     CLASS_INFO,
     format_skills_table,
@@ -170,6 +171,12 @@ class Orchestrator:
         if data and data.get("active"):
             self.creation = CreationState.from_dict(data)
 
+    def _expected_creation_awaiting_label(self) -> str:
+        """Granular awaiting label for creation.step (matches format_creation_status)."""
+        step = self.creation.step
+        label = CREATION_STATUS_LABELS.get(step, f"{step}_INPUT")
+        return str(label).strip().upper()
+
     def _creation_drift_scope(self) -> bool:
         if self.creation.active:
             return True
@@ -195,13 +202,15 @@ class Orchestrator:
         roster = status.get("roster") or []
         party = status.get("party") or {}
         engine_phase = str(party.get("phase") or "").strip().lower()
-        engine_awaiting = str(status.get("awaiting") or "").strip().upper()
         narrated_phase = str(narrated.get("phase") or "").strip().lower()
         narrated_awaiting = str(narrated.get("awaiting") or "").strip().upper()
 
         reasons: list[str] = []
-        if narrated_awaiting and narrated_awaiting != engine_awaiting:
-            reasons.append("awaiting_mismatch")
+        expected_awaiting: str | None = None
+        if self.creation.active and narrated_awaiting:
+            expected_awaiting = self._expected_creation_awaiting_label()
+            if narrated_awaiting != expected_awaiting:
+                reasons.append("awaiting_mismatch")
         if narrated_phase and engine_phase and narrated_phase != engine_phase:
             reasons.append("phase_mismatch")
         if self.creation.active and narrated_phase in _PREMATURE_EXPLORE_PHASES:
@@ -210,7 +219,7 @@ class Orchestrator:
         if not reasons:
             return
 
-        log_creation_drift({
+        payload: dict[str, Any] = {
             "step": self.creation.step,
             "roster_len": len(roster),
             "awaiting": status.get("awaiting"),
@@ -219,7 +228,10 @@ class Orchestrator:
             "narrated_awaiting": narrated.get("awaiting"),
             "engine_phase": party.get("phase"),
             "reasons": reasons,
-        })
+        }
+        if expected_awaiting is not None:
+            payload["expected_awaiting"] = expected_awaiting
+        log_creation_drift(payload)
 
     def _log_creation_step_snapshot(self) -> None:
         try:

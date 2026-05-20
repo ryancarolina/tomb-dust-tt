@@ -36,6 +36,11 @@ INPUTS = [
 
 
 def test_full_creation_apprentice_caster(orchestrator, monkeypatch):
+    drift_events: list[dict] = []
+    monkeypatch.setattr(
+        "gm.orchestrator.log_creation_drift",
+        lambda data: drift_events.append(data),
+    )
     monkeypatch.setattr(
         orchestrator.bridge,
         "roll_attributes",
@@ -72,6 +77,8 @@ def test_full_creation_apprentice_caster(orchestrator, monkeypatch):
             assert last.count("Pick **one tier-1 class**") == 1
             assert "**Final attributes:**" not in last
             assert "Test narration." in last
+
+    assert drift_events == [], f"unexpected creation_drift: {drift_events}"
 
     assert orchestrator.creation.active is False
     assert orchestrator.creation.step == "WORLD_INTRO"

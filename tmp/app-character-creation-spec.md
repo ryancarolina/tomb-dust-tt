@@ -294,6 +294,7 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 | 2026-05-20 | APP-067 spec draft: `format_roll_stats_table`, ROLL_STATS catalog row, chain dedup, LUC/HP/clamp contracts, test assertions |
 | 2026-05-20 | APP-057 done: `test_full_creation_apprentice_caster` green; `races_table_shown`/`classes_table_shown` + NAME→RACE / ROLL_STATS→CLASS chain in orchestrator |
 | 2026-05-20 | APP-066 spec draft: § Awaiting contract (engine `CHARACTER_CREATION` vs app `CREATION_STATUS_LABELS`); full status label table |
+| 2026-05-20 | APP-066 done: drift check uses `CREATION_STATUS_LABELS` when `creation.active`; engine `CHARACTER_CREATION` documented as coarse layer; golden-path test asserts no `creation_drift` |
 | 2026-05-20 | APP-068 spec draft: § NAME→RACE same-turn presentation (R1 table+footer, R2 no clerk-waits); § Tests APP-068 narration assertions |
 | 2026-05-20 | APP-068 done: NAME commit returns `_auto_present_race()` same turn (direct path in `_handle_creation_response`); chain RACE fallthrough guard; `test_name_advance_presents_race_table` + turn-2 assertions in `test_full_creation_apprentice_caster` green |
 | 2026-05-20 | APP-067 done: `format_roll_stats_table` in `creation.py`; `_auto_roll_stats` thin flavor + code tables; ROLL_STATS chain dedup; `test_creation_flow.py` APP-067 assertions green |

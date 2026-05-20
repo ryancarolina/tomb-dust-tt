@@ -17,10 +17,35 @@
 | `tool_call` | Every tool name, args, result |
 | `gm_narration` | Final text to UI |
 | `error` | Exceptions, setup failures |
-| `creation_drift` | Narration `[Phase:` / `[Awaiting:` disagrees with engine during creation (`Orchestrator._check_creation_drift`) |
+| `creation_drift` | Narration `Phase:` / `Awaiting:` disagrees with **expected** creation state while drift scope is active (`Orchestrator._check_creation_drift`) — see § `creation_drift` |
 | `creation_step` | `{creation.step, roster_len, awaiting, creation.active}` each creation turn (`Orchestrator._creation_turn` finally) |
 | `creation_advanced` | `{completed_step, advanced_to}` on every successful `_execute_creation_choice` |
 | `creation_finalize` | `{character_create_ok, character_create_error, engine_status}` after `character_create` in `_auto_finalize` |
+
+### `creation_drift` (APP-002, semantics APP-066)
+
+Emitted from `Orchestrator._check_creation_drift` after `_emit_narration` when `_creation_drift_scope()` is true (`creation.active`, or engine `CHARACTER_CREATION` with empty roster).
+
+**Scope:** Active desk creation and resume edges before roster exists. Not a substitute for `creation_step` snapshots (APP-003).
+
+**Awaiting compare (APP-066):**
+
+| Condition | Expected narrated `Awaiting:` | Do **not** compare to |
+|-----------|------------------------------|------------------------|
+| `creation.active` | `CREATION_STATUS_LABELS[creation.step]` (same as `format_creation_status()`) | Engine `status["awaiting"]` (`CHARACTER_CREATION` is normal) |
+| `creation.active` false but scope true (resume edge) | Skip awaiting compare until `creation_state` restores step | Engine alone |
+
+**Reasons:**
+
+| Reason | Meaning |
+|--------|---------|
+| `awaiting_mismatch` | Footer `Awaiting:` ≠ expected label for current `creation.step` (or unknown-step fallback) |
+| `phase_mismatch` | Narrated `Phase:` present and ≠ engine `party.phase` when comparison applies; suppressed for benign omission during desk creation per APP-066 implementation |
+| `premature_exploration_phase` | `creation.active` and narrated phase in premature explore set (`_PREMATURE_EXPLORE_PHASES`) |
+
+**Healthy golden path:** No `creation_drift` on every turn solely because granular footer differs from engine `CHARACTER_CREATION`.
+
+**Payload fields (typical):** `step`, `roster_len`, `awaiting` (engine), `creation.active`, `narrated_phase`, `narrated_awaiting`, `engine_phase`, `reasons`; optional `expected_awaiting` after APP-066 impl.
 
 ### QA suite
 
@@ -127,3 +152,5 @@ python -m tomb_gm --workspace play/workspace check
 | 2026-05-20 | APP-003: `creation_step` JSONL via `log_creation_step` + `_creation_turn` finally snapshot |
 | 2026-05-20 | APP-004: `creation_advanced` JSONL on successful `_execute_creation_choice` |
 | 2026-05-20 | APP-005: `creation_finalize` JSONL with full `bridge.status()` after `character_create` |
+| 2026-05-20 | APP-066 spec draft: `creation_drift` compares narrated awaiting to `CREATION_STATUS_LABELS[step]` when `creation.active`, not engine `CHARACTER_CREATION` |
+| 2026-05-20 | APP-066 done: `creation_drift` awaiting compare uses expected label from `creation.step`; payload includes `expected_awaiting` when compare runs; golden-path integration test locks drift silence |
