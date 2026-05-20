@@ -42,6 +42,22 @@ footer = code-generated status line (format_creation_status)
 
 **Table catalog:** see [APP-059](backlog/app-059-standardize-creation-table-outputs.md) — canonical columns per step; enforced in `format_*_table()` (race/class/equipment still pending).
 
+### Table-shown gating (APP-057)
+
+Gated steps must not treat “field still empty” as “show table again” — that blocks commits on the next player turn.
+
+| Step | Flag | Set in | `_creation_turn_body` auto-present when |
+|------|------|--------|----------------------------------------|
+| `RACE` | `races_table_shown` | `_auto_present_race` | `is_system_trigger` or `not races_table_shown` |
+| `CLASS` | `classes_table_shown` | `_auto_present_class` | `is_system_trigger` or `not classes_table_shown` |
+| `SKILLS` | `skills_table_shown` | `_auto_present_skills` | `is_system_trigger` or `not skills_table_shown` |
+| `SPELL_SCHOOLS` | `schools_table_shown` | `_auto_present_schools` | same pattern |
+| `SPELLS` | `spells_table_shown` | `_auto_present_spells` | same pattern |
+
+`_execute_creation_choice` rejects RACE/CLASS/SKILLS/SCHOOLS/SPELLS if the step’s `*_table_shown` is false (player must see the code table first).
+
+**Chain after commit:** `_chain_after_creation_choice` appends the next step’s table in the **same** narration when advancing to `RACE`, `CLASS` (after roll), `SKILLS`, `SPELL_SCHOOLS`, `SPELLS`, or `EQUIPMENT_GOLD`. Required for APP-057: **NAME→RACE** and **ROLL_STATS→CLASS** (stats roll + `format_classes_table()` in one response after race pick).
+
 ### Canon data
 
 - Races, classes, skills: `creation.py` + `build/data/character/`
@@ -62,7 +78,9 @@ footer = code-generated status line (format_creation_status)
 - [x] LLM flavor decision documented and implemented (APP-012)
 - [x] `_auto_finalize` → `character_create` with kit cost guard
 
-**Open work:** [APP-057](backlog/app-057-test-creation-flow.md), [APP-059](backlog/app-059-standardize-creation-table-outputs.md).
+- [x] Integration test `test_creation_flow.py` — full FSM through finalize (APP-057)
+
+**Open work:** [APP-059](backlog/app-059-standardize-creation-table-outputs.md). Militia spell-skip integration test deferred (post APP-057).
 
 ### Status line labels (code-owned)
 
@@ -80,17 +98,56 @@ footer = code-generated status line (format_creation_status)
 
 ```bash
 python -m pytest play/tomb_gm/tests/test_creation_gating.py -q
-python -m pytest app/tests/test_creation_flow.py -q   # when added
+python -m pytest app/tests/test_creation_flow.py -q
 ```
 
-| Scenario | Asserts |
-|----------|---------|
-| Apprentice + Spellcasting | skills → schools → spells → equipment → finalize; roster populated |
-| LLM wrong content | tables still match `format_*_table()` |
-| `"Yes"` at `SPELL_SCHOOLS` | no PRE_DELVE |
-| Status line | matches `creation.step` |
+### Integration test (APP-057)
 
-**Acceptance:** Replay Dumpy flow — cannot reach PRE_DELVE without `character_create` logged.
+**Module:** `app/tests/test_creation_flow.py`  
+**Fixtures:** test uses **`orchestrator` only** from `app/tests/conftest.py` (APP-049), which transitively applies **`mock_openrouter_client`**. Do not import `Orchestrator` at module level before fixtures run.  
+**Drive:** `orchestrator.process_turn(text)` end-to-end — not parser unit tests.  
+**Prerequisite behavior (APP-057 in scope):** RACE/CLASS `*_table_shown` gating + NAME→RACE / ROLL_STATS→CLASS chain — see § Table-shown gating.
+
+#### Primary: `test_full_creation_apprentice_caster`
+
+Eight `process_turn` inputs; tables may appear in the **prior** turn via chain.
+
+| # | Input | Step after |
+|---|--------|------------|
+| 1 | `new game` | `NAME` |
+| 2 | `Dumpy` | `RACE` (race table chained in same narration) |
+| 3 | `human` | `CLASS` (roll + class table chained) |
+| 4 | `apprentice` | `SKILLS` |
+| 5 | `Lore, Spellcasting, Arcana` | `SPELL_SCHOOLS` |
+| 6 | `pyromancy, ether` | `SPELLS` |
+| 7 | `ember-touch, static-lash` | `EQUIPMENT_GOLD` |
+| 8 | `yes` | `WORLD_INTRO` |
+
+**Setup:** `monkeypatch` on `orchestrator.bridge.roll_attributes` returning fixed `eligible_classes` (includes `apprentice`), `INT >= 8`, `ok: True`.
+
+**Required assertions after final turn:**
+
+| Check | Expected |
+|-------|----------|
+| `orchestrator.creation.active` | `False` |
+| `orchestrator.creation.step` | `WORLD_INTRO` |
+| `bridge.status()["roster"]` | non-empty |
+| `bridge.status()["awaiting"]` | `PLAYER_ACTIONS` |
+| Roster entry | `display_name == "Dumpy"`, `base_class == "apprentice"` |
+| Final narration | contains `Awaiting: RECEPTION_CHOICE` and `Phase: preparation` |
+
+**Out of scope (APP-057):** Militia non-caster path (spell steps skipped) — follow-up ticket.
+
+#### Other scenarios (existing / future)
+
+| Scenario | Asserts | Owner |
+|----------|---------|-------|
+| Apprentice + Spellcasting (manual) | skills → schools → spells → equipment → finalize; roster populated | Human playtest |
+| LLM wrong content | tables still match `format_*_table()` | Manual / future |
+| `"Yes"` at `SPELL_SCHOOLS` | no PRE_DELVE | `test_creation_gating.py` |
+| Status line | matches `creation.step` | Manual / APP-007 |
+
+**Acceptance:** Replay Dumpy flow — cannot reach PRE_DELVE without `character_create` logged. APP-057 automates the Apprentice path above.
 
 ---
 
@@ -114,3 +171,6 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 |------|--------|
 | 2026-05-20 | APP-006–012: code-owned tables/status, exploration gate, finalize roster gate, resume step restore, invalid-input guards, thin LLM flavor decision |
 | 2026-05-20 | Spec created; merged creation-orchestrator-hardening content |
+| 2026-05-20 | APP-057 spec draft: integration test contract in § Integration test; militia spell-skip deferred |
+| 2026-05-20 | APP-057 spec r2: § Table-shown gating (RACE/CLASS flags + chain); integration turn table; fixture import discipline; orchestrator fixes in ticket scope |
+| 2026-05-20 | APP-057 done: `test_full_creation_apprentice_caster` green; `races_table_shown`/`classes_table_shown` + NAME→RACE / ROLL_STATS→CLASS chain in orchestrator |

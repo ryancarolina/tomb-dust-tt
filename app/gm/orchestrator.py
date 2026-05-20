@@ -587,14 +587,14 @@ class Orchestrator:
                 player_input,
                 error="Give a name of at least two characters for the Registry ledger.",
             )
-        elif self.creation.step == "RACE" and (is_system_trigger or not self.creation.race):
+        elif self.creation.step == "RACE" and (is_system_trigger or not self.creation.races_table_shown):
             narration = self._auto_present_race(player_input)
         elif self.creation.step == "RACE":
             narration = self._handle_creation_response(player_input) or self._auto_present_race(
                 player_input,
                 error="Pick one race from the table.",
             )
-        elif self.creation.step == "CLASS" and (is_system_trigger or not self.creation.chosen_class):
+        elif self.creation.step == "CLASS" and (is_system_trigger or not self.creation.classes_table_shown):
             narration = self._auto_present_class(player_input)
         elif self.creation.step == "CLASS":
             narration = self._handle_creation_response(player_input) or self._auto_present_class(
@@ -679,6 +679,7 @@ class Orchestrator:
         return self._compose_creation_narration(flavor, body)
 
     def _auto_present_race(self, player_input: str, error: str | None = None) -> str:
+        self.creation.races_table_shown = True
         err = f"**Note:** {error}\n\n" if error else ""
         flavor = self._narrate_flavor(
             self._creation_flavor_messages(
@@ -690,6 +691,7 @@ class Orchestrator:
         return self._compose_creation_narration(flavor, body)
 
     def _auto_present_class(self, player_input: str, error: str | None = None) -> str:
+        self.creation.classes_table_shown = True
         err = f"**Note:** {error}\n\n" if error else ""
         eligible = self.creation.roll_result.get("eligible_classes", ["peasant"])
         attrs = self.creation.roll_result.get("final_attributes", {})
@@ -838,8 +840,15 @@ class Orchestrator:
 
     def _chain_after_creation_choice(self, prior: str) -> str:
         """Run deterministic follow-up after a creation step advances."""
+        if self.creation.step == "RACE":
+            extra = self._auto_present_race("[SYSTEM: Step auto-advanced. Continue.]")
+            return f"{prior}\n\n{extra}".strip() if prior else extra
         if self.creation.step == "ROLL_STATS":
-            return self._auto_roll_stats("[SYSTEM: Step auto-advanced. Continue.]")
+            roll_part = self._auto_roll_stats("[SYSTEM: Step auto-advanced. Continue.]")
+            if self.creation.step == "CLASS":
+                class_part = self._auto_present_class("[SYSTEM: Step auto-advanced. Continue.]")
+                return f"{roll_part}\n\n{class_part}".strip()
+            return roll_part
         if self.creation.step == "SKILLS":
             extra = self._auto_present_skills("[SYSTEM: Step auto-advanced. Continue.]")
             return f"{prior}\n\n{extra}".strip() if prior else extra
@@ -1188,6 +1197,8 @@ class Orchestrator:
             self.creation.name = name.title()
 
         elif step == "RACE":
+            if not self.creation.races_table_shown:
+                return {"ok": False, "error": "Race table must be shown before recording picks."}
             race = value.strip().lower().replace(" ", "-")
             if race not in RACES:
                 parsed = parse_player_race(source_text)
@@ -1198,6 +1209,8 @@ class Orchestrator:
             self.creation.race = race
 
         elif step == "CLASS":
+            if not self.creation.classes_table_shown:
+                return {"ok": False, "error": "Class table must be shown before recording picks."}
             chosen = value.strip().lower()
             eligible = self.creation.roll_result.get("eligible_classes", ["peasant"])
             if chosen not in eligible:

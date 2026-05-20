@@ -208,12 +208,18 @@ class CreationState:
     skills_table_shown: bool = False
     schools_table_shown: bool = False
     spells_table_shown: bool = False
+    races_table_shown: bool = False
+    classes_table_shown: bool = False
     gold_roll: int = 0
 
     def advance(self):
         idx = CREATION_STEPS.index(self.step)
         if idx < len(CREATION_STEPS) - 1:
             self.step = CREATION_STEPS[idx + 1]
+        if self.step == "RACE":
+            self.races_table_shown = False
+        if self.step == "CLASS":
+            self.classes_table_shown = False
         if self.step == "SKILLS":
             self.skills_table_shown = False
             self.chosen_skills = []
@@ -242,6 +248,8 @@ class CreationState:
             "skills_table_shown": self.skills_table_shown,
             "schools_table_shown": self.schools_table_shown,
             "spells_table_shown": self.spells_table_shown,
+            "races_table_shown": self.races_table_shown,
+            "classes_table_shown": self.classes_table_shown,
             "roll_result": self.roll_result,
             "equipment_kit": self.equipment_kit,
             "gold_roll": self.gold_roll,
@@ -264,6 +272,8 @@ class CreationState:
             skills_table_shown=bool(data.get("skills_table_shown", False)),
             schools_table_shown=bool(data.get("schools_table_shown", False)),
             spells_table_shown=bool(data.get("spells_table_shown", False)),
+            races_table_shown=bool(data.get("races_table_shown", False)),
+            classes_table_shown=bool(data.get("classes_table_shown", False)),
             gold_roll=int(data.get("gold_roll") or 0),
         )
 
