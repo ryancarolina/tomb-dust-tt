@@ -6,8 +6,11 @@ FIXED_ROLL: dict = {
     "ok": True,
     "race": "human",
     "racial_adjustments": {"STR": 1, "INT": 1},
-    "base_rolls": {"STR": 9, "AGI": 9, "STA": 9, "INT": 11, "SPI": 9, "LUC": 9},
-    "genetic_factors": {"STR": 0, "AGI": 0, "STA": 0, "INT": 0, "SPI": 0, "LUC": 0},
+    "base_rolls": {"STR": 9, "AGI": 9, "STA": 9, "INT": 11, "SPI": 9},
+    "genetic_factors": {
+        a: {"roll": 2, "mod": 0}
+        for a in ("STR", "AGI", "STA", "INT", "SPI")
+    },
     "life_event": {"roll": 20, "name": "Unremarkable Youth", "mods": {}},
     "final_attributes": {"STR": 10, "AGI": 10, "STA": 10, "INT": 12, "SPI": 10, "LUC": 10},
     "eligible_classes": [
@@ -47,6 +50,28 @@ def test_full_creation_apprentice_caster(orchestrator, monkeypatch):
         )
         if text == "new game":
             assert orchestrator.creation.active is True
+        if text == "Dumpy":
+            assert "Pick **one race**" in last
+            assert "| Race | Adjustments | Description |" in last
+            assert "Awaiting: RACE_INPUT" in last
+            assert last.strip() != "The clerk waits."
+            assert orchestrator.creation.races_table_shown is True
+        if text == "human":
+            assert orchestrator.creation.classes_table_shown is True
+            assert "Attr | Base | Genetic | Life Evt | Racial | Final" in last
+            assert "Life event: Unremarkable Youth" in last
+            for attr, final in FIXED_ROLL["final_attributes"].items():
+                if attr == "LUC":
+                    continue
+                assert f"| {attr} |" in last
+                assert f"| {final} |" in last
+            assert "| LUC |" in last
+            assert "| 10 |" in last
+            assert "**HP:** 60" in last
+            assert "(10 + STA 10 × 5)" in last
+            assert last.count("Pick **one tier-1 class**") == 1
+            assert "**Final attributes:**" not in last
+            assert "Test narration." in last
 
     assert orchestrator.creation.active is False
     assert orchestrator.creation.step == "WORLD_INTRO"
@@ -60,3 +85,17 @@ def test_full_creation_apprentice_caster(orchestrator, monkeypatch):
     assert "Awaiting: RECEPTION_CHOICE" in last
     assert "Phase: preparation" in last
     assert "PRE_DELVE" not in last
+
+
+def test_name_advance_presents_race_table(orchestrator):
+    orchestrator.process_turn("new game")
+    assert orchestrator.creation.step == "NAME"
+
+    narration = orchestrator.process_turn("Dumpy")
+
+    assert orchestrator.creation.step == "RACE"
+    assert orchestrator.creation.races_table_shown is True
+    assert "Pick **one race**" in narration
+    assert "| Race | Adjustments | Description |" in narration
+    assert "Awaiting: RACE_INPUT" in narration
+    assert narration.strip() != "The clerk waits."

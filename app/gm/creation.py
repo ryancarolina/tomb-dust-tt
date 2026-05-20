@@ -555,6 +555,38 @@ def format_races_table() -> str:
     return "\n".join(lines)
 
 
+def format_roll_stats_table(roll_result: dict) -> str:
+    """Code-owned attribute breakdown after roll_attributes."""
+    life_event = roll_result.get("life_event", {})
+    final_attributes = roll_result.get("final_attributes", {})
+    base_rolls = roll_result.get("base_rolls", {})
+    genetic_factors = roll_result.get("genetic_factors", {})
+    racial_adjustments = roll_result.get("racial_adjustments", {})
+
+    lines = [
+        f"Life event: {life_event.get('name', 'Unknown')}",
+        "",
+        "| Attr | Base | Genetic | Life Evt | Racial | Final |",
+        "|:------|-----:|--------:|---------:|-------:|------:|",
+    ]
+    for attr in ("STR", "AGI", "STA", "INT", "SPI"):
+        base = base_rolls.get(attr, 0)
+        gf = genetic_factors.get(attr, {})
+        genetic = gf.get("mod", 0) if isinstance(gf, dict) else gf
+        life_mod = life_event.get("mods", {}).get(attr, 0)
+        racial = racial_adjustments.get(attr, 0)
+        final = final_attributes.get(attr, 0)
+        lines.append(
+            f"| {attr} | {base} | {genetic} | {life_mod} | {racial} | {final} |"
+        )
+    luc = final_attributes.get("LUC", 0)
+    lines.append(f"| LUC | — | — | — | — | {luc} |")
+    sta = final_attributes.get("STA", 10)
+    hp = 10 + sta * 5
+    lines.extend(["", f"**HP:** {hp} (10 + STA {sta} × 5)"])
+    return "\n".join(lines)
+
+
 def format_classes_table(eligible: list[str]) -> str:
     lines = [
         "Pick **one tier-1 class** you qualify for.",

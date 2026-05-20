@@ -21,6 +21,7 @@ from gm.creation import (
     format_schools_table,
     format_spells_table,
     format_races_table,
+    format_roll_stats_table,
     format_classes_table,
     format_equipment_summary,
     format_creation_status,
@@ -721,7 +722,7 @@ class Orchestrator:
             result = self._execute_creation_choice("NAME", text, player_input=player_input)
             if not result.get("ok"):
                 return self._auto_present_name(player_input, error=result.get("error"))
-            return self._chain_after_creation_choice("")
+            return self._auto_present_race("[SYSTEM: Step auto-advanced from name. Continue.]")
 
         if step == "RACE":
             if is_equipment_confirm(player_input):
@@ -844,11 +845,7 @@ class Orchestrator:
             extra = self._auto_present_race("[SYSTEM: Step auto-advanced. Continue.]")
             return f"{prior}\n\n{extra}".strip() if prior else extra
         if self.creation.step == "ROLL_STATS":
-            roll_part = self._auto_roll_stats("[SYSTEM: Step auto-advanced. Continue.]")
-            if self.creation.step == "CLASS":
-                class_part = self._auto_present_class("[SYSTEM: Step auto-advanced. Continue.]")
-                return f"{roll_part}\n\n{class_part}".strip()
-            return roll_part
+            return self._auto_roll_stats("[SYSTEM: Step auto-advanced. Continue.]")
         if self.creation.step == "SKILLS":
             extra = self._auto_present_skills("[SYSTEM: Step auto-advanced. Continue.]")
             return f"{prior}\n\n{extra}".strip() if prior else extra
@@ -863,6 +860,9 @@ class Orchestrator:
             return f"{prior}\n\n{extra}".strip() if prior else extra
         if self.creation.step == "FINALIZE":
             extra = self._auto_finalize("[SYSTEM: Step auto-advanced. Continue.]")
+            return f"{prior}\n\n{extra}".strip() if prior else extra
+        if self.creation.step == "RACE" and not self.creation.race:
+            extra = self._auto_present_race("[SYSTEM: Step auto-advanced. Continue.]")
             return f"{prior}\n\n{extra}".strip() if prior else extra
         return prior or "The clerk waits."
 
@@ -922,38 +922,23 @@ class Orchestrator:
         return self._compose_creation_narration(flavor, body)
 
     def _auto_roll_stats(self, player_input: str) -> str:
-        """ROLL_STATS is deterministic: code rolls, LLM narrates the table."""
+        """ROLL_STATS: code rolls and formats tables; LLM flavor only."""
         result = self.bridge.roll_attributes(self.creation.race)
         log_tool_call("roll_attributes", {"race": self.creation.race}, result)
         self.creation.roll_result = result
         self.creation.advance()
         self._remember_creation_step("ROLL_STATS")
 
-        attrs = result.get("final_attributes", {})
         eligible = result.get("eligible_classes", ["peasant"])
-        sta = attrs.get("STA", 10)
-        hp = 10 + (sta * 5)
-
-        context = (
-            f"You are the GM for Tomb Dust. Character creation — present attribute results.\n"
-            f"Current state: {json.dumps(self.creation.to_dict())}\n\n"
-            f"RESULTS TO NARRATE (present as a table with SHORT headers: Attr | Base | Genetic | Life Evt | Racial | Final):\n"
-            f"{json.dumps(result, indent=2)}\n\n"
-            f"HP = 10 + (STA {sta} x 5) = {hp}\n"
-            f"Eligible classes: {eligible}\n\n"
-            f"Write 1-2 sentences of narration, then the stat table, then state HP.\n"
-            f"Then present the eligible classes and ask the player to choose.\n"
-            f"Do NOT call any tools. Just narrate."
+        flavor = self._narrate_flavor(
+            self._creation_flavor_messages(
+                "Present attribute roll results briefly — the Registry clerk reads the dice.",
+                player_input,
+            )
         )
-
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": context},
-        ]
-        if self.history:
-            messages.extend(self.history[-4:])
-        messages.append({"role": "user", "content": player_input})
-        return self._narrate_only(messages)
+        body = format_roll_stats_table(result) + "\n\n" + format_classes_table(eligible)
+        self.creation.classes_table_shown = True
+        return self._compose_creation_narration(flavor, body)
 
     def _creation_spell_defaults(self) -> tuple[list[str], list[str]]:
         """Fallback schools/spells when player picks were skipped."""
