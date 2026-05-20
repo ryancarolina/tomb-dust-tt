@@ -287,6 +287,64 @@ class Orchestrator:
         log_gm_narration(narration)
         self._check_creation_drift(narration)
 
+    def _emit_recovery_narration(self, message: str) -> None:
+        """Log recovery copy without creation drift checks (resume failure paths)."""
+        log_gm_narration(message)
+
+    def _is_mid_creation_resume_failure(self) -> bool:
+        if self.creation.active:
+            return True
+        try:
+            status = self.bridge.status()
+            if (
+                status.get("awaiting") == "CHARACTER_CREATION"
+                and not (status.get("roster") or [])
+            ):
+                return True
+        except Exception:
+            pass
+        from pathlib import Path
+
+        save_path = Path(__file__).resolve().parents[1] / "session_state.json"
+        if not save_path.exists():
+            return False
+        try:
+            data = json.loads(save_path.read_text(encoding="utf-8"))
+            creation_data = data.get("creation_state") or {}
+            if creation_data.get("active"):
+                return True
+            step = creation_data.get("step")
+            if step and step != "NAME":
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _resume_failure_message(self, result: dict) -> str:
+        error = str(result.get("error") or "unknown").strip()
+        if error not in ("no save session found", "unknown"):
+            error = "no save session found"
+
+        if self._is_mid_creation_resume_failure():
+            step = self.creation.step or "NAME"
+            step_phrase = step.lower().replace("_", " ")
+            lines = [
+                "There is no **finished save** to load yet — the registry needs a living "
+                "slotted delver before **load game** can restore a run.",
+                f"You still have an unsaved character in progress at the **{step_phrase}** step. "
+                "Keep answering the clerk's prompts to continue this desk, or type **new game** "
+                "to wipe this in-progress creation and start over (that clears your current progress).",
+            ]
+            footer = format_creation_status(self.creation)
+            return "\n\n".join(lines) + f"\n\n[{footer}]"
+
+        lines = [
+            "No saved game was found on this workspace. Type **new game** to start fresh.",
+            "The app's autosave does not replace an engine roster save — you need a living "
+            "delver in the registry save before **load game** can restore a run.",
+        ]
+        return "\n\n".join(lines) + "\n\n[Awaiting: new game]"
+
     def setup_new_game(self, campaign_slug: str = "salt-road") -> dict:
         """Wipe session/campaign data and start completely fresh. World corpses persist."""
         self.bridge.wipe_all_data()
@@ -445,7 +503,9 @@ class Orchestrator:
             result = self.bridge.session_resume()
             if not result.get("ok"):
                 log_error("session_resume", result.get("error", "unknown"))
-                return f"Could not resume: {result.get('error', 'unknown')}. Try 'new game' instead."
+                message = self._resume_failure_message(result)
+                self._emit_recovery_narration(message)
+                return message
             if result.get("run_ended"):
                 campaign_slug = result.get("campaign_slug", "salt-road")
                 corpses = result.get("corpses") or []

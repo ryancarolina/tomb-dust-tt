@@ -126,9 +126,6 @@ class App:
                 self._ui_queue.put(("status", status))
 
                 has_save = self._orchestrator.bridge.has_save()
-                awaiting = status.get("awaiting", "SETUP")
-                has_active = status.get("active") is not None
-                has_save = has_save or (has_active and awaiting not in ("SETUP", "SESSION_ENDED"))
 
                 self._ui_queue.put(("narration", [
                     {"text": "TOMB DUST", "voice": "narrator"},

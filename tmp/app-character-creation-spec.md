@@ -32,6 +32,19 @@ Code-enforced state machine for new delvers at Registry (`32-C`).
 
 **Chosen approach:** thin LLM wrapper — `_narrate_flavor()` for 1–2 sentences; **code** appends markdown tables, kit/GP numbers, and `format_creation_status()` footer. No exploration `_llm_loop` while `creation.active`. Interactive step validation is code-first (`_handle_creation_response`); LLM does not call tools for SKILLS/SCHOOLS/SPELLS/EQUIPMENT steps.
 
+### Step content sources (APP-074)
+
+Character creation has **no** legacy `get_step_prompt()` step-instruction builder on the live path. All desk-step presentation is code-first:
+
+| Layer | Owner | Symbols |
+|-------|-------|---------|
+| **Body** | Code | `format_races_table`, `format_roll_stats_table`, `format_classes_table`, `format_skills_table`, `format_schools_table`, `format_spells_table`, `format_equipment_summary` — invoked from `_auto_present_*`, `_auto_roll_stats`, `_handle_creation_response`, `_chain_after_creation_choice` |
+| **Flavor** | Thin LLM | `_narrate_flavor` + `_creation_flavor_messages` (~120 tokens; no tables, no `set_creation_choice` mandates) |
+| **Footer** | Code | `format_creation_status()` → `CREATION_STATUS_LABELS[creation.step]` |
+| **Input commit** | Code parsers | `_handle_creation_response` → `_execute_creation_choice` — **not** LLM `set_creation_choice` tool calls during desk steps |
+
+**Do not reintroduce:** `get_step_prompt()` strings that instruct the LLM to emit markdown tables or call `set_creation_choice` per step. That path is dead; `orchestrator.py` does not import it. (Contrast: `get_combat_step_prompt` in combat FSM **is** live for exploration combat — different symbol, different domain.)
+
 ### Presentation pattern
 
 ```text
@@ -173,7 +186,7 @@ At the RACE step, `_auto_present_race` sets `body = err_prefix + format_races_ta
 
 **Direct CLASS path:** `_auto_present_class` remains for `_creation_turn_body` when `step == "CLASS"` and `not classes_table_shown`, invalid class re-prompt, and resume edges. Body is `**Final attributes:**` one-liner + `format_classes_table` (no full stats table repeat).
 
-**Removed pattern:** `_narrate_only()` with JSON context instructing LLM to build the attribute table.
+**Removed patterns:** `_narrate_only()` with JSON context instructing LLM to build the attribute table; `get_step_prompt()` LLM step-instruction strings (inline RACE table + `set_creation_choice` mandates — deleted APP-074).
 
 ### Canon data
 
@@ -403,7 +416,7 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 
 | File | Role |
 |------|------|
-| `gm/creation.py` | State machine, tables, parsers, `strip_flavor_race_table` (APP-072) |
+| `gm/creation.py` | State machine, `format_*_table` formatters, parsers, `strip_flavor_race_table` (APP-072); **no** `get_step_prompt` (APP-074) |
 | `gm/orchestrator.py` | `_creation_turn`, `_auto_present_*`, `_compose_creation_narration`, `_auto_finalize`, `_execute_creation_choice` |
 | `tests/test_creation_tables.py` | APP-072 race table strip + single-header integration |
 | `gm/choice_memory.py` | Remember creation choices |
@@ -429,3 +442,4 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 | 2026-05-20 | APP-070 done: `sanitize_premature_completion_flavor` + compose wiring; drift D1/D2 for empty-roster completion leaks; `test_skills_turn_rejects_premature_completion_flavor` green (extends APP-009 finalize gate) |
 | 2026-05-20 | APP-072 spec draft: § RACE flavor must not duplicate code table; `strip_flavor_race_table`; § Tests APP-072; APP-059 RACE catalog target note |
 | 2026-05-20 | APP-072 done: `strip_flavor_race_table` in `creation.py`; compose hook in `_compose_creation_narration`; RACE prompt tightened; `test_creation_tables.py` green |
+| 2026-05-20 | APP-074: removed legacy `get_step_prompt()` step-instruction builder from `creation.py`; § Step content sources — code-first `_auto_present_*` / `format_*_table` only |
