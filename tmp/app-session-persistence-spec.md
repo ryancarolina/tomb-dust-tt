@@ -10,7 +10,7 @@
 
 - Persist: narration lines, input history, orchestrator LLM history (trimmed), visited cells, current AV-GRID address, `creation_state`, `combat_state`, **`engine_status`** (full engine snapshot on save — APP-016).
 - Autosave every 60s and on quit (Escape).
-- On launch: show startup prompt based on **engine resumability** (`bridge.has_save()` / `has_save_session()`); do **not** treat a mere active session as a save. App-side `session_state.json` is **not** read at boot — only on explicit **load game** after successful engine resume path.
+- On launch: show startup prompt based on **engine resumability** (`bridge.has_save()` / `has_save_session()`); do **not** treat a mere active session as a save. App-side `session_state.json` is **not** read at boot (APP-064). **APP-018:** orchestrator restores `creation_state` from disk on **first `process_turn`** (non–`new game`) and on **`load` / `load game` / `continue` / `resume`** — see § Creation restore on continue / relaunch (APP-018).
 - **`load game`:** orchestrator calls `bridge.session_resume()`; requires `find_save_campaign()` (living slotted character). UI may restore `session_state.json` in parallel when load succeeds.
 - **`new game`:** ordered session end → wipe → new campaign → session start via `setup_new_game()` — see § setup_new_game lifecycle (APP-014). **APP-015:** creation block cleared on disk **before** engine wipe — see § New game — creation block clear.
 - App save and engine SQLite must **reconcile** — no PRE_DELVE in UI while engine `awaiting: CHARACTER_CREATION`.
@@ -31,7 +31,92 @@ Engine error `no save session found` is **not** shown verbatim to the player. UI
 
 **Drift / logging:** Recovery failure copy is outside desk FSM narration — use `_emit_recovery_narration` (`log_gm_narration` only, skips `_check_creation_drift`). See [`app-logging-qa-spec.md`](app-logging-qa-spec.md) § `creation_drift` healthy path.
 
-**Related (not APP-071):** APP-064 startup prompt. **APP-019:** toast / UI error channel for **`new game`** failures — APP-071 delivers narration + JSONL for **`load game`** resume failure only; APP-019 remains open.
+**Related (not APP-071):** APP-064 startup prompt. **APP-019:** friendly **`new game`** setup failure copy — see § New game failure (APP-019).
+
+---
+
+## New game failure — setup_new_game errors (APP-019)
+
+**Owner:** `app/gm/orchestrator.py` — `setup_new_game` callers; helper `_setup_new_game_failure_message` (name may vary) + existing `_emit_recovery_narration`. **Optional UI:** `app/ui/app.py` status text only (R6).
+
+**Commands / triggers:** explicit **`new game`** / **`start`** / **`new`**; implicit restart after PC death (`_handle_player_death`); implicit restart after **`load game`** when `session_resume` returns `run_ended`.
+
+### Failure contexts
+
+| Context | Trigger | Must not emit on failure |
+|---------|---------|---------------------------|
+| **A — command** | Player **`new game`** | `_creation_turn` / NAME desk |
+| **B — death** | Combat PC death → `setup_new_game` | “new game has started”, NAME prompt |
+| **C — run_ended** | Resume + `run_ended` → `setup_new_game` | Success run_ended death_msg + NAME desk |
+
+All contexts: if `setup_new_game()` returns `not ok`, callers MUST emit recovery copy and MUST NOT narrate success.
+
+### Emit ownership (R1 — drift-safe JSONL)
+
+**All failure paths:** `log_error("setup_new_game", …)` → build context copy → **`_emit_recovery_narration` exactly once** → return message. Never `_emit_narration` on setup failure.
+
+| Context | Emit owner | Notes |
+|---------|------------|-------|
+| **A — command** | `process_turn` inline | Same function calls `setup_new_game`; no secondary caller |
+| **B — death** | `_handle_player_death` on failure; combat callers on success | `_handle_player_death` returns `(message, already_emitted)` (or equivalent). On failure: recovery emit **inside** handler; both combat call sites (~1586, ~1680) **MUST NOT** `_emit_narration` when `already_emitted`. On success: caller `_emit_narration` unchanged. **Forbidden:** recovery emit in handler + caller `_emit_narration` on same failure (double JSONL) |
+| **C — run_ended** | `process_turn` resume branch inline | Same as A — check `ok` before success `_emit_narration(death_msg)` |
+
+Run spec detail: [`spec.md` R1a/R1b](backlog/runs/app-019-surface-new-game-errors/spec.md).
+
+### Player copy (minimum)
+
+**Context A (command):**
+
+- Lead: could not start a fresh session.
+- Mapped `{cause_line}` from engine error (see table below) — **not** verbatim `Could not start game: …`.
+- Retry: type **`new game`** to try again; relaunch hint if persistent.
+- Footer: `[Awaiting: new game]`.
+
+**Context B (death):** preserve corpse line (`**{name}** is dead… **{where}**`); add run-over + could not open fresh desk + `{cause_line}` + retry; footer `[Awaiting: new game]`. **Forbidden:** success restart copy.
+
+**Context C (run_ended):** preserve prior-delver death line + `{where}`; same failure tail as B; footer `[Awaiting: new game]`.
+
+### Engine error → cause line
+
+| Engine error (substring) | Player `{cause_line}` |
+|--------------------------|-------------------------|
+| `campaign not found` | The save campaign could not be found in the workspace database. |
+| `slug must be` | The campaign name failed validation — this is an internal setup error. |
+| `campaign already exists` | A leftover campaign record blocked startup (unexpected after wipe). |
+| `active session already exists` / `campaign already has an open session` | A stale open session blocked startup (regression — report if seen after APP-014). |
+| `permission denied`, `database is locked`, `disk I/O` | The workspace database could not be written (permissions or file lock). |
+| default | Something went wrong while resetting the workspace for a new run. |
+
+### JSONL
+
+| Event | When |
+|-------|------|
+| `error` | `log_error("setup_new_game", <verbatim engine error>)` — retain context string |
+| `gm_narration` | Same panel text via **`_emit_recovery_narration`** (no `_check_creation_drift`) |
+
+Dual logging mirrors APP-071 resume failure. Do **not** use `_emit_narration` on setup-failure paths.
+
+### UI
+
+- Primary channel: narration panel return string + `[Awaiting: new game]` chips (orchestrator-only closes ticket).
+- Optional: `_set_turn_idle("Error — try again")` on command failure only — do **not** duplicate full copy into UI `error` queue (`[Error: …]`).
+
+### Tests APP-019
+
+| ID | Case | Expected |
+|----|------|----------|
+| **T-019a** | Mock L4 failure; `process_turn("new game")` | Context A copy + dual JSONL; **one** `gm_narration` |
+| **T-019b** | Mock L5 generic failure; command path | Mapped default cause |
+| **T-019c** | Direct `_handle_player_death` + setup failure (no full combat integration) | Context B; no success NAME prompt; **one** `gm_narration`; caller skips `_emit_narration` when `already_emitted` |
+| **T-019d** | `run_ended` + setup failure | Context C; no success NAME prompt; dual JSONL |
+| **T-019e** | T-019a **and** T-019c | No spurious `creation_drift` / `awaiting_mismatch` |
+| **T-019f** | Happy **`new game`** | NAME desk regression (T-014a) |
+
+```bash
+python -m pytest app/tests -q -k "setup_new_game_failure or setup_new_game"
+```
+
+Run spec: [`tmp/backlog/runs/app-019-surface-new-game-errors/spec.md`](backlog/runs/app-019-surface-new-game-errors/spec.md).
 
 ---
 
@@ -56,8 +141,11 @@ Symptom strings below describe player-visible failures; exact substrings may not
 - [ ] **APP-014:** `setup_new_game` ends prior session before wipe. See § setup_new_game lifecycle (APP-014).
 - [x] **APP-015:** Explicit creation-block clear on **`new game`** (incl. failure autosave). See § New game — creation block clear (APP-015).
 - [x] **APP-016:** Snapshot engine `status()` on app save. See § Engine status snapshot (APP-016).
+- [x] **APP-017:** Reconcile empty roster on load — force `creation.active`. See § Reconcile empty roster on load (APP-017).
+- [x] **APP-018:** Continue restores creation FSM when `awaiting == CHARACTER_CREATION`. See § Creation restore on continue / relaunch (APP-018).
 - [x] **APP-064:** Startup "saved game" prompt only when `has_save_session()` is true (not merely active session + empty roster). See § Startup save-detection (APP-064).
 - [x] **APP-071:** Friendly `load game` failure narration + `gm_narration` when no resumable save. See § Resume failure.
+- [x] **APP-019:** Friendly `setup_new_game` failure copy + dual JSONL; death / `run_ended` callers check `ok`. See § New game failure (APP-019).
 
 ---
 
@@ -134,7 +222,7 @@ Callers SHOULD check `result.get("ok")` before narrating success; error surfacin
 ### Failure path
 
 - If L4 fails (non-swallowed error) or L5 fails: **return** error dict; do **not** run L6–L7.
-- `process_turn` surfaces `Could not start game: {error}` + JSONL `error` (`setup_new_game`).
+- Callers surface friendly recovery copy + JSONL `error` + `gm_narration` via **`_emit_recovery_narration`** — see § New game failure (APP-019). Legacy one-liner `Could not start game: {error}` is **replaced** by APP-019.
 - Prior `creation` / `session_state.json` may remain until retry — explicit failure-path clear is **APP-015**, not APP-014.
 
 ### Invariants
@@ -200,7 +288,7 @@ If `setup_new_game()` returns before L5 (session start), **C1–C2 must already 
 |--------|----------------|
 | **APP-014** | L1–L5 engine ordering; L6–L7 orchestrator reset after success. **APP-015** prepends C1–C2 **before** L1; does not remove L7. |
 | **APP-016** | `engine_status` written on `_save_session` (APP-016). **APP-015** clears stale `engine_status` on every `setup_new_game` entry (C2); fresh snapshot is recreated on next save after engine session exists. |
-| **APP-018** | Load/continue restore — out of scope. |
+| **APP-018** | Load/continue restore — see § Creation restore on continue / relaunch (APP-018). |
 
 ### Acceptance criteria (ticket)
 
@@ -249,14 +337,14 @@ Reconcile-relevant keys MUST be present when a session exists: at minimum `await
 
 After successful **`new game`**, UI `finally` `_save_session()` writes a fresh `engine_status` matching the new empty-roster session.
 
-### Consumers (read path — out of scope)
+### Consumers (read path)
 
 | Ticket | Role |
 |--------|------|
-| **APP-017** | Reconcile empty roster on load — reads saved `engine_status` (when present) vs live engine |
-| **APP-018** | Continue / restore creation when `awaiting == CHARACTER_CREATION` — uses snapshot + `creation_state` |
+| **APP-017** | Reconcile empty roster on load — reads saved `engine_status`; forces **`creation.active`** when still inactive **after** APP-018 — see § Reconcile empty roster on load (APP-017) |
+| **APP-018** | Restore creation **step and fields** when `awaiting == CHARACTER_CREATION` — see § Creation restore on continue / relaunch (APP-018) |
 
-APP-016 MUST NOT add `_load_session` or orchestrator resume logic for `engine_status`.
+APP-016 write-only; read logic in APP-017 / APP-018 (`orchestrator.py`).
 
 ### Non-goals
 
@@ -267,6 +355,170 @@ APP-016 MUST NOT add `_load_session` or orchestrator resume logic for `engine_st
 ### Acceptance criteria (ticket)
 
 - [x] On save, snapshot engine `status()` alongside app state (`engine_status` per S5).
+
+---
+
+## Reconcile empty roster on load (APP-017)
+
+**Owner:** `app/gm/orchestrator.py` — `_sync_creation_from_status()` and/or dedicated reconcile helper invoked from `_load_session` and post-resume sync paths. **Read source:** saved **`engine_status`** in `session_state.json` (APP-016) when live `bridge.status()` is missing or `awaiting: SETUP`. **Write source:** unchanged (APP-016).
+
+### Problem
+
+`engine_status` is written on save but was not read on load. `_load_session()` imports `creation_state` and syncs against **live** engine only. When `creation_state` is absent or `active: false` but the snapshot shows **empty `roster`** and **`awaiting: CHARACTER_CREATION`**, creation stays inactive — suggestion chips empty and the player may leave the desk FSM.
+
+### Requirements
+
+#### R1 — Force creation active
+
+On load reconcile (UI `_load_session` and orchestrator post-resume hooks):
+
+| Condition | Action |
+|-----------|--------|
+| `creation.active == false` **and** empty **`roster`** **and** mid-creation (`awaiting == CHARACTER_CREATION` live or saved) | Set **`creation.active = true`** |
+| Non-empty live **`roster`** | **`creation.active = false`** (unchanged post-finalize behavior) |
+| Legacy save: no **`engine_status`**, live only | Reconcile from live engine; no new errors (S5d / T-017d) |
+
+Reconcile MUST NOT require successful `session_resume()`.
+
+Do **not** force creation when live or saved **`awaiting`** is not **`CHARACTER_CREATION`** (e.g. **`SETUP`**, **`ROSTER_SETUP`**) even if **`roster`** is empty.
+
+#### R1b — Empty roster uses `roster`, not `characters`
+
+| Field | Meaning |
+|-------|---------|
+| **`roster`** | Slotted living characters — **sole** empty check for force-active (ticket AC “empty roster”) |
+| **`characters`** | All campaign rows (incl. unslotted) — **do not** use for APP-017 force-active gate |
+
+| Condition | Action |
+|-----------|--------|
+| `awaiting == ROSTER_SETUP` (`roster` empty, `characters` non-empty) | **No-op** — do not force **`creation.active`**; out of ticket AC |
+| `_sync_creation_from_status` today uses `not characters` | Dev MUST switch to **`roster`** empty + **`CHARACTER_CREATION`** (R1 row 1) |
+
+#### R2 — Live vs saved precedence
+
+1. **Live** `bridge.status()` when session active — live **`roster`** wins over stale saved snapshot.
+2. **Saved** **`engine_status`** when live absent or `awaiting: SETUP` and creation inactive — use **`roster`** / **`awaiting`** from disk.
+3. **Absent/null `engine_status`:** fall back to live only; load proceeds without error.
+
+#### R3 — Batch boundary (APP-017 vs APP-018)
+
+| Ticket | Owns | Does not own |
+|--------|------|--------------|
+| **APP-017** | Flip **`creation.active`** to **`true`** under R1; read **`engine_status`** for empty-roster mid-creation detection | Restore **`step`**, **`name`**, **`race`**, **`roll_result`**, table flags |
+| **APP-018** | Restore full creation FSM from **`creation_state`** + snapshot when `awaiting == CHARACTER_CREATION` | Boot startup prompt; forcing active when 017 already did |
+
+**Merge order (canonical — APP-018 PM):** **APP-018** field restore (`import_creation_state` when gate passes) runs **first**; **APP-017** force-active runs only if roster empty and **`creation.active`** still false. APP-017 MUST NOT reset an in-progress saved step to **`NAME`** when **`creation_state`** carries a later step. Minimal exception: if **`step == WORLD_INTRO`** (invalid for active desk), reconcile MAY set **`step = "NAME"`** after APP-018 import.
+
+| Ticket | Relationship |
+|--------|--------------|
+| **APP-016** | Provides **`engine_status`** snapshot on save |
+| **APP-015** | Clears stale snapshot on **`new game`** — not load path |
+| **APP-064** | Boot does not auto-reconcile; player types load/new |
+| **APP-071** | Resume failure variant B uses mid-creation signals; 017 prevents inactive+empty-roster desync after `_load_session` |
+
+### Acceptance criteria (ticket)
+
+- [x] If engine roster empty and creation inactive → force creation mode (`creation.active == true` per R1).
+
+**Spec AC mapping**
+
+| Ticket AC | Domain rule |
+|-----------|-------------|
+| Empty roster + inactive creation + mid-creation → force creation | R1 table row 1 + R1b |
+| Post-finalize non-empty roster unchanged | R1 table row 2 |
+| Legacy / missing snapshot | R2 step 3, T-017d |
+| Orphan unslotted rows (`ROSTER_SETUP`) | R1b no-op, T-017f |
+
+### Non-regression
+
+- Post-finalize / in-delve load with slotted character unchanged.
+- APP-071 variant A/B resume failure copy unchanged.
+- APP-064 startup branches unchanged (reconcile on **load**, not boot).
+
+### Tests APP-017
+
+| ID | Case | Expected |
+|----|------|----------|
+| **T-017a** | Mid-creation save; `creation.active=False` in memory; reconcile with disk `engine_status` | `creation.active is True` |
+| **T-017b** | `creation_state: null`, saved empty roster + `CHARACTER_CREATION`; live `SETUP` | Force active; step restore = APP-018 |
+| **T-017c** | Live **`roster`** non-empty (post-finalize) | Does not reactivate creation |
+| **T-017c2** | Live **`roster`** empty, saved **`engine_status.roster`** non-empty, `CHARACTER_CREATION` | Force active — live empty wins over stale snapshot (R2) |
+| **T-017d** | Legacy JSON without `engine_status`, `creation_state.active=true` | Unchanged vs pre-017 (T4c) |
+| **T-017e** | After reconcile: `get_player_suggestions` | Non-empty creation chips |
+| **T-017f** | Live `ROSTER_SETUP`, empty `roster`, non-empty `characters` | No force-active (R1b no-op) |
+
+```bash
+python -m pytest app/tests -q -k "reconcile or empty_roster or engine_status or load_session or app_017"
+```
+
+---
+
+## Creation restore on continue / relaunch (APP-018)
+
+**Owner:** `app/gm/orchestrator.py` — shared restore helper (e.g. `_restore_creation_from_session_state()`), `import_creation_state`, `process_turn` gates. **Inputs:** `creation_state`, `engine_status` from `session_state.json` (APP-016). **Does not** change `ui/app.py` or APP-064 boot `_load_session`.
+
+### Problem
+
+Mid-creation saves persist FSM + engine snapshot, but the orchestrator does not hydrate after relaunch or on failed `session_resume`. Successful resume can clobber disk step with `step="NAME"` (~573–576). UI `_load_session` may import in parallel — orchestrator must own FSM truth.
+
+### Gate (G1)
+
+Restore **only when all** hold:
+
+| # | Condition |
+|---|-----------|
+| G1a | Saved `engine_status.awaiting == "CHARACTER_CREATION"` when snapshot present and non-null; else live `awaiting == "CHARACTER_CREATION"` |
+| G1b | `creation_state.active == true` |
+| G1c | Empty roster in snapshot when present; else live `roster` empty |
+| G1d | Live `roster` empty — if live non-empty, **no restore** |
+
+**No-op:** post-finalize; `awaiting` not `CHARACTER_CREATION`; inactive/missing `creation_state`; after APP-015 **`new game`** NAME-only disk.
+
+### Restore action (G2)
+
+1. Read `_session_state_path()` JSON.
+2. When G1 passes: `import_creation_state(creation_state)`; ensure `creation.active` is true.
+3. **Forbidden** after successful import: `CreationState(active=True, step="NAME")` unless `step` missing or not in `CREATION_STEPS`.
+4. `_sync_creation_from_status()` **after** import; existing `WORLD_INTRO` → `NAME` only.
+
+### Call sites (G3)
+
+| ID | When |
+|----|------|
+| **G3a** | First `process_turn` after relaunch (input not `new game` / `start` / `new`) **when G1 passes** — same gate as G3b/G3c (saved `engine_status.awaiting` precedence; not live-only; covers live `SETUP` + saved `CHARACTER_CREATION`, APP-017 **T-017b** class) |
+| **G3b** | `continue` / `resume` / `load` / `load game`; `session_resume` **failed** — before `_resume_failure_message` |
+| **G3c** | Same commands; `session_resume` **succeeded** — before `_sync_creation_from_status` and CHARACTER_CREATION branch; remove NAME clobber |
+
+“Relaunch → same step” = first player turn restores FSM (APP-064 boot unchanged).
+
+### Batch — APP-017
+
+See § Reconcile empty roster on load (APP-017) **Merge order** — APP-018 restore before APP-017 force-active.
+
+### Acceptance criteria (ticket)
+
+- [x] When `awaiting == CHARACTER_CREATION`, restore creation from save (G1–G3).
+
+### Non-regression
+
+- APP-071 variant A; APP-015 post–`new game`**; post-finalize load; APP-064 startup.
+
+### Tests APP-018
+
+| ID | Case | Expected |
+|----|------|----------|
+| **T-018a** | Disk `CHARACTER_CREATION` + `creation_state.step == RACE`; `process_turn("continue")` fail | `creation.step == RACE`; variant B step phrase matches |
+| **T-018b** | Same disk seed; live `awaiting != CHARACTER_CREATION` (e.g. `SETUP`) + saved `CHARACTER_CREATION`; first non–`new-game` `process_turn` | RACE desk / `_creation_turn` path (G1 saved precedence) |
+| **T-018c** | Resume success + `CHARACTER_CREATION` | Step not reset to NAME |
+| **T-018d** | Legacy JSON without `engine_status`; live `CHARACTER_CREATION` | Restore from `creation_state` |
+| **T-018e** | Non-empty roster or awaiting not `CHARACTER_CREATION` | No import |
+| **T-018f** | After `setup_new_game` (APP-015) | No restore of pre-wipe SKILLS |
+
+```bash
+cd app && python -m pytest app/tests -q -k "creation_restore or continue_creation or app018 or engine_status"
+```
+
+Manual: mid-creation RACE/SKILLS → Escape → quit → relaunch → `continue` or desk input → same step; **`new game`** → NAME only.
 
 ---
 
@@ -356,7 +608,7 @@ Manual: mid-creation → autosave or Escape → inspect `app/session_state.json`
 | File | Role |
 |------|------|
 | `session_state.json` | App-side save; includes `engine_status` after APP-016 |
-| `gm/orchestrator.py` | `setup_new_game`, `_clear_creation_block_on_disk` (APP-015), `export_creation_state`, `import_creation_state`, resume |
+| `gm/orchestrator.py` | `setup_new_game`, `_setup_new_game_failure_message` (APP-019), `_emit_recovery_narration`, `_clear_creation_block_on_disk` (APP-015), `export_creation_state`, `import_creation_state`, `_restore_creation_from_session_state` (APP-018), `_sync_creation_from_status` (APP-017), resume |
 | `gm/bridge.py` | `end_session`, `force_close_all_sessions`, `wipe_all_data`, `session_start`, `session_resume`, `has_save` |
 | `ui/app.py` | `_save_session` / `_load_session`; autosave; startup save prompt (`_init_orchestrator`) |
 
@@ -377,3 +629,12 @@ Manual: mid-creation → autosave or Escape → inspect `app/session_state.json`
 | 2026-05-20 | APP-016 PM draft: § Engine status snapshot on save — `engine_status` field, S5 write rules, tests T4, batch notes (APP-014/015/017/018) |
 | 2026-05-20 | APP-016 PM r2 (QA round 1): added § Engine status snapshot on save (APP-016); resolved APP-015/016 ownership — APP-015 C2 removes `engine_status` on new game; Consumers APP-017/018; T-015d; persist bullet; canonical omit on save failure (S5d) |
 | 2026-05-20 | APP-016 done: `_save_session()` writes full `get_status()` under `engine_status` (S5b–c); omit on failure (S5d); `test_engine_status_on_save.py` T4a–d |
+| 2026-05-20 | APP-019 PM draft: § New game failure — contexts A/B/C, cause mapping, dual JSONL, death/run_ended ok checks; tests T-019a–f; Expected files → orchestrator + tests |
+| 2026-05-20 | APP-019 PM r2: § Emit ownership R1a/R1b — context B death caller contract (`already_emitted`); aligned cause lines; T-019c/d/e JSONL asserts |
+| 2026-05-20 | APP-017 PM draft: § Reconcile empty roster on load — R1–R3, APP-018 batch boundary (017 force active / 018 restore step+fields), tests T-017a–e; checklist + APP-016 Consumers updated |
+| 2026-05-20 | APP-018 PM draft: § Creation restore on continue / relaunch (G1–G3); relaunch first-turn + resume paths; merge order APP-018 before APP-017; tests T-018a–f; persist bullet; corrected APP-017 merge order |
+| 2026-05-20 | APP-017 PM r2 (QA round 1): R1b roster vs characters; T-017f ROSTER_SETUP no-op; spec AC mapping; T-017c stale-snapshot note |
+| 2026-05-20 | APP-018 PM round 2: G3a unified with G1 (saved `awaiting` precedence, not live-only); T-018b live `SETUP` + saved `CHARACTER_CREATION`; ticket Expected files include `app/tests/` |
+| 2026-05-21 | APP-017 done: `_read_saved_engine_status`, `_effective_awaiting_for_reconcile`, `_force_creation_active_if_reconcile_needed`; sync prelude (APP-018 restore → force-active); roster-only gates; `test_reconcile_empty_roster_on_load.py` T-017a–f, T-017c2 |
+| 2026-05-21 | APP-019 done: `_setup_new_game_failure_message`, `_map_setup_new_game_cause`, `PlayerDeathResult.already_emitted`; contexts A/B/C dual JSONL via `_emit_recovery_narration`; combat callers skip `_emit_narration` on failure; `test_setup_new_game_failure.py` T-019a–f |
+| 2026-05-21 | APP-018 done: `_restore_creation_from_session_state()` + G1 gate + G3a–c in `orchestrator.py`; NAME clobber removed on resume success; creation import removed from `_restore_history`; `test_creation_restore.py` T-018a–f |

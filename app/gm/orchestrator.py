@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from gm.bridge import GameBridge
 from gm.combat_fsm import (
@@ -16,6 +17,7 @@ from gm.combat_fsm import (
 )
 from gm.creation import (
     CreationState,
+    CREATION_STEPS,
     CREATION_STATUS_LABELS,
     RACES,
     CLASS_INFO,
@@ -83,6 +85,12 @@ SPELL_QUERY_RE = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class PlayerDeathResult:
+    message: str
+    already_emitted: bool = False
+
+
 class Orchestrator:
     """Manages the GM turn loop."""
 
@@ -100,6 +108,7 @@ class Orchestrator:
         self._last_tool_results: dict = {}
         self.creation = CreationState()
         self.combat = CombatState()
+        self._creation_disk_restore_done = False
 
     def get_status(self) -> dict:
         return self.bridge.status()
@@ -121,9 +130,8 @@ class Orchestrator:
         )
 
     def _restore_history(self):
-        """Load orchestrator history and creation state from session_state.json."""
-        from pathlib import Path
-        save_path = Path(__file__).resolve().parents[1] / "session_state.json"
+        """Load orchestrator history and combat state from session_state.json."""
+        save_path = self._session_state_path()
         if not save_path.exists():
             return
         try:
@@ -132,9 +140,6 @@ class Orchestrator:
                 saved = data.get("orchestrator_history", [])
                 if saved:
                     self.history = saved[-20:]
-            creation_data = data.get("creation_state")
-            if creation_data and creation_data.get("active"):
-                self.creation = CreationState.from_dict(creation_data)
             combat_data = data.get("combat_state")
             if combat_data and combat_data.get("active"):
                 self.combat = CombatState.from_dict(combat_data)
@@ -176,6 +181,10 @@ class Orchestrator:
 
     def _sync_creation_from_status(self) -> None:
         """Ensure we do not stay in creation mode when a roster already exists."""
+        restore = getattr(self, "_restore_creation_from_session_state", None)
+        if callable(restore):
+            restore()
+        self._force_creation_active_if_reconcile_needed()
         try:
             status = self.bridge.status()
         except Exception:
@@ -183,7 +192,10 @@ class Orchestrator:
         if status.get("roster"):
             self.creation.active = False
             self.creation.step = "WORLD_INTRO"
-        elif status.get("awaiting") == "CHARACTER_CREATION" and not status.get("characters"):
+        elif (
+            self._effective_awaiting_for_reconcile(status) == "CHARACTER_CREATION"
+            and not status.get("roster")
+        ):
             self.creation.active = True
             if self.creation.step == "WORLD_INTRO":
                 self.creation.step = "NAME"
@@ -310,10 +322,156 @@ class Orchestrator:
         """Log recovery copy without creation drift checks (resume failure paths)."""
         log_gm_narration(message)
 
+    def _map_setup_new_game_cause(self, error: str) -> str:
+        err = str(error).lower()
+        if "campaign not found" in err:
+            return "The save campaign could not be found in the workspace database."
+        if "slug must be" in err:
+            return "The campaign name failed validation — this is an internal setup error."
+        if "campaign already exists" in err:
+            return "A leftover campaign record blocked startup (unexpected after wipe)."
+        if "active session already exists" in err or "campaign already has an open session" in err:
+            return (
+                "A stale open session blocked startup (regression — report if seen after APP-014)."
+            )
+        if any(
+            token in err
+            for token in ("permission denied", "database is locked", "disk i/o")
+        ):
+            return "The workspace database could not be written (permissions or file lock)."
+        return "Something went wrong while resetting the workspace for a new run."
+
+    def _setup_new_game_failure_message(
+        self,
+        result: dict,
+        *,
+        context: Literal["command", "death", "run_ended"],
+        name: str | None = None,
+        where: str | None = None,
+    ) -> str:
+        cause_line = self._map_setup_new_game_cause(result.get("error") or "")
+        failure_tail = (
+            "This run is over, but the registry could not open a fresh desk session.\n\n"
+            f"{cause_line}\n\n"
+            "Type **new game** to try again.\n\n"
+            "[Awaiting: new game]"
+        )
+        if context == "command":
+            return (
+                "Could not start a fresh session.\n\n"
+                f"{cause_line}\n\n"
+                "Type **new game** to try again. If this keeps happening, quit and relaunch the app.\n\n"
+                "[Awaiting: new game]"
+            )
+        if context == "death":
+            display_name = name or "The delver"
+            location = where or "the site"
+            lead = (
+                f"**{display_name}** is dead. The body remains in **{location}** — gear still on the "
+                "corpse for anyone who finds it."
+            )
+            return f"{lead}\n\n{failure_tail}"
+        location = where or "the delve"
+        lead = (
+            f"Your previous delver did not survive (0 HP after the last fight). "
+            f"The body remains in **{location}** with all carried gear."
+        )
+        return f"{lead}\n\n{failure_tail}"
+
     def _session_state_path(self) -> Path:
         return Path(__file__).resolve().parents[1] / "session_state.json"
 
+    def _read_saved_engine_status(self) -> dict | None:
+        save_path = self._session_state_path()
+        if not save_path.exists():
+            return None
+        try:
+            data = json.loads(save_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        engine_status = data.get("engine_status")
+        if isinstance(engine_status, dict):
+            return engine_status
+        return None
+
+    def _effective_awaiting_for_reconcile(self, live_status: dict) -> str:
+        live_awaiting = live_status.get("awaiting") or ""
+        if live_awaiting and live_awaiting != "SETUP":
+            return live_awaiting
+        saved = self._read_saved_engine_status()
+        if saved:
+            return saved.get("awaiting") or live_awaiting
+        return live_awaiting
+
+    def _force_creation_active_if_reconcile_needed(self) -> None:
+        if self.creation.active:
+            return
+        try:
+            live = self.bridge.status()
+        except Exception:
+            return
+        roster = live.get("roster") or []
+        if roster:
+            return
+        live_awaiting = live.get("awaiting") or ""
+        if live_awaiting == "ROSTER_SETUP":
+            return
+        effective = self._effective_awaiting_for_reconcile(live)
+        if effective != "CHARACTER_CREATION":
+            return
+        self.creation.active = True
+
+    def _creation_restore_gate(self, data: dict, live_status: dict) -> bool:
+        """G1: restore creation from disk only when snapshot + live rules pass."""
+        if live_status.get("roster"):
+            return False
+
+        if "engine_status" in data:
+            engine = data.get("engine_status") or {}
+            saved_awaiting = engine.get("awaiting")
+            if saved_awaiting is not None:
+                if saved_awaiting != "CHARACTER_CREATION":
+                    return False
+            elif live_status.get("awaiting") != "CHARACTER_CREATION":
+                return False
+            if "roster" in engine and engine.get("roster") != []:
+                return False
+        elif live_status.get("awaiting") != "CHARACTER_CREATION":
+            return False
+
+        creation_state = data.get("creation_state") or {}
+        if not creation_state.get("active"):
+            return False
+        step = creation_state.get("step")
+        if not step or step not in CREATION_STEPS:
+            return False
+        return True
+
+    def _restore_creation_from_session_state(self) -> bool:
+        """Import creation FSM from session_state.json once per relaunch (G1 + once-only guard)."""
+        if self._creation_disk_restore_done:
+            return False
+        save_path = self._session_state_path()
+        if not save_path.exists():
+            return False
+        try:
+            data = json.loads(save_path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        try:
+            live = self.bridge.status()
+        except Exception:
+            live = {}
+        if not self._creation_restore_gate(data, live):
+            return False
+        self.import_creation_state(data.get("creation_state"))
+        if not self.creation.active:
+            return False
+        self._creation_disk_restore_done = True
+        return True
+
     def _reset_creation_for_new_game(self) -> None:
+        self._creation_disk_restore_done = False
         self.creation = CreationState(active=True, step="NAME")
 
     def _clear_creation_block_on_disk(self) -> None:
@@ -401,7 +559,7 @@ class Orchestrator:
         self._delete_save_file()
         return session
 
-    def _handle_player_death(self, mechanical: list[dict]) -> str | None:
+    def _handle_player_death(self, mechanical: list[dict]) -> PlayerDeathResult | None:
         """If mechanical results include PC death, spawn corpse and restart."""
         death_hit = self.bridge.extract_death_from_mechanical(mechanical)
         if not death_hit:
@@ -421,16 +579,24 @@ class Orchestrator:
         if not corpse_result.get("ok"):
             return None
         self.combat.active = False
-        self.setup_new_game(campaign_slug)
         corpse = corpse_result.get("corpse") or {}
         name = corpse.get("display_name", "The delver")
         site = corpse.get("site_address") or corpse.get("cell_address") or "the site"
         room = corpse.get("room_id")
         where = f"{site} / {room}" if room else str(site)
-        return (
+        setup_result = self.setup_new_game(campaign_slug)
+        if not setup_result.get("ok"):
+            log_error("setup_new_game", setup_result.get("error", "unknown"))
+            message = self._setup_new_game_failure_message(
+                setup_result, context="death", name=name, where=where
+            )
+            self._emit_recovery_narration(message)
+            return PlayerDeathResult(message, already_emitted=True)
+        success_message = (
             f"**{name}** is dead. The body remains in **{where}** — gear still on the corpse for anyone who finds it.\n\n"
             "This run is over. A **new game** has started. Welcome to the Registry, delver. What is your name?"
         )
+        return PlayerDeathResult(success_message, already_emitted=False)
 
     def _delete_save_file(self):
         """Remove the UI session state file."""
@@ -536,13 +702,19 @@ class Orchestrator:
             result = self.setup_new_game()
             if not result.get("ok"):
                 log_error("setup_new_game", result.get("error", "unknown"))
-                return f"Could not start game: {result.get('error', 'unknown')}"
+                message = self._setup_new_game_failure_message(result, context="command")
+                self._emit_recovery_narration(message)
+                return message
             return self._creation_turn("[SYSTEM: New game started. Begin character creation.]")
 
-        elif lower in ("continue", "resume", "load", "load game"):
+        if lower not in ("new game", "start", "new"):
+            self._restore_creation_from_session_state()
+
+        if lower in ("continue", "resume", "load", "load game"):
             result = self.bridge.session_resume()
             if not result.get("ok"):
                 log_error("session_resume", result.get("error", "unknown"))
+                self._restore_creation_from_session_state()
                 message = self._resume_failure_message(result)
                 self._emit_recovery_narration(message)
                 return message
@@ -555,7 +727,14 @@ class Orchestrator:
                     site = c0.get("site_address") or c0.get("cell_address") or where
                     room = c0.get("room_id")
                     where = f"{site} / {room}" if room else str(site)
-                self.setup_new_game(campaign_slug)
+                setup_result = self.setup_new_game(campaign_slug)
+                if not setup_result.get("ok"):
+                    log_error("setup_new_game", setup_result.get("error", "unknown"))
+                    message = self._setup_new_game_failure_message(
+                        setup_result, context="run_ended", where=where
+                    )
+                    self._emit_recovery_narration(message)
+                    return message
                 death_msg = (
                     f"Your previous delver did not survive (0 HP after the last fight). "
                     f"The body remains in **{where}** with all carried gear.\n\n"
@@ -564,6 +743,7 @@ class Orchestrator:
                 self._emit_narration(death_msg)
                 return death_msg
             self._restore_history()
+            self._restore_creation_from_session_state()
             self._sync_creation_from_status()
             self._sync_combat_from_status()
             status = self.bridge.status()
@@ -571,9 +751,7 @@ class Orchestrator:
                 log_error("session_resume", f"recovered save campaign: {result.get('campaign_slug')}")
             if status.get("awaiting") == "CHARACTER_CREATION" and not status.get("roster"):
                 if not self.creation.active:
-                    self._restore_history()
-                if not self.creation.active:
-                    self.creation = CreationState(active=True, step="NAME")
+                    self._force_creation_active_if_reconcile_needed()
                 return self._creation_turn(
                     "[SYSTEM: Resume character creation. Continue from the current step.]"
                 )
@@ -1583,12 +1761,13 @@ class Orchestrator:
             narration = self._combat_llm_loop(player_input, status)
         else:
             mechanical = self._combat_auto_chain()
-            death_narration = self._handle_player_death(mechanical)
-            if death_narration:
-                self._emit_narration(death_narration)
+            death_result = self._handle_player_death(mechanical)
+            if death_result is not None:
+                if not death_result.already_emitted:
+                    self._emit_narration(death_result.message)
                 self.history.append({"role": "user", "content": player_input})
-                self.history.append({"role": "assistant", "content": death_narration})
-                return death_narration
+                self.history.append({"role": "assistant", "content": death_result.message})
+                return death_result.message
             status = self.bridge.status()
             if is_pc_turn(status):
                 narration = self._combat_llm_loop(player_input, status)
@@ -1677,11 +1856,12 @@ class Orchestrator:
         self.combat.last_mechanical = mechanical
         auto = self._combat_auto_chain()
         mechanical.extend(auto)
-        death_narration = self._handle_player_death(mechanical)
-        if death_narration:
-            self._emit_narration(death_narration)
-            self.history.append({"role": "assistant", "content": death_narration})
-            return death_narration
+        death_result = self._handle_player_death(mechanical)
+        if death_result is not None:
+            if not death_result.already_emitted:
+                self._emit_narration(death_result.message)
+            self.history.append({"role": "assistant", "content": death_result.message})
+            return death_result.message
         self._sync_combat_from_status()
 
         brief = self._combat_mechanical_brief(mechanical)
