@@ -11,6 +11,10 @@
 
 `GameBridge` is the **only** app path to mechanical truth. Wraps `play/tomb_gm` with a stable Python API — no raw CLI from UI.
 
+### Typed args from orchestrator (APP-080)
+
+Methods invoked via LLM tools receive **already-normalized** Python types from the orchestrator (`normalize_tool_args` in [`app-llm-orchestrator-spec.md`](app-llm-orchestrator-spec.md) § Tool argument normalization). Bridge methods do **not** strip XML/tool markup or coerce string integers — that boundary lives in `app/gm/tool_args.py`. Bridge may still accept documented aliases (e.g. `enter_dungeon` `site_id` / `site_address`) when normalized by orchestrator before `**args` dispatch.
+
 ### Surface areas (must stay in sync with this spec)
 
 | Area | Methods |
@@ -37,9 +41,9 @@ New engine features **must** land here before orchestrator/tools expose them.
 - [x] Core bridge methods wired to tomb_gm services
 - [x] Inventory v3 + economy methods (see app-economy-inventory-play-spec + engine-integration.md)
 - [x] `enter_dungeon` accepts `site_address` and `site_id` alias
-- [ ] Document each method’s `{ok, error}` shapes in § API appendix below
-- [ ] Thread-safe / single-connection policy (llm-orchestrator spec)
-- [ ] `memory_recall` param names match engine (`top_k` not broken)
+- [x] LLM tool methods receive typed args from orchestrator normalizer (APP-080)
+
+**Open work:** [APP-033](backlog/app-033-sqlite-threading-policy.md), [APP-047](backlog/app-047-gamebridge-api-appendix.md), [APP-048](backlog/app-048-fix-memoryrecall-topk-param.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -66,4 +70,7 @@ python -m pytest play/tomb_gm/tests -q
 
 | Date | Change |
 |------|--------|
+| 2026-05-21 | APP-080 done: typed-args contract — orchestrator normalizes before `**args` dispatch; bridge does not strip markup or coerce scalars |
+| 2026-05-21 | APP-080 cross-link: orchestrator supplies typed tool args; bridge assumes clean types (no markup stripping) |
 | 2026-05-20 | Spec created; method inventory from bridge.py |
+| 2026-05-20 | APP-048: `memory_recall(query, top_k=5)` passes `top=top_k` to engine `recall_facts()` |

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from gm.bridge import GameBridge
+from gm.tool_args import normalize_tool_args, validate_tool_args
 from gm.combat_fsm import (
     CombatState,
     format_initiative_table,
@@ -79,6 +80,57 @@ _PREMATURE_COMPLETION_COPY_RE = re.compile(
 )
 _CREATION_FLAVOR_MAX_TOKENS = 120
 
+# APP-028: exploration _llm_loop all_failed strips pre-tool content for these tools.
+_COMBAT_TOOL_NAMES = frozenset({
+    "start_combat",
+    "combat_attack",
+    "combat_end",
+    "cast_spell",
+    "fortune_spend",
+    "combat_action",
+})
+
+_SITE_ENTRY_REFUSAL_LINE = (
+    "The entrance holds you at the threshold — the Registry ledger still shows you on the surface. "
+    "Crossing requires a successful **enter_dungeon** or **site_enter** call; the delving clock does not start until then."
+)
+
+_SITE_ENTRY_MARKER_RES = (
+    re.compile(r"step\s+(?:into|inside|through)", re.IGNORECASE),
+    re.compile(r"cross(?:es|ed)?\s+the\s+threshold", re.IGNORECASE),
+    re.compile(r"beyond\s+the\s+(?:arch|door|gate)", re.IGNORECASE),
+    re.compile(r"torchlit", re.IGNORECASE),
+    re.compile(r"corridor", re.IGNORECASE),
+    re.compile(r"vault\s+interior", re.IGNORECASE),
+    re.compile(r"catacomb", re.IGNORECASE),
+    re.compile(r"undercrypt", re.IGNORECASE),
+    re.compile(r"dungeon\s+(?:floor|hall)", re.IGNORECASE),
+    re.compile(
+        r"you\s+(?:are|enter|stand)\s+(?:now\s+)?(?:in|inside)\s+(?:the\s+)?(?:crypt|dungeon|site|undercrypt|vault)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\[Phase:\s*delve", re.IGNORECASE),
+    re.compile(r"\[Location:[^\]]*(?:UG-|undercrypt|crypt|dungeon)", re.IGNORECASE),
+    re.compile(r"Phase:\s*delve", re.IGNORECASE),
+    re.compile(r"mode:\s*dungeon", re.IGNORECASE),
+)
+
+
+def sanitize_premature_site_entry_flavor(text: str, *, gate_active: bool) -> str:
+    """Strip site-entry / interior fiction when surface gate is active (APP-024)."""
+    if not gate_active or not (text or "").strip():
+        return text or ""
+
+    def _matches_marker(chunk: str) -> bool:
+        return any(pattern.search(chunk) for pattern in _SITE_ENTRY_MARKER_RES)
+
+    kept = [line for line in (text or "").splitlines() if not _matches_marker(line)]
+    result = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+    if result and _matches_marker(result):
+        return ""
+    return result
+
+
 SPELL_QUERY_RE = re.compile(
     r"\b(what spells|spells do i know|my spells|known spells|spell list|do i know any spells)\b",
     re.I,
@@ -106,6 +158,9 @@ class Orchestrator:
         self.history: list[dict[str, str]] = []
         self._last_content = ""
         self._last_tool_results: dict = {}
+        self._beat_combat_start_failure: str | None = None
+        self._entry_committed_this_turn = False
+        self._exploration_pre_turn_mode = "surface"
         self.creation = CreationState()
         self.combat = CombatState()
         self._creation_disk_restore_done = False
@@ -317,6 +372,20 @@ class Orchestrator:
     def _emit_narration(self, narration: str) -> None:
         log_gm_narration(narration)
         self._check_creation_drift(narration)
+
+    def _exploration_gate_active(self, pre_turn_mode: str) -> bool:
+        if self._entry_committed_this_turn:
+            return False
+        if pre_turn_mode in ("dungeon", "site"):
+            return False
+        return pre_turn_mode == "surface"
+
+    def _compose_exploration_narration(self, prose: str, *, gate_active: bool) -> str:
+        """Exploration post-process: APP-024 site-entry strip, then APP-077 footer/tags."""
+        text = sanitize_premature_site_entry_flavor(prose or "", gate_active=gate_active)
+        if gate_active and not text.strip():
+            text = _SITE_ENTRY_REFUSAL_LINE
+        return text
 
     def _emit_recovery_narration(self, message: str) -> None:
         """Log recovery copy without creation drift checks (resume failure paths)."""
@@ -810,7 +879,10 @@ class Orchestrator:
             player_input,
         )
 
+        pre_turn_mode = (status.get("party") or {}).get("mode", "surface")
         narration = self._llm_loop(messages)
+        gate_active = self._exploration_gate_active(pre_turn_mode)
+        narration = self._compose_exploration_narration(narration, gate_active=gate_active)
         self._emit_narration(narration)
 
         self.history.append({"role": "user", "content": player_input})
@@ -1496,9 +1568,12 @@ class Orchestrator:
                     args = json.loads(tc["function"]["arguments"])
                 except json.JSONDecodeError:
                     args = {}
+                args = normalize_tool_args(fn_name, args)
 
                 if fn_name != "set_creation_choice":
                     result = {"ok": False, "error": f"Only set_creation_choice is available. Got: {fn_name}"}
+                elif err := validate_tool_args(fn_name, args):
+                    result = {"ok": False, "error": err}
                 else:
                     result = self._execute_creation_choice(
                         args.get("step", ""),
@@ -1834,8 +1909,11 @@ class Orchestrator:
                 args = json.loads(tc["function"]["arguments"])
             except json.JSONDecodeError:
                 args = {}
+            args = normalize_tool_args(fn_name, args)
             if fn_name != "combat_action":
                 result = {"ok": False, "error": f"During combat only combat_action is available. Got: {fn_name}"}
+            elif err := validate_tool_args(fn_name, args):
+                result = {"ok": False, "error": err}
             else:
                 result = self._execute_combat_action(**args)
             log_tool_call(fn_name, args, result)
@@ -1843,6 +1921,14 @@ class Orchestrator:
             if result.get("ok"):
                 all_failed = False
                 mechanical.extend(result.get("mechanical") or [])
+            else:
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        f"TOOL FAILED ({fn_name}): {json.dumps(result, default=str)}. "
+                        "You MUST narrate this failure honestly. Do NOT describe success."
+                    ),
+                })
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(result, default=str)})
 
         if all_failed:
@@ -1851,7 +1937,15 @@ class Orchestrator:
                 for n, r in self._last_tool_results.items()
                 if not r.get("ok")
             )
-            return f"[Mechanics failed — {failures}]\n\n{content or 'Your action did not resolve.'}"
+            prefix = (
+                f"[Mechanics failed — {failures}]"
+                if failures
+                else "[Mechanics failed — combat_action: unknown failure]"
+            )
+            log_error("combat_llm_loop", f"all tools failed at depth {depth}, stripping assistant content")
+            if not failures:
+                return f"{prefix}\n\nYour action did not resolve."
+            return prefix
 
         self.combat.last_mechanical = mechanical
         auto = self._combat_auto_chain()
@@ -1903,18 +1997,26 @@ class Orchestrator:
             spell_id=spell_id,
         )
 
-    def _handle_combat_trigger(self, beat_result: dict) -> None:
+    def _handle_combat_trigger(self, beat_result: dict) -> str | None:
         for item in beat_result.get("mechanical_summary") or []:
-            if item.get("action") == "combat_trigger":
-                specs = item.get("monster_specs") or ["grave-ghoul:1"]
-                if self._combat_active_in_db():
-                    continue
-                start = self.bridge.start_combat_from_trigger(specs)
-                if start.get("ok"):
-                    self.combat.active = True
-                    self.combat.step = "COMBAT_PC_ACTION"
-                    self.combat.order_narrated = False
-                    self.bridge.run_combat_monster_turns()
+            if item.get("action") != "combat_trigger":
+                continue
+            specs = item.get("monster_specs") or ["grave-ghoul:1"]
+            if self._combat_active_in_db():
+                continue
+            start = self.bridge.start_combat_from_trigger(specs)
+            if not start.get("ok"):
+                self.combat.active = False
+                err = start.get("error", start)
+                return (
+                    f"[Mechanics failed — combat start: {err}]\n\n"
+                    "Combat could not begin."
+                )
+            self.combat.active = True
+            self.combat.step = "COMBAT_PC_ACTION"
+            self.combat.order_narrated = False
+            self.bridge.run_combat_monster_turns()
+        return None
 
     def _llm_loop(self, messages: list[dict[str, Any]], depth: int = 0, allow_tools: bool = True) -> str:
         """Call LLM, execute tool calls, loop until we get narration text."""
@@ -1924,6 +2026,13 @@ class Orchestrator:
 
         if depth == 0:
             self._last_tool_results = {}
+            self._beat_combat_start_failure = None
+            self._entry_committed_this_turn = False
+            try:
+                st = self.bridge.status()
+                self._exploration_pre_turn_mode = (st.get("party") or {}).get("mode", "surface")
+            except Exception:
+                self._exploration_pre_turn_mode = "surface"
         if depth > 4:
             log_error("llm_loop", f"depth limit reached ({depth}), last_content={bool(self._last_content)}")
             last_content = self._last_content
@@ -1972,10 +2081,15 @@ class Orchestrator:
                 args = json.loads(tc["function"]["arguments"])
             except json.JSONDecodeError:
                 args = {}
-
-            result = self._execute_tool(fn_name, args)
+            args = normalize_tool_args(fn_name, args)
+            if err := validate_tool_args(fn_name, args):
+                result = {"ok": False, "error": err}
+            else:
+                result = self._execute_tool(fn_name, args)
             log_tool_call(fn_name, args, result)
             self._last_tool_results[fn_name] = result
+            if fn_name in ("enter_dungeon", "site_enter") and result.get("ok"):
+                self._entry_committed_this_turn = True
             if result.get("ok", False):
                 all_failed = False
                 if not self.creation.active:
@@ -1996,6 +2110,12 @@ class Orchestrator:
                 "content": json.dumps(result, default=str),
             })
 
+        beat_failure = getattr(self, "_beat_combat_start_failure", None)
+        if beat_failure:
+            self._beat_combat_start_failure = None
+            log_error("llm_loop", f"beat combat start failed: {beat_failure[:120]}")
+            return beat_failure
+
         if all_failed and content:
             log_error("llm_loop", f"all tools failed at depth {depth}, returning content")
             failures = "; ".join(
@@ -2003,7 +2123,16 @@ class Orchestrator:
                 for name, res in self._last_tool_results.items()
                 if not res.get("ok")
             )
-            return f"[Mechanics failed — {failures}]\n\n{content}"
+            prefix = f"[Mechanics failed — {failures}]"
+            failed_names = {
+                name for name, res in self._last_tool_results.items()
+                if not res.get("ok")
+            }
+            if failed_names & _COMBAT_TOOL_NAMES:
+                return prefix
+            gate_active = self._exploration_gate_active(self._exploration_pre_turn_mode)
+            safe = self._compose_exploration_narration(content, gate_active=gate_active)
+            return f"{prefix}\n\n{safe}"
 
         if all_failed and depth >= 2:
             log_error("llm_loop", f"all tools failed at depth {depth}, injecting no-tools directive")
@@ -2039,7 +2168,9 @@ class Orchestrator:
                 return self.bridge.roll_d20(**args)
             elif name == "process_beat":
                 result = self.bridge.process_beat(**args)
-                self._handle_combat_trigger(result)
+                failure = self._handle_combat_trigger(result)
+                if failure:
+                    self._beat_combat_start_failure = failure
                 return result
             elif name == "world_travel":
                 return self.bridge.world_travel(**args)
@@ -2084,9 +2215,6 @@ class Orchestrator:
             elif name == "compass_exits":
                 return self.bridge.compass_exits()
             elif name == "enter_dungeon":
-                args = dict(args)
-                if "site_id" in args and "site_address" not in args:
-                    args["site_address"] = args.pop("site_id")
                 return self.bridge.enter_dungeon(**args)
             elif name == "move_room":
                 return self.bridge.move_room(**args)
