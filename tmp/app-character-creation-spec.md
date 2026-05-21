@@ -48,16 +48,90 @@ Character creation has **no** legacy `get_step_prompt()` step-instruction builde
 ### Presentation pattern
 
 ```text
-flavor = optional short LLM (~120 tokens, no tables, no phase tags)
+flavor = verified short LLM (~120 tokens, verify→retry→publish — APP-083)
 body   = code-generated markdown (exact format_*_table output)
 footer = code-generated status line (format_creation_status)
 ```
 
+**Narration gate (APP-083 Phase 1):** Thin LLM flavor must pass `verify_narration(prose, build_creation_turn_truth(creation))` before compose. Truth is injected into the flavor prompt via `format_turn_truth_for_prompt`. Failed drafts retry with violation feedback; player never sees unverified flavor. Full pipeline: [`app-llm-orchestrator-spec.md`](app-llm-orchestrator-spec.md) § **Mechanical-truth narration gate**. **Phase 1 batch close = creation only**; exploration/combat gates are Phases 2–3 (future).
+
 **Table catalog:** § [Creation tables](#creation-tables) below; full standardization tracked in [APP-059](backlog/app-059-standardize-creation-table-outputs.md). **ROLL_STATS** catalog and formatter contract added by APP-067.
+
+### Mechanical-truth narration gate (APP-083 Phase 1)
+
+**Cross-domain owner:** [`app-llm-orchestrator-spec.md`](app-llm-orchestrator-spec.md) § **Mechanical-truth narration gate** — architecture, `TurnTruth`, `narrate_with_verification`, retry policy, Phases 2–3 deferral.
+
+**Creation scope (this batch):** All creation flavor LLM calls wire through `narrate_with_verification` with `build_creation_turn_truth(creation)`. Verify runs on **flavor only** — never code `body` or explicit `footer`.
+
+#### Pass gate policy (supersedes strip-first for flavor)
+
+| Era | Pass gate | On violation |
+|-----|-----------|--------------|
+| APP-069–073 (pre-083) | Post-compose strippers (Option A) | Silent delete; ship if body carries turn |
+| **APP-083 Phase 1** | `verify_narration` before compose | **Retry** LLM with same truth + violations; never publish bad flavor |
+
+Compose strippers (`strip_llm_status_tags`, `strip_flavor_race_table`, etc.) remain **defense in depth** until Dev consolidates into verify-only compose — verify is primary.
+
+#### `build_creation_turn_truth(creation)` — allowed claims by step
+
+Built from same sources as mechanics (`school_catalog`, `spell_catalog`, `ensure_equipment_gold`, committed FSM fields) — never parse markdown back.
+
+| Step | `allowed` (in prompt + verify) | Verify fail examples |
+|------|--------------------------------|----------------------|
+| `SPELL_SCHOOLS` | Eligible school display names/ids; class school-pick rule (e.g. Novice: Divine + 1) | Restoration, Evocation, Abjuration…; fake `\| School \|` tables |
+| `SPELLS` | Tier-1 spells for chosen schools (ids/names); min Divine if applicable | Fake school groupings; spell markdown tables |
+| `EQUIPMENT_GOLD` | `creation.equipment_kit`, `creation.starting_gold` after `ensure_equipment_gold` | *50 gold*, bedroll kit lists; premature delve/finalize copy |
+| `ROLL_STATS` | Committed race; roll in `creation.roll_result` | Stat numbers, `\| Attr \|`, `### Your Attributes` |
+| `RACE` / `CLASS` / `SKILLS` | Committed + table eligibility | Duplicate tables; wrong race (F3) |
+| All active desk steps | Committed name/race/class/skills | `Awaiting:`, `[Location:`, `Phase:` in flavor |
+
+**Denylist (catalog):** Generic TTRPG school names (Restoration, Evocation, Abjuration, Conjuration, Transmutation, Divination, Enchantment, Communion, Warding, …) — shared constant in `narration_verify.py`.
+
+**Prompt block:** `_creation_flavor_messages` includes `format_turn_truth_for_prompt(truth)` — replaces thin `_committed_state_flavor_block()`-only context for gated steps. Do not duplicate full markdown tables in prompt when code body appends them.
+
+#### Wire points (creation flavor call sites)
+
+All must use `narrate_with_verification` (not raw `_narrate_flavor`):
+
+| Symbol | Steps |
+|--------|-------|
+| `_auto_present_name` | NAME |
+| `_auto_present_race` | RACE |
+| `_auto_present_class` | CLASS |
+| `_auto_present_skills` / `_creation_table_flavor` | SKILLS |
+| `_auto_present_schools` | SPELL_SCHOOLS |
+| `_auto_present_spells` | SPELLS |
+| `_auto_present_equipment` | EQUIPMENT_GOLD |
+| `_auto_roll_stats` / `_narrate_creation_flavor` | ROLL_STATS→CLASS |
+| `_auto_finalize` | FINALIZE→WORLD_INTRO flavor only |
+
+**Error re-show (APP-075 V2):** When `error=` is set on skills/schools/spells re-present, preferred path remains `flavor = ""` (skip LLM) — verify gate does not apply when LLM is skipped.
+
+#### Regression targets
+
+| Session | Lines | Violation |
+|---------|-------|-----------|
+| Sumpty / Undead Novice | `session-2026-05-21.jsonl` L4743, L4749, L4755 | Wrong schools, fake spell table, wrong kit/GP in flavor |
+
+#### Subsumed tickets (Phase 1 docs)
+
+| Ticket | After APP-083 Phase 1 |
+|--------|----------------------|
+| APP-082 | Folded into verify rules |
+| APP-078, APP-059 (creation flavor) | Catalog/economy verify replaces strip-only targets |
+| APP-073, APP-072, APP-070 | Strip behaviors → verify **fail** rules (retry, not silent delete) |
+
+#### Tests (Phase 1)
+
+See [`app-llm-orchestrator-spec.md`](app-llm-orchestrator-spec.md) § Tests APP-083 and run spec [`spec.md`](backlog/runs/app-083-mechanical-truth-narration-gate/spec.md).
+
+```bash
+cd app && python -m pytest tests/test_narration_verify.py -q
+```
 
 ### Flavor must reflect committed FSM state (APP-069)
 
-When `creation.active`, thin LLM flavor must not contradict committed FSM fields. Code enforces via prompt anchoring **and** post-compose sanitizer (Option A — sanitizer is the pass gate; prompt alone is insufficient).
+When `creation.active`, thin LLM flavor must not contradict committed FSM fields. Code enforces via **TurnTruth prompt injection + `verify_narration` (APP-083)** and post-compose sanitizers (defense in depth). Prompt alone is insufficient.
 
 | ID | Requirement |
 |----|-------------|
@@ -67,7 +141,7 @@ When `creation.active`, thin LLM flavor must not contradict committed FSM fields
 | **F4** | `_committed_state_flavor_block()` appended to flavor system message when fields set: name, race, class, skills |
 | **F5** | `_creation_flavor_messages` omits `history[-4:]` while `creation.active` |
 
-**Compose pipeline:** `_compose_creation_narration` applies `strip_llm_status_tags` → `strip_flavor_race_table` → `strip_flavor_stats_table` → `_sanitize_creation_flavor` → (when active or empty roster) `sanitize_premature_completion_flavor` → (C5 re-strip if premature sanitizer mutated) → code `body` → `format_creation_status` footer. Full sanitizer contracts: § [Flavor sanitization pipeline (APP-073)](#flavor-sanitization-pipeline-app-073).
+**Compose pipeline:** `_compose_creation_narration` applies `strip_llm_status_tags` → `strip_flavor_race_table` → `strip_flavor_stats_table` → `strip_flavor_equipment_claims` (APP-059 target) → `_sanitize_creation_flavor` → (when active or empty roster) `sanitize_premature_completion_flavor` → (C5 re-strip if premature sanitizer mutated) → code `body` → `format_creation_status` footer. Full sanitizer contracts: § [Flavor sanitization pipeline (APP-073)](#flavor-sanitization-pipeline-app-073).
 
 **Helper:** `race_display_title(race_key)` in `creation.py` (shared by committed-state block and sanitizer).
 
@@ -190,6 +264,8 @@ Code-owned markdown tables per step. LLM flavor is ≤2 sentences **before** the
 
 **APP-059 catalog target (RACE):** in-table columns **Race + Adjustments only**; lore stays in flavor (≤2 sentences), not in cells. Current `format_races_table()` still emits a Description column — formatter change is [APP-059](backlog/app-059-standardize-creation-table-outputs.md). APP-072 tests key on `\| Race \| Adjustments \|` so they remain valid when Description is removed.
 
+**APP-059 catalog target (EQUIPMENT_GOLD):** kit and starting GP live only in `format_equipment_summary` body; LLM flavor is clerk banter without GP/kit prose. Session 2026-05-20: flavor *"fifty gold pieces"* vs body `Starting gold: 5 gp` — implement `strip_flavor_equipment_claims` + tightened `_auto_present_equipment` prompt per [APP-059](backlog/app-059-standardize-creation-table-outputs.md).
+
 #### RACE flavor must not duplicate code table (APP-072)
 
 At the RACE step, `_auto_present_race` sets `body = err_prefix + format_races_table()` only. LLM flavor (`_narrate_flavor`, `_CREATION_FLAVOR_MAX_TOKENS = 120`) must not supply a second race table — but responses can still embed or truncate markdown tables (`finish_reason: length`).
@@ -277,6 +353,30 @@ At ROLL_STATS → CLASS chain, `_auto_roll_stats` sets `body = format_roll_stats
 
 Reuse `_MD_TABLE_SEPARATOR_RE` / `_MD_TABLE_ROW_RE` from APP-072.
 
+#### EQUIPMENT_GOLD flavor must not duplicate code summary (APP-059)
+
+At EQUIPMENT_GOLD, `_auto_present_equipment` sets `body = format_equipment_summary(self.creation)` only. LLM flavor must not state GP amounts, coin pouches, or kit inventories — models invent round numbers (*"fifty gold pieces"*) that contradict `creation.starting_gold` in the code body.
+
+**Defense in depth:**
+
+| Layer | Locus | Behavior |
+|-------|-------|----------|
+| Prompt | `_auto_present_equipment` instruction | Brief clerk banter only — do not mention kit contents, gold amounts, or GP; code appends the Registry kit summary |
+| Global prompt | `_creation_flavor_messages` | “Do NOT include … mechanical numbers” (all creation steps) |
+| Post-sanitize | `_compose_creation_narration` | `strip_flavor_equipment_claims(cleaned)` on **flavor only** after `strip_flavor_stats_table` |
+
+**Composed EQUIPMENT_GOLD contract:** exactly **one** `**Registry kit:**` / `**Starting gold:**` block — from the code body, never from flavor.
+
+#### `strip_flavor_equipment_claims(text)` (APP-059)
+
+**Input:** LLM flavor string (never the code `body`).
+
+**Remove:** lines or sentences mentioning GP/gold/coin economics or kit enumeration — e.g. `\d+\s*gp\b`, `\bgold pieces\b`, `\bfifty gold\b`, `\bcoin pouch\b`, `\bstarting (coin|gold)\b`, `\bRegistry kit\b` when used as an inventory list in flavor.
+
+**Preserve:** generic clerk banter and confirmation asks (*"sign here?"*, *"ready to head out?"*) that do not state amounts or gear.
+
+**Output:** retained prose with collapsed blank lines; empty/whitespace → `""`.
+
 #### `format_roll_stats_table(roll_result)` (APP-067)
 
 **Input:** successful `GameBridge.roll_attributes()` dict (see [`app-gamebridge-spec.md`](app-gamebridge-spec.md) / `bridge.py`). Formatter reads payload fields only — no re-roll, no LLM.
@@ -339,7 +439,9 @@ Reuse `_MD_TABLE_SEPARATOR_RE` / `_MD_TABLE_ROW_RE` from APP-072.
 
 - [x] Integration test `test_creation_flow.py` — full FSM through finalize (APP-057)
 
-**Open work:** [APP-059](backlog/app-059-standardize-creation-table-outputs.md). Militia spell-skip integration test deferred (post APP-057).
+- [x] Mechanical-truth narration gate — creation verify+retry (APP-083 Phase 1)
+
+**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) Phase 1 (verify gate supersedes strip-first flavor policy), [APP-059](backlog/app-059-standardize-creation-table-outputs.md). Militia spell-skip integration test deferred (post APP-057).
 
 ### Awaiting contract (engine vs app) — APP-066
 
@@ -494,6 +596,17 @@ Use `_patch_llm_content` (monkeypatch `create_client`) — default mock stub `"T
 | `test_compose_flavor_sanitize_status_and_stats` | `_compose_creation_narration` with bad flavor (status + stat table) + real code body | One canonical footer; one `\| Attr \| Base \|`; no wrong awaiting in flavor region |
 | `test_roll_stats_narration_single_stats_table` | Stub LLM stat-table flavor on RACE commit (`"human"` / `"undead"`) with `FIXED_ROLL` monkeypatch | `count("\| Attr \| Base \|") == 1`; Final column matches fixture; `Awaiting: CLASS_INPUT` |
 
+#### APP-059: equipment GP/kit flavor strip tests
+
+**Module:** `app/tests/test_creation_flavor_sanitize.py` _(extend)_
+
+| Test | Setup | Pass |
+|------|-------|------|
+| `test_strip_flavor_equipment_claims_unit` | Direct call: *"fifty gold pieces"*, *"5 gp pouch"*, kit list prose + benign clerk line | No `\d+\s*(gp\|gold\|coin)` in output; banter retained |
+| `test_equipment_narration_gp_only_in_body` | Stub LLM returns GP prose on SPELLS→EQUIPMENT chain; `creation.starting_gold` known | Flavor region has no GP digits; body `**Starting gold:** {n} gp` matches state |
+
+Turn 7 golden path (`ember-touch, static-lash`): extend forbidden list with flavor-region GP patterns when LLM stub injects economics prose.
+
 **Regression targets:** Spluffy/Tuffy undead @ session 2026-05-20 (duplicate stat tables); Supa/Bumpy wrong awaiting labels.
 
 ### Block premature completion copy (APP-070)
@@ -512,7 +625,7 @@ Legitimate post-finalize reception: code `footer=` at `_auto_finalize` success m
 | **C4** | Blank flavor when `Phase: preparation` appears while `active` and `step != WORLD_INTRO` |
 | **C5** | Re-run `strip_llm_status_tags` when sanitizer mutates flavor |
 
-**Compose order (flavor):** `strip_llm_status_tags` → `strip_flavor_race_table` (APP-072) → `strip_flavor_stats_table` (APP-073) → `_sanitize_creation_flavor` (APP-069) → `sanitize_premature_completion_flavor` (APP-070) → re-run `strip_llm_status_tags` if premature sanitizer mutated (C5) → append code `body` + `footer`.
+**Compose order (flavor):** `strip_llm_status_tags` → `strip_flavor_race_table` (APP-072) → `strip_flavor_stats_table` (APP-073) → `strip_flavor_equipment_claims` (APP-059) → `_sanitize_creation_flavor` (APP-069) → `sanitize_premature_completion_flavor` (APP-070) → re-run `strip_llm_status_tags` if premature sanitizer mutated (C5) → append code `body` + `footer`.
 
 #### Drift extension (D1–D2)
 
@@ -597,8 +710,10 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 
 | File | Role |
 |------|------|
-| `gm/creation.py` | State machine, `format_*_table` formatters, parsers, `strip_flavor_race_table` (APP-072); **no** `get_step_prompt` (APP-074) |
-| `gm/orchestrator.py` | `_creation_turn`, `_auto_present_*`, `_compose_creation_narration`, `_auto_finalize`, `_execute_creation_choice` |
+| `gm/creation.py` | State machine, `format_*_table` formatters, parsers, `build_creation_turn_truth` (APP-083), strippers (APP-072+) |
+| `gm/orchestrator.py` | `_creation_turn`, `_auto_present_*`, `_compose_creation_narration`, `narrate_with_verification` (APP-083), `_auto_finalize`, `_execute_creation_choice` |
+| `gm/narration_verify.py` | `TurnTruth`, `verify_narration`, `format_turn_truth_for_prompt` (APP-083) |
+| `tests/test_narration_verify.py` | APP-083 Phase 1 verify + retry tests |
 | `tests/test_creation_tables.py` | APP-072 race table strip + single-header integration |
 | `gm/choice_memory.py` | Remember creation choices |
 
@@ -608,6 +723,9 @@ _All P0 creation decisions closed (APP-012: thin LLM flavor)._
 
 | Date | Change |
 |------|--------|
+| 2026-05-21 | APP-083 Phase 1 done: creation flavor uses `narrate_with_verification` — truth injected, verify→retry→publish; Sumpty school/spell/gold drift blocked |
+| 2026-05-21 | APP-083 PM spec: § Mechanical-truth narration gate (Phase 1) — verify→retry→publish supersedes strip-first pass gate; cross-link orchestrator spec; creation rule matrix + wire points; Sumpty regression targets |
+| 2026-05-20 | APP-059 spec draft (equipment flavor): § EQUIPMENT_GOLD flavor must not duplicate code summary; `strip_flavor_equipment_claims` target; compose pipeline + § Tests APP-059; session Fatty *"fifty gold"* vs `Starting gold: 5 gp` |
 | 2026-05-20 | APP-006–012: code-owned tables/status, exploration gate, finalize roster gate, resume step restore, invalid-input guards, thin LLM flavor decision |
 | 2026-05-20 | Spec created; merged creation-orchestrator-hardening content |
 | 2026-05-20 | APP-057 spec draft: integration test contract in § Integration test; militia spell-skip deferred |

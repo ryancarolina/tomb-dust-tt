@@ -21,6 +21,10 @@
 | `creation_step` | `{creation.step, roster_len, awaiting, creation.active}` each creation turn (`Orchestrator._creation_turn` finally) |
 | `creation_advanced` | `{completed_step, advanced_to}` on every successful `_execute_creation_choice` |
 | `creation_finalize` | `{character_create_ok, character_create_error, engine_status}` after `character_create` in `_auto_finalize` |
+| `narration_verify_fail` | Creation flavor failed `verify_narration` (`step`, `attempt`, `violations`) — APP-083 |
+| `narration_verify_pass` | Creation flavor passed verify (`step`, `attempt`) — APP-083 |
+| `narration_verify_exhausted` | Verify retry budget exhausted (`step`, `attempt`) — APP-083 |
+| `llm_truncation_recovery` | `finish_reason: length` recovery action (`step` or `mode`, `action`, `finish_reason`) — APP-079 |
 
 ### `creation_drift` (APP-002, semantics APP-066)
 
@@ -144,6 +148,7 @@ python -m tomb_gm --workspace play/workspace check
 
 | Date | Change |
 |------|--------|
+| 2026-05-21 | APP-083/APP-079: JSONL `narration_verify_fail`, `narration_verify_pass`, `narration_verify_exhausted`, `llm_truncation_recovery` in `gm/logger.py` |
 | 2026-05-20 | **APP-049 implemented:** `app/tests/` package (`helpers`, `conftest`, `test_smoke`); fixtures per § Fixture inventory; gate `python -m pytest app/tests -q` green |
 | 2026-05-20 | **spec draft APP-049:** § App test package, fixture inventory, task checklist APP-049 specified |
 | 2026-05-20 | **APP-049 spec R2 (QA round 1):** `parents[2]` for app helpers; patch `gm.orchestrator.create_client` + lazy-import rule; orchestrator fixture workspace safety (monkeypatch GameBridge or swap+close) |

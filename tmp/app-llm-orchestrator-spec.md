@@ -2,7 +2,7 @@
 
 **Parent:** [`app-master-spec.md`](app-master-spec.md)  
 **Status:** In progress  
-**Owns:** `app/gm/orchestrator.py`, `tool_args.py`, `tools.py`, `context.py`, `system_prompt.py`, `openrouter.py`, `choice_memory.py`
+**Owns:** `app/gm/orchestrator.py`, `narration_verify.py`, `tool_args.py`, `tools.py`, `context.py`, `system_prompt.py`, `openrouter.py`, `choice_memory.py`
 
 ---
 
@@ -13,6 +13,266 @@ Turn loop: **player input → context → LLM (+ tools) → narration → UI/TTS
 ### Mechanical truth (non-negotiable)
 
 **Code state leads narration.** Player must not see outcomes (PRE_DELVE, combat hits, site entry, loot) unless the matching bridge/tool call returned `"ok": true`.
+
+### Mechanical-truth narration gate (APP-083)
+
+**Policy:** **TurnTruth in → verify out → retry until pass → publish.** Code owns mechanical truth; the LLM adds 1–3 sentences of clerk/scene banter **inside** those bounds. Failed prose is **never** shown to the player; retries are bounded; exhaustion ships code-owned fallback only (body/footers still append as today).
+
+**Sibling layer:** Tool/FSM gates (APP-080, bridge, combat FSM) answer *"did the action happen?"* The narration gate answers *"does the story match what happened?"* Both stay; neither replaces the other.
+
+#### Pipeline
+
+```text
+Mechanics in code  →  TurnTruth built  →  truth injected into LLM prompt
+       →  LLM drafts fitting prose  →  verify(prose, truth)
+       →  fail? retry (same truth + violation feedback)  →  pass? publish
+```
+
+```text
+         ┌─────────────────────────────────────┐
+         │         CODE (rules / engine)        │
+         │  FSM · tools · catalogs · status     │
+         └──────────────┬──────────────────────┘
+                        │ TurnTruth
+            ┌───────────┴───────────┐
+            ▼                       ▼
+   format_turn_truth_for_prompt   verify_narration
+            │                       ▲
+            ▼                       │
+         ┌─────────────────────────────────────┐
+         │   LLM (banter; truth in context)     │
+         └──────────────┬──────────────────────┘
+                        │ fail → retry (same truth)
+                        ▼ pass
+         ┌─────────────────────────────────────┐
+         │   PUBLISH: verified prose + code     │
+         │   blocks + footers → UI / TTS        │
+         └─────────────────────────────────────┘
+```
+
+Injecting truth **reduces** hallucination rate; verification **guarantees** nothing false ships. Do not rely on prompt alone — creation Sumpty repro (`app/logs/session-2026-05-21.jsonl` L4743/L4749/L4755) shows models invent catalogs without allowed lists in context.
+
+#### `TurnTruth`
+
+One snapshot type; mode-specific builders read the same sources as mechanics (never parse markdown back).
+
+```python
+TurnTruth(
+    mode: Literal["creation", "exploration", "combat"],
+    step: str | None,                    # creation FSM step
+    engine: dict,                        # bridge.status() slice
+    tool_results: list[ToolResult],      # this turn, in order
+    allowed: AllowedClaims,              # what prose MAY reference
+    forbidden: ForbiddenClaims,          # hard deny patterns
+    code_blocks: list[str],              # hints: what code will append (not full tables)
+)
+```
+
+| Mode | Builder | Status (APP-083) |
+|------|---------|------------------|
+| **creation** | `build_creation_turn_truth(creation)` | **Phase 1 — this batch** |
+| **exploration** | `build_exploration_turn_truth(status, tool_results, gate_flags)` | **Phase 2 — future** (`app-exploration-delve-spec.md`) |
+| **combat** | `build_combat_turn_truth(status, combat_state, tool_results)` | **Phase 3 — future** (`app-combat-play-spec.md`) |
+
+#### Truth-as-context
+
+**Helper:** `format_turn_truth_for_prompt(truth) -> str` — compact system block:
+
+```text
+## Authoritative facts (do not contradict)
+Step: SPELL_SCHOOLS
+Rule: Choose Divine + 1 other school (2 total).
+Allowed schools: Pyromancy, Ward, Biomancy, Necromancy, Ether, Divine
+Committed: name Sumpty, race Undead, class Novice, skills …
+Code will append: full school pick table — do not duplicate
+```
+
+**Prompt contract (all modes when gated):**
+
+- Include the authoritative facts block derived from `TurnTruth`.
+- Instruct: *"The UI will append code-owned tables/footers below your prose. Write 1–3 sentences of clerk/scene banter only. Do not list picks, stats, kit, gold, schools, spells, or outcomes — reference the facts block if needed."*
+- On **retry**, re-send the **same truth block** plus *"Your last draft violated: {violations}. Rewrite banter only."*
+- Do **not** dump full markdown tables when code body will append them — send allowed ids/names + rules only.
+
+**Phase 1 wire:** `_creation_flavor_messages` includes `format_turn_truth_for_prompt(build_creation_turn_truth(...))` — replaces thin committed-only block for gated steps. Exploration `build_state_context` extends/replaces with truth block in Phase 2 (one builder, two formatters: prompt vs verify).
+
+#### `verify_narration(prose, truth) -> VerificationResult`
+
+Single entry point; mode delegates to rule sets. Outcomes: **pass** | **fail(violations: list[str])** — no scrub-and-ship as primary policy.
+
+| Rule class | Applies | Examples |
+|------------|---------|----------|
+| Universal | all | no duplicate code tables; no `Awaiting:` / fake status tags in flavor |
+| Catalog | creation (+ spell lists in play) | no school/spell outside allowed; generic TTRPG denylist |
+| Economy | creation equipment, vendors (Phase 4 in play) | no GP/kit claims ≠ truth |
+| Spatial | exploration (Phase 2) | no interior fiction when `mode=surface` and entry tool not ok (APP-024 → verify fail) |
+| Combat outcome | exploration + combat (Phases 2–3) | no hit/damage/kill unless matching tool ok (APP-028 → verify fail) |
+| Stat/mechanical | creation rolls, combat HP (Phase 3) | no numbers contradicting engine snapshot |
+
+**Verify boundary:** flavor/assistant prose only — never code `body` or explicit code `footer`.
+
+#### `narrate_with_verification(...) -> str`
+
+Shared orchestrator helper:
+
+1. Build `TurnTruth` for current turn (or accept pre-built).
+2. Build LLM messages with `format_turn_truth_for_prompt(truth)` in system context.
+3. Generate LLM prose (`_narrate_flavor` or mode equivalent) → `log_llm_response` → **`handle_finish_reason_length` (APP-079)** on candidate prose.
+4. `verify_narration(prose, truth)` → pass → return prose for compose.
+5. Fail → log `narration_verify_fail` → append violation feedback → goto 3 (if `narration_llm_attempts < NARRATION_LLM_MAX_ATTEMPTS`).
+6. After budget exhausted → log `narration_verify_exhausted` and/or `narration_llm_budget_exhausted` → return `""` or code-owned fallback; compose still appends body/footers.
+
+**Emit once** per turn after pass (or exhaustion) — UI/TTS never see intermediate failures.
+
+#### Where it wires in
+
+| Path | Phase | Target |
+|------|-------|--------|
+| `_creation_turn` / `_compose_creation_narration` | **1** | All creation flavor via `narrate_with_verification`; compose after verified flavor |
+| `_llm_loop` exploration return | **2** | Verify full prose + retry before `_compose_exploration_narration` |
+| `_combat_llm_loop_inner` return | **3** | Verify + retry; supplement APP-028 failure prefix |
+| Code-only paths (errors, resume) | — | Unchanged — no LLM |
+
+#### Phase 1 batch close (APP-083)
+
+**Ticket `done` for this batch when Phase 1 AC is met.** Phases 2–3 are documented here and in the ticket but **not** required for close — follow-on work reuses the same module.
+
+Phase 1 deliverables:
+
+- `app/gm/narration_verify.py` — `TurnTruth`, `verify_narration`, `format_turn_truth_for_prompt`
+- `app/gm/creation.py` — `build_creation_turn_truth`
+- `app/gm/orchestrator.py` — `narrate_with_verification`; all creation flavor call sites
+- Creation rule matrix: [`app-character-creation-spec.md`](app-character-creation-spec.md) § Mechanical-truth narration gate (APP-083 Phase 1)
+- Tests: `app/tests/test_narration_verify.py` — Sumpty violations, benign banter, mock retry integration
+
+**Subsumed (Phase 1 docs):** APP-082; creation flavor slices of APP-078/059/073 — verify rules replace strip-first as pass gate; compose strippers optional defense-in-depth until consolidated.
+
+**Future phases:** APP-024 site-entry strip → exploration verify rules (Phase 2); APP-028 combat failure prefix → combat verify rules (Phase 3); economy/inventory prose (Phase 4).
+
+#### Observability
+
+JSONL events (implement with `app-logging-qa-spec.md` sync):
+
+| Event | When |
+|-------|------|
+| `narration_verify_fail` | Each failed attempt (`mode`, `step`, `violations`, `attempt`) |
+| `narration_verify_pass` | Success (`attempts`) |
+| `narration_verify_exhausted` | Circuit breaker |
+
+#### Config
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `NARRATION_LLM_MAX_ATTEMPTS` | `6` | Shared cap per published turn — length recovery (APP-079) + verify retries (APP-083) |
+| `NARRATION_VERIFY_MAX_RETRIES` | `5` | Max verify-regeneration attempts (subset of shared cap) |
+| `LENGTH_MAX_RECOVERY_RETRIES` | `1` | Max length-specific retries per turn (subset of shared cap) |
+
+#### Non-goals
+
+- Replacing tool/FSM enforcement (bridge still authoritative for state changes).
+- Verifying player-authored input.
+- UI wait indicator for retries (optional later).
+- Canon `build/systems/` content changes.
+
+**Ticket:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) · **Run spec:** [spec.md](backlog/runs/app-083-mechanical-truth-narration-gate/spec.md)
+
+**APP-079 coordination:** Length truncation runs **before** verify — see § **`finish_reason: length` recovery** below. Shared `NARRATION_LLM_MAX_ATTEMPTS` budget applies to length retries and verify retries together.
+
+### `finish_reason: length` recovery (APP-079)
+
+**Problem:** Every LLM call logs `finish_reason` but, until APP-079 lands, truncated `"length"` responses are composed and emitted as-is. Creation flavor at `_CREATION_FLAVOR_MAX_TOKENS = 120` frequently cuts mid-table; exploration/combat terminal narration can truncate at config `max_tokens`.
+
+**Policy:** Central helper `handle_finish_reason_length(response, *, mode, creation_step, body_pending, flavor_only, attempt) -> LengthRecoveryResult` runs immediately after `log_llm_response` on every path that feeds player-visible prose. Post-hoc strippers (APP-072/073/078) and APP-083 verify rules remain **defense in depth** — they do not replace discard-on-length when code `body` is pending.
+
+#### Semantics: `body_pending` vs `flavor_only`
+
+| Flag | Meaning |
+|------|---------|
+| `body_pending=True` | Compose includes an **authoritative code mechanical block** ( `format_*_table()`, roll-stats readout, equipment summary, finalize character summary). On `length` → **`discard_flavor`**, no length retry. |
+| `flavor_only=True` | Creation path where LLM flavor is primary; `body` is static prompt copy only (NAME). On `length` → one retry or static fallback. |
+| **Invariant** | `body_pending=True` ⇒ `flavor_only=False` |
+
+**Not `body_pending`:** error prefixes, static prompt lines, footer tags alone.
+
+##### Per-step wiring (creation)
+
+| Step | `body_pending` | `flavor_only` | On `length` |
+|------|----------------|---------------|-------------|
+| NAME | `false` | `true` | Retry or static fallback |
+| RACE, CLASS, SKILLS, SPELL_SCHOOLS, SPELLS, EQUIPMENT_GOLD | `true` | `false` | `discard_flavor` |
+| ROLL_STATS | `true` | `false` | `discard_flavor` |
+| FINALIZE → WORLD_INTRO (`_auto_finalize`) | `true` | `false` | `discard_flavor` (code summary + footer) |
+| `_creation_table_flavor` error path | n/a | n/a | LLM not called |
+
+Post-finalize WORLD_INTRO handoff is **`body_pending=true`** — not flavor-only. Later `WORLD_INTRO` + `active=False` turns use exploration terminal policy via `process_turn`.
+
+#### Recovery matrix
+
+| Context | On `length` | Length retry |
+|---------|-------------|--------------|
+| Creation gated step (see per-step table) | **Discard flavor** (`""` before compose) | No |
+| Creation flavor-only (NAME) | One retry (“≤2 sentences, no tables”) or static fallback | Yes (1× per turn max) |
+| Creation FINALIZE / WORLD_INTRO handoff | **Discard flavor** — ship code summary + footer | No |
+| Exploration / combat terminal | One retry (“≤3 sentences”); then eligible `_last_content` or static fallback | Yes (1× per turn max) |
+| Tool loop mid-chain (has `tool_calls`) | Strip markdown table blocks from assistant content; continue loop | No |
+
+**`_last_content` fallback:** only when prior snippet in the same loop had `finish_reason == "stop"` (or absent) and non-empty content — never stale empty tool-round shells.
+
+**Constants:** `LENGTH_RETRY_MIN_CHARS = 32`; `LENGTH_MAX_RECOVERY_RETRIES = 1` per turn.
+
+#### Wire points
+
+| Call site | Mode |
+|-----------|------|
+| `_narrate_flavor`, `_narrate_creation_flavor` | creation |
+| `_llm_loop` (terminal + mid-chain) | exploration |
+| `_combat_llm_loop_inner`, `_narrate_only` | combat |
+
+Creation: when `body_pending` and action is `discard_flavor`, `_compose_creation_narration("", body, …)` — code table + footer only.
+
+#### Integration with APP-083 (`narrate_with_verification`)
+
+```text
+chat_completion → log_llm_response
+  → handle_finish_reason_length (079)
+       if body_pending + length → discard_flavor (do not verify discarded text)
+  → verify_narration (083) on surviving candidate prose
+       truncated tables / catalogs → verify fail → retry (shared budget)
+  → compose + emit once
+```
+
+| Case | APP-079 | APP-083 |
+|------|---------|---------|
+| Creation + `body_pending` + `length` | **Discard before verify** | Verify surviving flavor (often empty) |
+| Flavor-only / exploration / combat terminal | Length retry or fallback first | Verify published candidate |
+| Mid-chain with tools | Table strip only | N/A until terminal prose |
+
+When 079 already discarded or fell back, 083 still verifies what will publish (static fallbacks must pass or be pre-approved).
+
+**Implement order:** APP-079 helper may land standalone on `_narrate_flavor` / `_llm_loop` before APP-083 Phase 1; APP-083 refactor must call the same helper inside `narrate_with_verification` step 3 — no duplicated logic.
+
+#### Observability (APP-079)
+
+| Event | When |
+|-------|------|
+| `llm_truncation_recovery` | Every policy action (`discard_flavor`, `retry`, `fallback_last_content`, `fallback_static`) — `mode`, `step`, `action`, `content_length`, `attempt` |
+| `narration_llm_budget_exhausted` | Shared cap hit (joint with APP-083) |
+
+#### Tests (APP-079)
+
+```bash
+cd app && python -m pytest tests/test_llm_truncation_recovery.py -q
+```
+
+| Case | Expected |
+|------|----------|
+| Creation RACE/SKILLS + `length` flavor + body pending | Single code table; `discard_flavor` logged |
+| NAME + short `length` content | One retry or static fallback (`body_pending=false`, `flavor_only=true`) |
+| FINALIZE handoff + `length` flavor | Code summary + footer; `discard_flavor` logged |
+| Exploration terminal + `length` | Retry then eligible `_last_content` |
+| Mid-chain + `length` + tools | Loop continues; tables stripped from assistant append |
+
+**Ticket:** [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) · **Run spec:** [spec.md](backlog/runs/app-079-finish-reason-length-recovery/spec.md)
 
 ### Modes
 
@@ -104,8 +364,12 @@ Expand table incrementally; do not block APP-080 on every tool if `remember_fact
 - [x] `build_state_context` from status + recap + inventory
 - [x] Block `_llm_loop` during active character creation (APP-008)
 - [x] Normalize + validate LLM tool args before bridge dispatch (APP-080)
+- [x] Mechanical-truth narration gate — Phase 1 creation verify+retry (APP-083)
+- [x] `finish_reason: length` recovery policy — creation paths + exploration fallback (APP-079)
+- [ ] Mechanical-truth narration gate — Phase 2 exploration (APP-083 follow-on)
+- [ ] Mechanical-truth narration gate — Phase 3 combat (APP-083 follow-on)
 
-**Open work:** [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md), [APP-031](backlog/app-031-transcript-sanitize-orphan-tool-messages.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 1 creation in batch), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-031](backlog/app-031-transcript-sanitize-orphan-tool-messages.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -120,8 +384,20 @@ Expand table incrementally; do not block APP-080 on every tool if `remember_fact
 
 ```bash
 cd app && python -m pytest tests/test_tool_args.py -q
+cd app && python -m pytest tests/test_narration_verify.py -q   # APP-083 Phase 1
+cd app && python -m pytest tests/test_llm_truncation_recovery.py -q   # APP-079
 cd app && python -m pytest tests/ -q
 ```
+
+**APP-083 Phase 1 (`test_narration_verify.py`):**
+
+| Case | Expected |
+|------|----------|
+| `format_turn_truth_for_prompt` @ SPELL_SCHOOLS | Allowed school ids/names present; no full duplicate markdown table |
+| Sumpty flavor excerpts (L4743/L4749/L4755) | `verify_narration` → `fail` with catalog/economy violations |
+| Benign clerk banter (no catalogs) | `pass` |
+| Mock LLM bad twice then good | Player sees only passing flavor in composed narration |
+| Mock LLM always bad | `narration_verify_exhausted` logged; no bad prose in final emit |
 
 **APP-080 (`test_tool_args.py`):**
 
@@ -146,7 +422,8 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 
 | File | Role |
 |------|------|
-| `orchestrator.py` | Turn loop, creation/combat branches |
+| `orchestrator.py` | Turn loop, creation/combat branches, `narrate_with_verification` (APP-083) |
+| `narration_verify.py` | `TurnTruth`, `verify_narration`, `format_turn_truth_for_prompt` (APP-083) |
 | `tool_args.py` | `normalize_tool_args`, `validate_tool_args`, `_coerce_int`, markup strip (APP-080) |
 | `tools.py` | OpenAI function schemas |
 | `context.py` | State block for LLM |
@@ -160,6 +437,11 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 
 | Date | Change |
 |------|--------|
+| 2026-05-21 | APP-083 Phase 1 done: `narration_verify.py` (`TurnTruth`, `verify_narration`, `format_turn_truth_for_prompt`); `narrate_with_verification` wired on all creation flavor paths; JSONL `narration_verify_*` events |
+| 2026-05-21 | APP-079 done: `handle_finish_reason_length` + `LengthRecoveryResult`; discard-on-length when code body pending; NAME flavor retry/fallback; exploration `_llm_loop` falls back to `_last_content`; `test_llm_truncation_recovery.py` |
+| 2026-05-21 | APP-079 PM spec: § `finish_reason: length` recovery — recovery matrix, wire points, APP-083 integration (discard before verify when body pending), shared `NARRATION_LLM_MAX_ATTEMPTS` budget |
+| 2026-05-21 | APP-079 PM r2: § Semantics per-step `body_pending`/`flavor_only` table; NAME vs gated steps; FINALIZE/WORLD_INTRO handoff discard |
+| 2026-05-21 | APP-083 PM spec: § Mechanical-truth narration gate — TurnTruth in/verify out/retry/publish; Phase 1 creation batch close; Phases 2–3 exploration/combat documented as future |
 | 2026-05-21 | APP-080 done: `tool_args.py` + three-loop wire (`normalize_tool_args` → `validate_tool_args` → dispatch); Holt `remember_fact` regression tests green; optional `tool_arg_coerced` logging deferred (APP-034) |
 | 2026-05-21 | APP-080 PM spec: normative § Tool argument normalization — coercion table, helpers, wire points, tests; `fortune_spend.amount` corrected to `character_id` + drop unknown keys |
 | 2026-05-20 | APP-080 spec draft: § Tool argument normalization — `normalize_tool_args` before bridge; `remember_fact.importance` coercion (Fatty/Holt session) |

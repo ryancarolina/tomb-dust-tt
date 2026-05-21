@@ -283,7 +283,7 @@ def test_creation_flavor_messages_committed_class(orchestrator, monkeypatch):
         "roll_attributes",
         lambda race: {**FIXED_ROLL, "race": race},
     )
-    monkeypatch.setattr(orchestrator, "_narrate_flavor", _capture_messages)
+    monkeypatch.setattr(orchestrator, "_call_narration_llm", _capture_messages)
 
     for text, _ in INPUTS[:4]:
         orchestrator.process_turn(text)

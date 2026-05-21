@@ -70,6 +70,15 @@ from gm.logger import (
     log_llm_request,
     log_llm_response,
     log_error,
+    log_narration_verify_fail,
+    log_narration_verify_pass,
+    log_narration_verify_exhausted,
+    log_llm_truncation_recovery,
+)
+from gm.narration_verify import (
+    build_creation_turn_truth,
+    format_turn_truth_for_prompt,
+    verify_narration,
 )
 
 _PREMATURE_EXPLORE_PHASES = frozenset({"delve", "ingress", "extract", "aftermath"})
@@ -79,6 +88,10 @@ _PREMATURE_COMPLETION_COPY_RE = re.compile(
     re.IGNORECASE,
 )
 _CREATION_FLAVOR_MAX_TOKENS = 120
+NARRATION_LLM_MAX_ATTEMPTS = 6
+NARRATION_VERIFY_MAX_RETRIES = 5
+LENGTH_MAX_RECOVERY_RETRIES = 1
+_NAME_LENGTH_STATIC_FALLBACK = "The clerk glances up from the ledger."
 
 # APP-028: exploration _llm_loop all_failed strips pre-tool content for these tools.
 _COMBAT_TOOL_NAMES = frozenset({
@@ -143,6 +156,36 @@ class PlayerDeathResult:
     already_emitted: bool = False
 
 
+@dataclass(frozen=True)
+class LengthRecoveryResult:
+    action: Literal["discard", "retry", "fallback", "none"]
+    next_prose: str
+    attempt_budget_used: int = 0
+
+
+def handle_finish_reason_length(
+    finish_reason: str,
+    prose: str,
+    *,
+    body_pending: bool,
+    flavor_only: bool,
+    length_retries_left: int,
+) -> LengthRecoveryResult:
+    """APP-079: discard truncated flavor when code body follows; retry NAME-only turns."""
+    if finish_reason != "length":
+        return LengthRecoveryResult(action="none", next_prose=prose)
+    if body_pending:
+        return LengthRecoveryResult(action="discard", next_prose="")
+    if flavor_only and length_retries_left > 0:
+        return LengthRecoveryResult(action="retry", next_prose=prose, attempt_budget_used=1)
+    if flavor_only:
+        return LengthRecoveryResult(
+            action="fallback",
+            next_prose=_NAME_LENGTH_STATIC_FALLBACK,
+        )
+    return LengthRecoveryResult(action="none", next_prose=prose)
+
+
 class Orchestrator:
     """Manages the GM turn loop."""
 
@@ -157,7 +200,18 @@ class Orchestrator:
         self.bridge = GameBridge()
         self.history: list[dict[str, str]] = []
         self._last_content = ""
+        self._last_finish_reason = ""
         self._last_tool_results: dict = {}
+        narr_cfg = config.get("narration", {})
+        self._narration_llm_max_attempts = int(
+            narr_cfg.get("llm_max_attempts", NARRATION_LLM_MAX_ATTEMPTS)
+        )
+        self._narration_verify_max_retries = int(
+            narr_cfg.get("verify_max_retries", NARRATION_VERIFY_MAX_RETRIES)
+        )
+        self._length_max_recovery_retries = int(
+            narr_cfg.get("length_max_recovery_retries", LENGTH_MAX_RECOVERY_RETRIES)
+        )
         self._beat_combat_start_failure: str | None = None
         self._entry_committed_this_turn = False
         self._exploration_pre_turn_mode = "surface"
@@ -954,9 +1008,16 @@ class Orchestrator:
                 return ""
         return flavor
 
-    def _creation_flavor_messages(self, instruction: str, player_input: str) -> list[dict[str, Any]]:
+    def _creation_flavor_messages(
+        self,
+        instruction: str,
+        player_input: str,
+        *,
+        truth_block: str = "",
+    ) -> list[dict[str, Any]]:
         committed = self._committed_state_flavor_block()
         committed_block = f"\n\n{committed}\n" if committed else ""
+        truth_section = f"\n\n{truth_block}\n" if truth_block else ""
         history_block = [] if self.creation.active else list(self.history[-4:])
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -966,7 +1027,8 @@ class Orchestrator:
                     "You are the GM for Tomb Dust at the Registry desk in Breley Keep.\n"
                     f"Character: {self.creation.name or '(unnamed)'}\n"
                     f"Creation step: {self.creation.step}\n"
-                    f"{committed_block}\n"
+                    f"{committed_block}"
+                    f"{truth_section}\n"
                     f"{instruction}\n\n"
                     "Write 1-2 short sentences of in-character flavor ONLY.\n"
                     "Do NOT include markdown tables, status lines, [Location:...], Phase, Awaiting, "
@@ -977,18 +1039,8 @@ class Orchestrator:
             {"role": "user", "content": player_input},
         ]
 
-    def _narrate_creation_flavor(
-        self, instruction: str, player_input: str, *, presenting_step: str | None = None
-    ) -> str:
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(instruction, player_input)
-        )
-        if presenting_step:
-            flavor = self._sanitize_creation_flavor(flavor)
-        return flavor
-
-    def _narrate_flavor(self, messages: list[dict[str, Any]]) -> str:
-        """Short LLM flavor during creation (~120 tokens, no tools)."""
+    def _call_narration_llm(self, messages: list[dict[str, Any]]) -> str:
+        """Short LLM flavor call (~120 tokens, no tools)."""
         log_llm_request(len(messages), self.model, 0)
         try:
             response = chat_completion(
@@ -1001,10 +1053,124 @@ class Orchestrator:
             )
         except Exception as exc:
             log_error("narrate_flavor", str(exc))
-            return "The clerk glances up from the ledger."
-        content = response.get("content", "") or "The clerk glances up from the ledger."
-        log_llm_response(content, [], response.get("finish_reason", ""))
+            self._last_finish_reason = ""
+            return _NAME_LENGTH_STATIC_FALLBACK
+        content = response.get("content", "") or _NAME_LENGTH_STATIC_FALLBACK
+        self._last_finish_reason = response.get("finish_reason", "") or ""
+        log_llm_response(content, [], self._last_finish_reason)
         return content
+
+    def _narrate_flavor(self, messages: list[dict[str, Any]]) -> str:
+        """Short LLM flavor during creation (~120 tokens, no tools)."""
+        return self._call_narration_llm(messages)
+
+    def narrate_with_verification(
+        self,
+        instruction: str,
+        player_input: str,
+        *,
+        body_pending: bool = False,
+        flavor_only: bool = False,
+        presenting_step: str | None = None,
+        skip_llm: bool = False,
+    ) -> str:
+        """Inject turn truth, verify prose, retry until pass or exhaust (APP-083)."""
+        if skip_llm:
+            return ""
+
+        truth = build_creation_turn_truth(self.creation)
+        truth_block = format_turn_truth_for_prompt(truth, creation=self.creation)
+        messages = self._creation_flavor_messages(
+            instruction, player_input, truth_block=truth_block
+        )
+        length_retries = self._length_max_recovery_retries
+        verify_retries = self._narration_verify_max_retries
+        step = self.creation.step
+
+        for attempt in range(self._narration_llm_max_attempts):
+            prose = self._call_narration_llm(messages)
+            recovery = handle_finish_reason_length(
+                self._last_finish_reason,
+                prose,
+                body_pending=body_pending,
+                flavor_only=flavor_only,
+                length_retries_left=length_retries,
+            )
+            if recovery.action == "discard":
+                prose = ""
+                log_llm_truncation_recovery(
+                    {"step": step, "action": "discard_flavor", "finish_reason": "length"}
+                )
+            elif recovery.action == "retry":
+                length_retries -= recovery.attempt_budget_used
+                log_llm_truncation_recovery(
+                    {"step": step, "action": "retry", "finish_reason": "length"}
+                )
+                messages = [
+                    *messages,
+                    {"role": "assistant", "content": prose},
+                    {
+                        "role": "user",
+                        "content": "Continue briefly in 1-2 short sentences only.",
+                    },
+                ]
+                continue
+            elif recovery.action == "fallback":
+                log_llm_truncation_recovery(
+                    {"step": step, "action": "fallback", "finish_reason": "length"}
+                )
+                return recovery.next_prose
+
+            if presenting_step:
+                prose = self._sanitize_creation_flavor(prose)
+
+            check = verify_narration(prose, truth)
+            if check.passed:
+                if prose.strip():
+                    log_narration_verify_pass({"step": step, "attempt": attempt + 1})
+                return prose
+
+            log_narration_verify_fail(
+                {
+                    "step": step,
+                    "attempt": attempt + 1,
+                    "violations": list(check.violations),
+                }
+            )
+            verify_retries -= 1
+            if verify_retries <= 0:
+                log_narration_verify_exhausted({"step": step, "attempt": attempt + 1})
+                if flavor_only:
+                    return _NAME_LENGTH_STATIC_FALLBACK
+                return ""
+
+            messages = [
+                *messages,
+                {"role": "assistant", "content": prose},
+                {
+                    "role": "user",
+                    "content": (
+                        "Rewrite 1-2 sentences only. "
+                        f"Violations: {', '.join(check.violations)}. "
+                        "Do not contradict authoritative facts."
+                    ),
+                },
+            ]
+
+        log_narration_verify_exhausted({"step": step, "attempt": self._narration_llm_max_attempts})
+        if flavor_only:
+            return _NAME_LENGTH_STATIC_FALLBACK
+        return ""
+
+    def _narrate_creation_flavor(
+        self, instruction: str, player_input: str, *, presenting_step: str | None = None
+    ) -> str:
+        return self.narrate_with_verification(
+            instruction,
+            player_input,
+            body_pending=True,
+            presenting_step=presenting_step,
+        )
 
     # ─── Creation State Machine (code-enforced) ───────────────────────────
 
@@ -1114,11 +1280,11 @@ class Orchestrator:
 
     def _auto_present_name(self, player_input: str, error: str | None = None) -> str:
         err = f"**Note:** {error}\n\n" if error else ""
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                "A Registry clerk asks a new delver for their legal name.",
-                player_input,
-            )
+        flavor = self.narrate_with_verification(
+            "A Registry clerk asks a new delver for their legal name.",
+            player_input,
+            body_pending=False,
+            flavor_only=True,
         )
         body = f"{err}What name shall I put on the Registry ledger?"
         return self._compose_creation_narration(flavor, body)
@@ -1126,13 +1292,13 @@ class Orchestrator:
     def _auto_present_race(self, player_input: str, error: str | None = None) -> str:
         self.creation.races_table_shown = True
         err = f"**Note:** {error}\n\n" if error else ""
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                f"The clerk writes down '{self.creation.name}' and asks about lineage. "
-                "Brief clerk banter only — do not list races or use markdown tables; "
-                "the Registry ledger appends the race table.",
-                player_input,
-            )
+        flavor = self.narrate_with_verification(
+            f"The clerk writes down '{self.creation.name}' and asks about lineage. "
+            "Brief clerk banter only — do not list races or use markdown tables; "
+            "the Registry ledger appends the race table.",
+            player_input,
+            body_pending=True,
+            skip_llm=bool(error),
         )
         body = err + format_races_table()
         return self._compose_creation_narration(flavor, body)
@@ -1142,11 +1308,11 @@ class Orchestrator:
         err = f"**Note:** {error}\n\n" if error else ""
         eligible = self.creation.roll_result.get("eligible_classes", ["peasant"])
         attrs = self.creation.roll_result.get("final_attributes", {})
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                "Present the stat results briefly, then ask which tier-1 class path the delver chooses.",
-                player_input,
-            )
+        flavor = self.narrate_with_verification(
+            "Present the stat results briefly, then ask which tier-1 class path the delver chooses.",
+            player_input,
+            body_pending=True,
+            skip_llm=bool(error),
         )
         stat_bits = ", ".join(f"{k} {v}" for k, v in sorted(attrs.items()))
         body = f"{err}**Final attributes:** {stat_bits}\n\n{format_classes_table(eligible)}"
@@ -1317,10 +1483,11 @@ class Orchestrator:
     def _creation_table_flavor(
         self, instruction: str, player_input: str, *, error: str | None
     ) -> str:
-        if error:
-            return ""
-        return self._narrate_flavor(
-            self._creation_flavor_messages(instruction, player_input)
+        return self.narrate_with_verification(
+            instruction,
+            player_input,
+            body_pending=True,
+            skip_llm=bool(error),
         )
 
     def _auto_present_skills(self, player_input: str, error: str | None = None) -> str:
@@ -1366,11 +1533,11 @@ class Orchestrator:
         """Present kit and gold from ensure_equipment_gold; require explicit confirm."""
         ensure_equipment_gold(self.creation)
         err = f"**Note:** {error}\n\n" if error else ""
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                "Hand over the Registry kit and coin pouch; ask for explicit confirmation.",
-                player_input,
-            )
+        flavor = self.narrate_with_verification(
+            "Hand over the Registry kit and coin pouch; ask for explicit confirmation.",
+            player_input,
+            body_pending=True,
+            skip_llm=bool(error),
         )
         body = err + format_equipment_summary(self.creation)
         return self._compose_creation_narration(flavor, body)
@@ -1483,12 +1650,11 @@ class Orchestrator:
         mp = base_mp + (int_score * 3)
         luc = max(1, 1 + (attrs.get("LUC", 10) - 10) // 2)
 
-        flavor = self._narrate_flavor(
-            self._creation_flavor_messages(
-                f"Character {self.creation.name} is registered. Describe them stepping into Breley Keep "
-                "(outer bailey, garrison, King's Road, smithies, postern gate). End by asking what they do first.",
-                player_input,
-            )
+        flavor = self.narrate_with_verification(
+            f"Character {self.creation.name} is registered. Describe them stepping into Breley Keep "
+            "(outer bailey, garrison, King's Road, smithies, postern gate). End by asking what they do first.",
+            player_input,
+            body_pending=True,
         )
         body = (
             f"**{self.creation.name}** is registered — {self.creation.race.replace('-', ' ').title()} "
@@ -2066,6 +2232,16 @@ class Orchestrator:
         self._last_content = content or self._last_content
 
         if not tool_calls:
+            if finish_reason == "length":
+                log_llm_truncation_recovery(
+                    {
+                        "mode": "exploration",
+                        "action": "fallback_last_content" if self._last_content else "emit_truncated",
+                        "finish_reason": "length",
+                    }
+                )
+                if self._last_content and self._last_content != content:
+                    return self._last_content
             return content or self._last_content or "The GM regards you silently. Try again."
 
         messages.append({

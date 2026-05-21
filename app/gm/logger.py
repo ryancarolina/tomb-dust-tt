@@ -96,3 +96,19 @@ def log_llm_response(content: str, tool_calls: list, finish_reason: str):
 
 def log_error(context: str, error: str):
     log_entry("error", {"context": context, "error": error})
+
+
+def log_narration_verify_fail(data: dict):
+    log_entry("narration_verify_fail", data)
+
+
+def log_narration_verify_pass(data: dict):
+    log_entry("narration_verify_pass", data)
+
+
+def log_narration_verify_exhausted(data: dict):
+    log_entry("narration_verify_exhausted", data)
+
+
+def log_llm_truncation_recovery(data: dict):
+    log_entry("llm_truncation_recovery", data)

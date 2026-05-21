@@ -70,3 +70,17 @@ def test_resolve_voice_uses_npc_map():
     assert resolve_voice("narrator", tts) == "en-US-GuyNeural"
     assert resolve_voice("marshal-garrick-holt", tts) == "en-US-SteffanNeural"
     assert resolve_voice("npc", tts) == "en-US-JennyNeural"
+
+
+def test_parse_scene_strips_inline_status_tags_for_tts():
+    text = (
+        "The clerk stamps the form. Location: 32-C Breley Keep. "
+        "Phase: preparation. Awaiting: EQUIPMENT_CONFIRM.\n"
+        '"Sign here," she says.'
+    )
+    lines = parse_scene(text)
+    combined = " ".join(line["text"] for line in lines)
+    assert "Location:" not in combined
+    assert "Phase:" not in combined
+    assert "Awaiting:" not in combined
+    assert "Sign here" in combined

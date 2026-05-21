@@ -167,6 +167,21 @@ def _split_paragraph(
     return lines, context, current_speaker
 
 
+_STATUS_AWAITING_RE = re.compile(r"\bAwaiting:\s*\S+", re.IGNORECASE)
+_STATUS_LOCATION_RE = re.compile(r"\bLocation:\s*[^\n|]+", re.IGNORECASE)
+_STATUS_PHASE_RE = re.compile(r"\bPhase:\s*[^\n|]+", re.IGNORECASE)
+
+
+def _strip_status_tags(text: str) -> str:
+    """Remove inline status tokens before TTS (APP-041). Panel display uses raw text."""
+    if not (text or "").strip():
+        return ""
+    cleaned = _STATUS_AWAITING_RE.sub("", text)
+    cleaned = _STATUS_LOCATION_RE.sub("", cleaned)
+    cleaned = _STATUS_PHASE_RE.sub("", cleaned)
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
 def _strip_brackets(text: str) -> str:
     """Remove all [bracketed] content — status lines, state summaries, etc."""
     return re.sub(r"\[[^\]]*\]", "", text)
@@ -184,6 +199,7 @@ def _strip_markup(text: str) -> str:
 def parse_scene(text: str) -> list[dict[str, str]]:
     """Turn GM narration prose into ordered speak lines."""
     cleaned = _strip_ui(_normalize_quotes(text))
+    cleaned = _strip_status_tags(cleaned)
     cleaned = _strip_brackets(cleaned)
     cleaned = _strip_markup(cleaned)
     if not cleaned:
