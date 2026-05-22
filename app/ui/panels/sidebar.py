@@ -23,8 +23,14 @@ class Sidebar:
 
     def _do_layout(self, rect: pygame.Rect):
         npc_h = 70
-        stats_h = (rect.height - npc_h) // 2
-        map_h = rect.height - npc_h - stats_h
+        min_stats_h = 420
+        min_map_h = 200
+        remainder = max(0, rect.height - npc_h)
+        stats_h = max(remainder // 2, min_stats_h)
+        map_h = remainder - stats_h
+        if map_h < min_map_h:
+            map_h = min(min_map_h, remainder)
+            stats_h = max(0, remainder - map_h)
 
         self.npc_card = NpcCard(pygame.Rect(rect.left, rect.top, rect.width, npc_h))
         self.npc_card.set_tts_chip_visible(self._tts_chip_visible)

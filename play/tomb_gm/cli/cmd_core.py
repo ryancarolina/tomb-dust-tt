@@ -11,6 +11,9 @@ from tomb_gm.cli.context import CommandContext
 from tomb_gm.cli.output import emit, fail
 from tomb_gm.config import REPO_ROOT, load_config, resolve_workspace
 from tomb_gm.db.connection import connect, run_migrations, schema_version
+from tomb_gm.domain.character import ability_modifier
+from tomb_gm.domain.combat_sheet import sheet_ac
+from tomb_gm.rules.bridge import pb_for_tier
 from tomb_gm.services.content import ContentService
 from tomb_gm.services.simulation.combat import combat_status
 from tomb_gm.services.simulation.spell_service import ensure_spell_fields
@@ -79,6 +82,45 @@ def _spell_display_lines(content: ContentService, spell_ids: list[str]) -> list[
         else:
             lines.append(sid)
     return lines
+
+
+def _slug_display(slug: str) -> str:
+    return slug.replace("-", " ").title() if slug else ""
+
+
+def _race_display(content_root: Path, race_id: str | None) -> str | None:
+    if not race_id:
+        return None
+    path = content_root / "data" / "races" / "races.json"
+    if path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        race = (data.get("races") or {}).get(race_id)
+        if race and race.get("displayName"):
+            return str(race["displayName"])
+    return _slug_display(race_id)
+
+
+def _attribute_modifiers(attrs: dict) -> dict[str, int]:
+    return {
+        key: ability_modifier(int(attrs.get(key, 10)))
+        for key in ("STR", "AGI", "STA", "INT", "SPI", "LUC")
+    }
+
+
+def _roster_skills_summary(sheet: dict) -> list[dict]:
+    out: list[dict] = []
+    for entry in sheet.get("skills") or []:
+        skill_id = entry.get("skillId") or entry.get("skill_id")
+        if not skill_id:
+            continue
+        out.append(
+            {
+                "skill_id": skill_id,
+                "level": int(entry.get("level", 1)),
+                "display_name": _slug_display(str(skill_id)),
+            }
+        )
+    return out
 
 
 def handle_status(args: argparse.Namespace, _ctx_unused: CommandContext | None = None) -> dict:
@@ -157,6 +199,10 @@ def handle_status(args: argparse.Namespace, _ctx_unused: CommandContext | None =
         fortune = sheet.get("fortune", {})
         known = sheet.get("knownSpells") or []
         spell_lines = _spell_display_lines(content, known)
+        attrs = sheet.get("attributes") or {}
+        base_class = sheet.get("baseClass", sheet.get("classId", ""))
+        class_tier = int(sheet.get("classTier", 1))
+        race_id = sheet.get("raceId")
         payload["roster"].append(
             {
                 "slot": c["slot"],
@@ -165,8 +211,17 @@ def handle_status(args: argparse.Namespace, _ctx_unused: CommandContext | None =
                 "hp": f"{hp.get('current', '?')}/{hp.get('max', '?')}",
                 "fortune": f"{fortune.get('current', 0)}/{fortune.get('max', 1)}",
                 "gold": sheet.get("goldGp", 0),
-                "base_class": sheet.get("baseClass", sheet.get("classId", "")),
+                "base_class": base_class,
+                "class_display": _slug_display(base_class),
                 "deed_tier": sheet.get("deedTier", 0),
+                "class_tier": class_tier,
+                "proficiency_bonus": pb_for_tier(class_tier),
+                "attributes": dict(attrs),
+                "attribute_modifiers": _attribute_modifiers(attrs),
+                "ac": sheet_ac(sheet, content_root=cfg.content_root),
+                "race_id": race_id,
+                "race_display": _race_display(cfg.content_root, race_id),
+                "skills": _roster_skills_summary(sheet),
                 "mp": f"{sheet.get('mp', {}).get('current', 0)}/{sheet.get('mp', {}).get('max', 0)}",
                 "conditions": sheet.get("conditions", []),
                 "known_spells": known,

@@ -1,4 +1,4 @@
-"""Stats panel — HP bar, Fortune, Gold, Phase badge."""
+"""Stats panel — full engine-backed character stat block (APP-102)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,17 @@ from ui.theme import (
     HP_GREEN, HP_RED, HP_BG, FORTUNE_GOLD, FORTUNE_EMPTY,
     PHASE_COLORS, COLOR_CLERK, PANEL_PADDING, FONT_SIZE, FONT_SIZE_SMALL, FONT_SIZE_STAT,
 )
+
+_ATTR_ORDER: tuple[tuple[str, str], ...] = (
+    ("STR", "AGI"),
+    ("STA", "INT"),
+    ("SPI", "LUC"),
+)
+_SKILLS_MAX_LINES = 3
+
+
+def _format_mod(mod: int) -> str:
+    return f"+{mod}" if mod >= 0 else str(mod)
 
 
 class StatsPanel:
@@ -22,10 +33,18 @@ class StatsPanel:
         self.fortune_max = 1
         self.gold = 0
         self.phase = "preparation"
-        self.location_name = "—"
         self.address = "—"
         self.conditions: list[str] = []
         self.creation_step_display: str | None = None
+        self.has_roster = False
+        self.class_display = ""
+        self.class_tier = 1
+        self.proficiency_bonus = 2
+        self.ac = 0
+        self.attributes: dict[str, int] = {}
+        self.attribute_modifiers: dict[str, int] = {}
+        self.skills: list[dict] = []
+        self.concentration: str | None = None
         self._font = None
         self._font_small = None
         self._font_stat = None
@@ -36,6 +55,18 @@ class StatsPanel:
             self._font_small = pygame.font.SysFont("Consolas", FONT_SIZE_SMALL)
             self._font_stat = pygame.font.SysFont("Consolas", FONT_SIZE_STAT, bold=True)
 
+    def _clear_roster_fields(self):
+        self.has_roster = False
+        self.class_display = ""
+        self.class_tier = 1
+        self.proficiency_bonus = 2
+        self.ac = 0
+        self.attributes = {}
+        self.attribute_modifiers = {}
+        self.skills = []
+        self.concentration = None
+        self.conditions = []
+
     def update_from_status(self, status: dict):
         if "creation_step_display" in status:
             display = status.get("creation_step_display")
@@ -44,6 +75,7 @@ class StatsPanel:
         roster = status.get("roster", [])
         if roster:
             pc = roster[0]
+            self.has_roster = True
             self.character_name = pc.get("display_name", "—")
 
             hp_str = pc.get("hp", "0/0")
@@ -72,7 +104,18 @@ class StatsPanel:
             except (ValueError, IndexError):
                 pass
 
-            self.conditions = pc.get("conditions", [])
+            self.conditions = list(pc.get("conditions", []))
+            self.class_display = pc.get("class_display") or pc.get("base_class", "")
+            self.class_tier = int(pc.get("class_tier", 1))
+            self.proficiency_bonus = int(pc.get("proficiency_bonus", 2))
+            self.ac = int(pc.get("ac", 0))
+            self.attributes = dict(pc.get("attributes") or {})
+            self.attribute_modifiers = dict(pc.get("attribute_modifiers") or {})
+            self.skills = list(pc.get("skills") or [])
+            self.concentration = pc.get("concentration")
+        else:
+            self.character_name = "—"
+            self._clear_roster_fields()
 
         party = status.get("party")
         if party:
@@ -82,6 +125,34 @@ class StatsPanel:
     def resize(self, rect: pygame.Rect):
         self.rect = rect
 
+    def _wrap_skill_lines(self, max_width: int) -> list[str]:
+        if not self.skills:
+            return []
+        tokens = [f"{s.get('display_name', s.get('skill_id', '?'))} {s.get('level', 1)}" for s in self.skills]
+        lines: list[str] = []
+        current = ""
+        for token in tokens:
+            candidate = token if not current else f"{current} · {token}"
+            if self._font_small.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = token
+                if self._font_small.size(current)[0] > max_width:
+                    lines.append(current)
+                    current = ""
+        if current:
+            lines.append(current)
+        return lines[:_SKILLS_MAX_LINES]
+
+    def _draw_attr_cell(self, screen: pygame.Surface, x: int, y: int, attr: str) -> int:
+        score = int(self.attributes.get(attr, 10))
+        mod = int(self.attribute_modifiers.get(attr, 0))
+        label = self._font_small.render(f"{attr} {score} ({_format_mod(mod)})", True, TEXT_PRIMARY)
+        screen.blit(label, (x, y))
+        return label.get_height()
+
     def draw(self, screen: pygame.Surface):
         self._ensure_fonts()
         pygame.draw.rect(screen, BG_SIDEBAR, self.rect)
@@ -89,6 +160,8 @@ class StatsPanel:
 
         x = self.rect.left + PANEL_PADDING
         y = self.rect.top + PANEL_PADDING
+        content_w = self.rect.width - PANEL_PADDING * 2
+        col_w = content_w // 2
 
         if self.creation_step_display:
             registry_surf = self._font_small.render(
@@ -101,25 +174,30 @@ class StatsPanel:
             screen.blit(registry_surf, (registry_rect.x + 4, registry_rect.y + 2))
             y += registry_rect.height + 8
 
-        # Character name
         name_surf = self._font_stat.render(self.character_name, True, TEXT_PRIMARY)
         screen.blit(name_surf, (x, y))
         y += name_surf.get_height() + 8
 
-        # Phase badge
         phase_color = PHASE_COLORS.get(self.phase, (100, 100, 100))
         badge_surf = self._font_small.render(f" {self.phase.upper()} ", True, (20, 20, 20))
         badge_rect = pygame.Rect(x, y, badge_surf.get_width() + 8, badge_surf.get_height() + 4)
         pygame.draw.rect(screen, phase_color, badge_rect, border_radius=3)
         screen.blit(badge_surf, (badge_rect.x + 4, badge_rect.y + 2))
-        y += badge_rect.height + 12
+        y += badge_rect.height + 8
 
-        # HP bar
+        if self.has_roster and self.class_display:
+            class_strip = (
+                f"{self.class_display} · Tier {self.class_tier} · PB +{self.proficiency_bonus}"
+            )
+            strip_surf = self._font_small.render(class_strip, True, TEXT_SECONDARY)
+            screen.blit(strip_surf, (x, y))
+            y += strip_surf.get_height() + 8
+
         hp_label = self._font_small.render("HP", True, TEXT_MUTED)
         screen.blit(hp_label, (x, y))
         y += hp_label.get_height() + 4
 
-        bar_w = self.rect.width - PANEL_PADDING * 2
+        bar_w = content_w
         bar_h = 16
         pygame.draw.rect(screen, HP_BG, (x, y, bar_w, bar_h), border_radius=3)
         if self.hp_max > 0:
@@ -132,7 +210,6 @@ class StatsPanel:
         screen.blit(hp_text, (x + bar_w // 2 - hp_text.get_width() // 2, y + 1))
         y += bar_h + 12
 
-        # MP bar (only show if character has MP)
         if self.mp_max > 0:
             mp_label = self._font_small.render("MP", True, TEXT_MUTED)
             screen.blit(mp_label, (x, y))
@@ -148,7 +225,6 @@ class StatsPanel:
             screen.blit(mp_text, (x + bar_w // 2 - mp_text.get_width() // 2, y + 1))
             y += bar_h + 12
 
-        # Fortune
         fortune_label = self._font_small.render("Fortune", True, TEXT_MUTED)
         screen.blit(fortune_label, (x, y))
         y += fortune_label.get_height() + 4
@@ -157,7 +233,6 @@ class StatsPanel:
             pygame.draw.circle(screen, dot_color, (x + 8 + i * 20, y + 6), 6)
         y += 20
 
-        # Gold
         gold_label = self._font_small.render("Gold", True, TEXT_MUTED)
         screen.blit(gold_label, (x, y))
         y += gold_label.get_height() + 2
@@ -165,7 +240,30 @@ class StatsPanel:
         screen.blit(gold_val, (x, y))
         y += gold_val.get_height() + 12
 
-        # Location
+        if self.has_roster:
+            ac_surf = self._font_small.render(f"AC {self.ac}", True, TEXT_PRIMARY)
+            screen.blit(ac_surf, (x, y))
+            y += ac_surf.get_height() + 10
+
+            for left_attr, right_attr in _ATTR_ORDER:
+                row_h = self._draw_attr_cell(screen, x, y, left_attr)
+                right_h = self._draw_attr_cell(screen, x + col_w, y, right_attr)
+                y += max(row_h, right_h) + 2
+            y += 6
+
+            if self.skills:
+                skills_label = self._font_small.render("Skills", True, TEXT_MUTED)
+                screen.blit(skills_label, (x, y))
+                y += skills_label.get_height() + 4
+                clip_rect = pygame.Rect(x, y, content_w, self.rect.bottom - PANEL_PADDING - y)
+                screen.set_clip(clip_rect)
+                for line in self._wrap_skill_lines(content_w):
+                    line_surf = self._font_small.render(line, True, TEXT_PRIMARY)
+                    screen.blit(line_surf, (x, y))
+                    y += line_surf.get_height() + 2
+                screen.set_clip(None)
+                y += 6
+
         loc_label = self._font_small.render("Location", True, TEXT_MUTED)
         screen.blit(loc_label, (x, y))
         y += loc_label.get_height() + 2
@@ -173,12 +271,17 @@ class StatsPanel:
         screen.blit(addr_surf, (x, y))
         y += addr_surf.get_height() + 12
 
-        # Conditions (if any)
-        if self.conditions:
+        footer_conditions = list(self.conditions[:3])
+        if self.concentration:
+            footer_conditions.append(f"Concentrating: {self.concentration}")
+        if footer_conditions:
             cond_label = self._font_small.render("Conditions", True, TEXT_MUTED)
             screen.blit(cond_label, (x, y))
             y += cond_label.get_height() + 4
-            for cond in self.conditions[:4]:
+            clip_rect = pygame.Rect(x, y, content_w, self.rect.bottom - PANEL_PADDING - y)
+            screen.set_clip(clip_rect)
+            for cond in footer_conditions[:3]:
                 cond_surf = self._font_small.render(f"• {cond}", True, HP_RED)
                 screen.blit(cond_surf, (x, y))
                 y += cond_surf.get_height() + 2
+            screen.set_clip(None)
