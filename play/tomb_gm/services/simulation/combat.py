@@ -34,6 +34,24 @@ def load_monster_json(content_root: Path, monster_id: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def validate_monster_specs(content_root: Path, monster_specs: list[str]) -> str | None:
+    """Return an error string when specs are invalid; None when dispatchable."""
+    if not monster_specs:
+        return "monster_specs required"
+    for raw in monster_specs:
+        if not isinstance(raw, str) or not raw.strip():
+            return f"invalid monster spec: {raw!r} (use id or id:count)"
+        try:
+            pairs = parse_monster_specs([raw.strip()])
+        except ValueError as exc:
+            return str(exc)
+        monster_id = pairs[0][0]
+        path = content_root / "data" / "monsters" / f"{monster_id}.json"
+        if not path.is_file():
+            return f"monster JSON not found: {monster_id} ({path})"
+    return None
+
+
 def pick_stat_block(data: dict[str, Any], tier: str | None = None) -> dict[str, Any]:
     blocks = data.get("statBlocks") or []
     if not blocks:
@@ -233,6 +251,10 @@ def start_combat(
     ).fetchone()
     if existing:
         return {"ok": False, "error": "combat already active; end combat before starting a new encounter"}
+
+    err = validate_monster_specs(content_root, monster_specs)
+    if err:
+        return {"ok": False, "error": err}
 
     combatants = _spawn_instances(content_root, monster_specs, tier=tier)
 

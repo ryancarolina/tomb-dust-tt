@@ -160,7 +160,7 @@ TOOLS = [
                     "monster_specs": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Monster specs as 'id:count' (e.g. ['grave-ghoul:2', 'hollow-knight:1'])",
+                        "description": "Monster specs as 'id:count' (e.g. ['grave-ghoul:2', 'ash-shade:1'])",
                     },
                     "include_party": {"type": "boolean", "description": "Add party to initiative"},
                 },

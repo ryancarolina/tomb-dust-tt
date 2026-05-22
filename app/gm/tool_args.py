@@ -18,6 +18,7 @@ _ALLOWED_KEYS: dict[str, frozenset[str]] = {
     "combat_action": frozenset(
         {"action", "actor_id", "target_id", "weapon_id", "spell_id"}
     ),
+    "start_combat": frozenset({"monster_specs", "include_party"}),
 }
 
 
@@ -64,6 +65,14 @@ def _coerce_str_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
     return []
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return default
 
 
 def _apply_whitelist(tool_name: str, out: dict[str, Any]) -> dict[str, Any]:
@@ -135,6 +144,22 @@ def _normalize_combat_action(args: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _normalize_start_combat(args: dict[str, Any]) -> dict[str, Any]:
+    raw_specs = args.get("monster_specs")
+    if isinstance(raw_specs, str):
+        specs_in = [raw_specs]
+    elif isinstance(raw_specs, list):
+        specs_in = raw_specs
+    else:
+        specs_in = []
+    monster_specs = [s.strip() for s in specs_in if isinstance(s, str) and s.strip()]
+    out = {
+        "monster_specs": monster_specs,
+        "include_party": _coerce_bool(args.get("include_party"), True),
+    }
+    return _apply_whitelist("start_combat", out)
+
+
 _NORMALIZERS = {
     "remember_fact": _normalize_remember_fact,
     "memory_recall": _normalize_memory_recall,
@@ -143,6 +168,7 @@ _NORMALIZERS = {
     "enter_dungeon": _normalize_enter_dungeon,
     "set_creation_choice": _normalize_set_creation_choice,
     "combat_action": _normalize_combat_action,
+    "start_combat": _normalize_start_combat,
 }
 
 
@@ -188,4 +214,11 @@ def validate_tool_args(tool_name: str, args: dict[str, Any]) -> str | None:
             return "action required"
         if not _coerce_str(args.get("actor_id"), "").strip():
             return "actor_id required"
+    elif tool_name == "start_combat":
+        specs = args.get("monster_specs")
+        if not isinstance(specs, list) or not specs:
+            return "monster_specs required"
+        for entry in specs:
+            if not isinstance(entry, str):
+                return "invalid monster_specs entry"
     return None

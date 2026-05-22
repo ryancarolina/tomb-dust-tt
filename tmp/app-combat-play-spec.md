@@ -15,6 +15,7 @@
 - UI stays in combat mode until `combat_end` or engine clears combat.
 - **Failed tool → no success fiction** — code-owned `[Mechanics failed — …]`; database / tool `ok` leads narration (see § Combat tool failure narration).
 - **Attack pre-gating (APP-026):** Before any PC attack dispatch, orchestrator `_gate_pc_attack` requires `status.combat` and attacker in `combat.initiative` — see § Combat attack gating.
+- **Monster id validation (APP-027):** Before combat enters the DB, every `monster_specs` entry must resolve to `build/data/monsters/{id}.json` — see § Monster id validation at combat start.
 
 ### Death
 
@@ -215,8 +216,9 @@ On beat-trigger failure or `all_failed` content strip, log tool names and errors
 - [x] **APP-028** — combat tool failure narration (§ above)
 - [x] **APP-029** — monster auto-chain after PC `combat_action` (`_combat_auto_chain`)
 - [x] **APP-026** — orchestrator `_gate_pc_attack` before `combat_attack` / `combat_action` ATTACK
+- [x] **APP-027** — monster id validation at combat start (`validate_monster_specs`, bridge/tool_args gates, tests V1–V9)
 
-**Open work:** [APP-027](backlog/app-027-validate-monster-id-at-combat-start.md), [APP-030](backlog/app-030-combat-integration-test.md), [APP-090](backlog/app-090-combat-phased-narration-and-death-beat.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-030](backlog/app-030-combat-integration-test.md), [APP-090](backlog/app-090-combat-phased-narration-and-death-beat.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -274,6 +276,134 @@ python -m pytest app/tests/test_combat_failure_narration.py -q
 
 ---
 
+## Monster id validation at combat start (APP-027)
+
+**Ticket:** [APP-027](backlog/app-027-validate-monster-id-at-combat-start.md) · **Run spec:** [`runs/app-027-validate-monster-id-combat/spec.md`](backlog/runs/app-027-validate-monster-id-combat/spec.md)
+
+Unknown or malformed monster ids must fail **before** `combat_state` is written and **before** any LLM narrates combat start. APP-028 already strips success fiction when `start_combat` / beat-trigger start returns `ok: false` on an all-failed turn; APP-027 adds **explicit validation, stable error shapes, and tests** so failures are deterministic and not dependent on engine exceptions alone.
+
+### Validation layers
+
+| Layer | Owner | When | On fail |
+|-------|-------|------|---------|
+| **Tool args** | `app/gm/tool_args.py` | Exploration `_llm_loop`: `validate_tool_args` **before** `_execute_tool` (APP-080; same as `enter_dungeon`) | `{ok: false, error: "<validate_tool_args message>"}` — bridge **not** called |
+| **Monster specs** | Engine `validate_monster_specs` (R1) | Top of `bridge.start_combat` / `start_combat_from_trigger` | `{ok: false, error: …}` — **must not** write `combat_state` |
+| **Engine spawn** | `play/tomb_gm/services/simulation/combat.py` | `_spawn_instances` → `parse_monster_specs` + `load_monster_json` | `ValueError` / `FileNotFoundError` → bridge catch (defense-in-depth after R1) |
+
+Research confirms engine validation already runs before INSERT; APP-027 **documents and tests** that contract and adds app-layer gates so empty/malformed LLM args never reach spawn.
+
+### R1 — `validate_monster_specs(content_root, monster_specs) -> str | None`
+
+**Location:** **`play/tomb_gm/services/simulation/combat.py` only** — sole implementation (reuse `MONSTER_SPEC_RE`, `parse_monster_specs`, `load_monster_json`). `app/gm/bridge.py` imports from `tomb_gm.services.simulation.combat`; **no** duplicate regex or parser in `app/gm/`.
+
+| Step | Check | On fail (return error string) |
+|------|-------|-------------------------------|
+| 1 | `monster_specs` is a non-empty `list` | `"monster_specs required"` or `"monster_specs must be non-empty"` |
+| 2 | Each element is a non-empty string | `"invalid monster spec: …"` (match engine `parse_monster_specs` message) |
+| 3 | Each spec matches `id` or `id:count` (`MONSTER_SPEC_RE`); count ≥ 1 | Same `ValueError` text as engine: `invalid monster spec: …`, `monster count must be >= 1: …` |
+| 4 | For each parsed `monster_id`, `{content_root}/data/monsters/{id}.json` exists | **`monster JSON not found: {monster_id} ({path})`** — preserve substring `monster JSON not found: {id}` for APP-028 tests |
+| 5 | Pass | Return **`None`** |
+
+**Empty list:** `monster_specs: []` is **invalid** for `start_combat` — return step-1 error. Do **not** start combat with zero monsters via LLM tool or beat default unless a future ticket explicitly allows it.
+
+**Duplicate ids in one list:** Allowed (engine spawns multiple instances); validation only checks format + file presence per entry.
+
+### R2 — Bridge `start_combat` / `start_combat_from_trigger`
+
+**File:** `app/gm/bridge.py`
+
+1. After session/campaign resolution, call `validate_monster_specs(self.ctx.config.content_root, monster_specs)`.
+2. If error string returned: **`{"ok": False, "error": err}`** immediately — **do not** call engine `start_combat`.
+3. On success, call engine `start_combat` as today; retain existing `except (ValueError, FileNotFoundError)` as defense-in-depth.
+
+**`start_combat_from_trigger`:** Unchanged duplicate-combat guard (`combat already active`) runs **before** monster validation. Monster validation runs inside delegated `start_combat`.
+
+**Success shape (unchanged):** `{ok: true, …, action: "combat_start"}` plus engine fields.
+
+**Failure shape (canonical):**
+
+```json
+{"ok": false, "error": "<human-readable reason>"}
+```
+
+No `action` key on failure. Error text for missing JSON **must** include `monster JSON not found: {id}` (path suffix optional but id substring required).
+
+### R3 — `validate_tool_args("start_combat", …)`
+
+**File:** `app/gm/tool_args.py`
+
+| Rule | On fail (`validate_tool_args` return) |
+|------|--------------------------------------|
+| `monster_specs` missing, not a list, or empty list | `"monster_specs required"` (or equivalent stable string used in tests) |
+| Any list element not a non-empty string after strip | `"invalid monster_specs entry"` or delegate to R1 on dispatch |
+
+Exploration `_llm_loop` calls `normalize_tool_args` → `validate_tool_args`; on non-`None` error, sets `result = {ok: false, error: msg}` **without** calling `_execute_tool` — same as `enter_dungeon` (APP-080). Do **not** add validation inside `_execute_tool` for `start_combat`.
+
+### R4 — Wire points
+
+| Path | Entry | Behavior |
+|------|-------|----------|
+| Exploration `_llm_loop` | Tool batch: R3 → `_execute_tool("start_combat")` → R2 | On `{ok: false}` → APP-028 `all_failed` / `[Mechanics failed — start_combat: …]` |
+| Beat trigger | `_handle_combat_trigger` → `start_combat_from_trigger` | R2 only (specs from beat); failure string + short-circuit per APP-028 |
+| `pending_start` | `_combat_turn` → `start_combat_from_trigger` | Same failure shape as beat |
+| Engine CLI | `cmd_combat.handle_start` | **Out of scope** — may still raise; bridge contract is app canonical |
+
+### R5 — No fiction on unknown id
+
+When validation or engine load fails:
+
+1. **`bridge.status()["combat"]` remains null** (no partial combat row).
+2. **Player channel:** APP-028 rules apply — all-failed exploration turn returns `[Mechanics failed — start_combat: {error}]` only; beat path returns `[Mechanics failed — combat start: {error}]` + `Combat could not begin.`
+3. **Do not** narrate initiative, charges, or monster presence from pre-tool assistant `content` on all-failed turns.
+4. **Mixed-tool turns** (failed `start_combat` + successful tool in same batch): APP-028 allows depth+1 narrate — **non-goal** for APP-027; optional follow-up ticket.
+
+### R6 — Tool schema hygiene (optional Dev)
+
+**File:** `app/gm/tools.py` — remove or replace `hollow-knight:1` in `start_combat` examples with canon ids (`grave-ghoul`, `ash-shade`, `thornwolf`, `ether-larva`). Not required for AC if validation tests pass.
+
+### APP-028 interaction
+
+Failed validation returns `{ok: false, error: …}` into existing `_COMBAT_TOOL_NAMES` / `_beat_combat_start_failure` paths. **Do not** change failure prefix format. Regression: `app/tests/test_combat_failure_narration.py` **T1–T3** must stay green; error substrings `monster JSON not found: grave-ghoul` / `hollow-knight` are contractual.
+
+### Tests (APP-027)
+
+**New module:** `app/tests/test_combat_monster_validation.py` _(or extend `test_combat_failure_narration.py` — prefer dedicated module)_
+
+Use real `content_root` from test fixture (repo `build/` or tomb_gm test root). **Do not** use `play/workspace`.
+
+| ID | Test | Pass |
+|----|------|------|
+| **V1** | `bridge.start_combat(monster_specs=["hollow-knight:1"])` | ✓ |
+| **V2** | `bridge.start_combat(monster_specs=["not a spec"])` | ✓ |
+| **V3** | `bridge.start_combat(monster_specs=[])` | ✓ |
+| **V4** | `bridge.start_combat(monster_specs=["grave-ghoul:1"])` with valid session | skip (APP-030) |
+| **V5** | `_dispatch_like_llm_loop(orch, "start_combat", {"monster_specs": []})` — helper from `app/tests/test_tool_args.py` (APP-080) | ✓ |
+| **V6** | `_execute_tool("start_combat", {monster_specs: ["hollow-knight:1"]})` | ✓ |
+| **V7** | `_handle_combat_trigger` with mocked beat `monster_specs: ["hollow-knight:1"]` | ✓ |
+| **V8** | `_llm_loop` **integration:** real `content_root`, **unmocked** `bridge.start_combat`, single tool `start_combat` + `hollow-knight:1`, assistant pre-tool success fiction | ✓ |
+
+**Engine (required, same ticket):**
+
+| ID | Test | Pass |
+|----|------|------|
+| **V9** | `play/tomb_gm/tests/test_validate_monster_specs.py`: `validate_monster_specs(root, ["hollow-knight:1"])` | ✓ |
+
+**Optional unit (same ticket):** `validate_tool_args("start_combat", {"monster_specs": []})` in `app/tests/test_tool_args.py` — may duplicate V5; not required if V5 green.
+
+**Optional CLI regression (not V9):** `test_simulation.py -k unknown_monster` — asserts non-zero exit only; run after V9 if desired
+
+**Commands:**
+
+```bash
+python -m pytest app/tests/test_combat_monster_validation.py -q
+python -m pytest app/tests/test_combat_failure_narration.py -k start_combat -q
+python -m pytest play/tomb_gm/tests/test_validate_monster_specs.py -q
+```
+
+End-to-end golden path may extend [APP-030](backlog/app-030-combat-integration-test.md).
+
+---
+
 ## File map
 
 | File | Role |
@@ -284,6 +414,9 @@ python -m pytest app/tests/test_combat_failure_narration.py -q
 | `gm/tools.py` | Combat tool schemas |
 | `app/tests/test_combat_failure_narration.py` | APP-028 orchestration tests |
 | `app/tests/test_combat_attack_gating.py` | APP-026 attack pre-gate tests |
+| `app/tests/test_combat_monster_validation.py` | APP-027 monster spec validation (V1–V8) |
+| `play/tomb_gm/tests/test_validate_monster_specs.py` | APP-027 V9 engine unit tests |
+| `play/tomb_gm/services/simulation/combat.py` | `parse_monster_specs`, `load_monster_json`, `validate_monster_specs` |
 
 ---
 
@@ -299,3 +432,7 @@ python -m pytest app/tests/test_combat_failure_narration.py -q
 | 2026-05-22 | **APP-026 PM draft:** § Combat attack gating — `_gate_pc_attack`, wire `combat_attack` + `combat_action` ATTACK, tests G1–G7 |
 | 2026-05-22 | **APP-026 PM r2:** R3 case-normalized ATTACK gate (`action.upper().strip()`); tests G6b, G8; G4/G5 fixture clarity |
 | 2026-05-22 | **APP-026 done:** `_gate_pc_attack` + `_resolve_combatant_id_for_gate`; wired `_execute_tool` `combat_attack` and `_execute_combat_action` ATTACK; `test_combat_attack_gating.py` G1–G8 + G6b green; APP-028 regression green |
+| 2026-05-22 | **APP-027 PM draft:** § Monster id validation at combat start — `validate_monster_specs`, bridge/tool_args contracts, empty `monster_specs`, tests V1–V9, APP-028 error substring stability |
+| 2026-05-22 | **APP-027 PM r2:** Engine-only R1; R3/R4 `_llm_loop` validate-before-execute (not `_execute_tool`); V5 `_dispatch_like_llm_loop`; V8 unmocked `_llm_loop` integration; V9 `test_validate_monster_specs.py`; ticket Expected files + test module |
+| 2026-05-22 | **APP-027 done:** `validate_monster_specs` (engine R1); bridge pre-check (R2); `validate_tool_args("start_combat")` (R3); `tools.py` canon examples (R6); `test_combat_monster_validation.py` V1–V8 + `test_validate_monster_specs.py` V9 green; V4 skipped for APP-030 |
+| 2026-05-22 | **APP-092:** R3 `tool_args.py` implementation landed (`normalize`/`validate` for `start_combat`); closes spec/code drift from APP-027 close |
