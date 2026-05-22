@@ -338,6 +338,9 @@ Schemas must match `bridge.py` method signatures. When adding a tool:
 | `enter_dungeon` | `site_address` / `site_id` | `str()`; if only `site_id` present, set `site_address` from it (migrated from ad-hoc `_execute_tool` rewrite) |
 | `set_creation_choice` | `step`, `value` | `str()`; both required (creation loop) |
 | `combat_action` | `action`, `actor_id`, … | `str()` on present keys; `action` + `actor_id` required (combat loop) |
+| `start_combat` | `monster_specs` | `list[str]`; coerce single string → one-element list; strip empties |
+| `start_combat` | `include_party` | bool; default `True`; `"false"` / `"0"` → `False` |
+| `start_combat` | validation | After normalize: non-empty `monster_specs` required — `"monster_specs required"` (APP-027 R3 / APP-092) |
 | Generic | string fields | `str()` on known tools when value present |
 | Generic | array fields | Ensure `list`; filter element type when schema declares `items.type` |
 
@@ -650,6 +653,8 @@ cd app && python -m pytest tests/ -q
 | `normalize_tool_args("memory_recall", {"query": "x", "top": "3"})` | `top_k == 3`; no `top` key |
 | `normalize_tool_args("fortune_spend", {"character_id": "pc-1", "amount": "2"})` | only `character_id`; no `amount` |
 | Integration: corrupted `remember_fact` through `_execute_tool` | `{ok: true}`; fact persist path (mock bridge or memory assert) |
+| `normalize_tool_args("start_combat", {"monster_specs": "grave-ghoul:1", "include_party": "false"})` | `monster_specs: ["grave-ghoul:1"]`; `include_party: False` (APP-092) |
+| `validate_tool_args("start_combat", {"monster_specs": []})` | `"monster_specs required"` (APP-092) |
 
 Use pytest fixtures for Holt-session `importance` payload — not gitignored session JSONL in CI.
 
@@ -691,6 +696,7 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 | 2026-05-21 | APP-079 PM r2: § Semantics per-step `body_pending`/`flavor_only` table; NAME vs gated steps; FINALIZE/WORLD_INTRO handoff discard |
 | 2026-05-21 | APP-083 PM spec: § Mechanical-truth narration gate — TurnTruth in/verify out/retry/publish; Phase 1 creation batch close; Phases 2–3 exploration/combat documented as future |
 | 2026-05-21 | APP-080 done: `tool_args.py` + three-loop wire (`normalize_tool_args` → `validate_tool_args` → dispatch); Holt `remember_fact` regression tests green; optional `tool_arg_coerced` logging deferred (APP-034) |
+| 2026-05-22 | **APP-092 done:** `start_combat` normalize/validate in `tool_args.py` (APP-027 R3 code landing); `tools.py` canon example `ash-shade`; unit tests in `test_tool_args.py` |
 | 2026-05-21 | APP-080 PM spec: normative § Tool argument normalization — coercion table, helpers, wire points, tests; `fortune_spend.amount` corrected to `character_id` + drop unknown keys |
 | 2026-05-20 | APP-080 spec draft: § Tool argument normalization — `normalize_tool_args` before bridge; `remember_fact.importance` coercion (Fatty/Holt session) |
 | 2026-05-20 | APP-008: `_llm_loop` blocked when `creation.active` |

@@ -173,6 +173,25 @@ def test_validate_fortune_spend_missing_character_id():
     assert validate_tool_args("fortune_spend", args) == "character_id required"
 
 
+def test_normalize_start_combat_string_spec():
+    out = normalize_tool_args(
+        "start_combat",
+        {"monster_specs": "grave-ghoul:1", "include_party": "false"},
+    )
+    assert out["monster_specs"] == ["grave-ghoul:1"]
+    assert out["include_party"] is False
+
+
+def test_validate_start_combat_empty_specs():
+    args = normalize_tool_args("start_combat", {"monster_specs": []})
+    assert validate_tool_args("start_combat", args) == "monster_specs required"
+
+
+def test_validate_start_combat_missing_specs():
+    args = normalize_tool_args("start_combat", {})
+    assert validate_tool_args("start_combat", args) == "monster_specs required"
+
+
 # --- Integration ---
 
 
