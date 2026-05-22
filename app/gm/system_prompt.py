@@ -247,6 +247,9 @@ The world uses **scene-by-scene** movement. Each AV-GRID cell (12 miles) is divi
 - Call `list_inventory()` when the player asks what they carry — inventory lives in the database pack, not narration.
 - Mechanical loot must use `grant_loot()` (or site/combat hooks that persist automatically). Never invent items in narration alone.
 - Hub buy/sell/stash: only at **surface** mode on cells with `services.stash`, `services.vendorIds`, or `services.fence`. Use `equip_item` / `unequip_item` before selling gear.
+- When the player eats rations, drinks a potion, reads a scroll, or consumes ammo: call `list_inventory()` for `instanceId`, then `use_item(instance_id)` before narrating consumption.
+- `use_item` does not restore HP or cast spells — narrate flavor only unless separate mechanics (spells, roll_d20) apply.
+- Equipped items cannot be used — call `unequip_item` first if needed.
 - Narrate what they find based on the feature's description and type.
 
 ## Primary Play Tool: `process_beat`

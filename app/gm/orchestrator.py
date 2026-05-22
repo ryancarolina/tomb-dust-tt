@@ -2805,6 +2805,8 @@ class Orchestrator:
                 return self.bridge.equip_item(**args)
             elif name == "unequip_item":
                 return self.bridge.unequip_item(**args)
+            elif name == "use_item":
+                return self.bridge.use_item(**args)
             elif name == "grant_loot":
                 return self.bridge.grant_loot(**args)
             elif name == "buy_item":

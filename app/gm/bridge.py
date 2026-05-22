@@ -883,6 +883,51 @@ class GameBridge:
         self.ctx.conn.commit()
         return {"ok": True, "character_id": char_id, **result}
 
+    def use_item(
+        self,
+        instance_id: str,
+        quantity: int = 1,
+        character_id: str | None = None,
+    ) -> dict:
+        from tomb_gm.domain.inventory import ensure_normalized, get_pack, use_item
+        from tomb_gm.services.content import ContentService
+
+        campaign_slug = self._campaign_slug()
+        char_id = character_id
+        if not char_id:
+            row = self.ctx.conn.execute(
+                "SELECT id FROM characters WHERE campaign_slug = ? AND slot IS NOT NULL AND alive = 1 "
+                "ORDER BY slot ASC LIMIT 1",
+                (campaign_slug,),
+            ).fetchone()
+            if not row:
+                return {"ok": False, "error": "no living character found"}
+            char_id = row["id"]
+        row = self.ctx.conn.execute(
+            "SELECT sheet_json FROM characters WHERE id = ? AND campaign_slug = ?",
+            (char_id, campaign_slug),
+        ).fetchone()
+        if not row:
+            return {"ok": False, "error": f"Character not found: {char_id}"}
+        content = ContentService(self.ctx.config.content_root)
+        lookup = content.items_lookup()
+        sheet = json.loads(row["sheet_json"])
+        ensure_normalized(sheet, item_lookup=lookup)
+        result = use_item(
+            get_pack(sheet),
+            instance_id,
+            quantity=quantity,
+            item_lookup=lookup,
+        )
+        if not result.get("ok"):
+            return result
+        self.ctx.conn.execute(
+            "UPDATE characters SET sheet_json = ? WHERE id = ? AND campaign_slug = ?",
+            (json.dumps(sheet), char_id, campaign_slug),
+        )
+        self.ctx.conn.commit()
+        return {"ok": True, "character_id": char_id, **result}
+
     def grant_loot(self, tier: str | None = None, character_id: str | None = None) -> dict:
         from tomb_gm.services.content import ContentService
         from tomb_gm.services.loot_resolver import LootResolver, grant_loot as persist_loot

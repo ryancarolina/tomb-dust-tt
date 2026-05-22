@@ -503,6 +503,29 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "use_item",
+            "description": (
+                "Use or consume a pack item by instanceId. Decrements uses (rations, scrolls) "
+                "or quantity (ammo). Call list_inventory first for instanceId. "
+                "Does not apply HP or spell effects — inventory state only. Unequip before use."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {"type": "string"},
+                    "quantity": {
+                        "type": "integer",
+                        "description": "Units to consume; default 1",
+                    },
+                    "character_id": {"type": "string"},
+                },
+                "required": ["instance_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grant_loot",
             "description": "Roll and persist loot to the active delver's pack. Never narrate loot without calling this.",
             "parameters": {
