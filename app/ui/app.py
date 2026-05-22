@@ -201,6 +201,7 @@ class App:
                 self._load_session()
             elif msg_type == "error":
                 self.narration.add_line(f"[Error: {data}]", "narrator")
+                self._smooth_scroll_to_bottom()
                 self._set_turn_idle("Error — try again")
             elif msg_type == "processing":
                 self._turn_state = "thinking"
@@ -223,7 +224,7 @@ class App:
             self._save_session()
 
     def _smooth_scroll_to_bottom(self):
-        self.narration.scroll_to_bottom()
+        self.narration.request_follow_tail()
 
     def _can_submit(self) -> bool:
         return self._turn_state != "thinking"
@@ -346,6 +347,13 @@ class App:
         out["map_travel_blocked"] = blocked
         if blocked:
             out["map_travel_blocked_hint"] = MAP_TRAVEL_BLOCKED_HINT
+        badge = self._orchestrator.get_creation_step_badge()
+        if badge:
+            out["creation_step"] = badge["step"]
+            out["creation_step_display"] = badge["display_label"]
+        else:
+            out["creation_step"] = None
+            out["creation_step_display"] = None
         return out
 
     def _queue_turn_status(self, turn_id: int) -> None:

@@ -86,6 +86,7 @@ def test_enrich_status_for_ui_payload(app_config):
     app = App(app_config)
     mock_orch = MagicMock()
     mock_orch.is_map_travel_blocked.return_value = True
+    mock_orch.get_creation_step_badge.return_value = None
     mock_orch.get_status.return_value = {"awaiting": "CHARACTER_CREATION"}
     app._orchestrator = mock_orch
 
@@ -149,6 +150,7 @@ def test_process_turn_exception_queues_enriched_status(app_config):
         mock_orch = MagicMock()
         mock_orch.get_player_suggestions.return_value = []
         mock_orch.is_map_travel_blocked.return_value = True
+        mock_orch.get_creation_step_badge.return_value = None
         mock_orch.get_status.return_value = {"awaiting": "CHARACTER_CREATION", "roster": []}
         mock_orch.process_turn.side_effect = RuntimeError("boom")
         app._orchestrator = mock_orch

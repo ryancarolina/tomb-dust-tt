@@ -15,6 +15,8 @@ class Sidebar:
         self._content_root = content_root
         self._map_travel_blocked = False
         self._map_travel_blocked_hint = "Finish Registry intake first"
+        self._creation_step: str | None = None
+        self._creation_step_display: str | None = None
         self._do_layout(rect)
 
     def _do_layout(self, rect: pygame.Rect):
@@ -29,8 +31,17 @@ class Sidebar:
             content_root=self._content_root,
         )
         self.map.set_travel_blocked(self._map_travel_blocked, self._map_travel_blocked_hint)
+        self.stats.update_from_status(
+            {
+                "creation_step": self._creation_step,
+                "creation_step_display": self._creation_step_display,
+            }
+        )
 
     def update_from_status(self, status: dict):
+        if "creation_step" in status or "creation_step_display" in status:
+            self._creation_step = status.get("creation_step")
+            self._creation_step_display = status.get("creation_step_display")
         self.stats.update_from_status(status)
         if "map_travel_blocked" in status:
             blocked = bool(status.get("map_travel_blocked"))

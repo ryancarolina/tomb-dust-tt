@@ -6,7 +6,7 @@ import pygame
 from ui.theme import (
     BG_SIDEBAR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER,
     HP_GREEN, HP_RED, HP_BG, FORTUNE_GOLD, FORTUNE_EMPTY,
-    PHASE_COLORS, PANEL_PADDING, FONT_SIZE, FONT_SIZE_SMALL, FONT_SIZE_STAT,
+    PHASE_COLORS, COLOR_CLERK, PANEL_PADDING, FONT_SIZE, FONT_SIZE_SMALL, FONT_SIZE_STAT,
 )
 
 
@@ -26,6 +26,7 @@ class StatsPanel:
         self.address = "—"
         self.conditions: list[str] = []
         self.known_spells: list[str] = []
+        self.creation_step_display: str | None = None
         self._font = None
         self._font_small = None
         self._font_stat = None
@@ -37,6 +38,10 @@ class StatsPanel:
             self._font_stat = pygame.font.SysFont("Consolas", FONT_SIZE_STAT, bold=True)
 
     def update_from_status(self, status: dict):
+        if "creation_step_display" in status:
+            display = status.get("creation_step_display")
+            self.creation_step_display = display if display else None
+
         roster = status.get("roster", [])
         if roster:
             pc = roster[0]
@@ -86,6 +91,17 @@ class StatsPanel:
 
         x = self.rect.left + PANEL_PADDING
         y = self.rect.top + PANEL_PADDING
+
+        if self.creation_step_display:
+            registry_surf = self._font_small.render(
+                f" Registry: {self.creation_step_display} ", True, (20, 20, 20)
+            )
+            registry_rect = pygame.Rect(
+                x, y, registry_surf.get_width() + 8, registry_surf.get_height() + 4
+            )
+            pygame.draw.rect(screen, COLOR_CLERK, registry_rect, border_radius=3)
+            screen.blit(registry_surf, (registry_rect.x + 4, registry_rect.y + 2))
+            y += registry_rect.height + 8
 
         # Character name
         name_surf = self._font_stat.render(self.character_name, True, TEXT_PRIMARY)

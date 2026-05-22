@@ -95,6 +95,23 @@ CREATION_STATUS_LABELS: dict[str, str] = {
     "WORLD_INTRO": "RECEPTION_CHOICE",
 }
 
+CREATION_STEP_DISPLAY: dict[str, str] = {
+    "NAME": "Name",
+    "RACE": "Race",
+    "ROLL_STATS": "Roll Stats",
+    "CLASS": "Class",
+    "SKILLS": "Skills",
+    "SPELL_SCHOOLS": "Spell Schools",
+    "SPELLS": "Spells",
+    "EQUIPMENT_GOLD": "Equipment & Gold",
+    "FINALIZE": "Finalize",
+    "WORLD_INTRO": "Reception",
+}
+
+
+def format_creation_step_display(step: str) -> str:
+    return CREATION_STEP_DISPLAY.get(step) or step.replace("_", " ").title()
+
 _LLM_STATUS_TAG_RE = re.compile(
     r"\[Location:[^\]]*\]|\[Phase:[^\]]*\]|Awaiting:\s*[A-Z0-9_]+",
     re.I | re.MULTILINE,
