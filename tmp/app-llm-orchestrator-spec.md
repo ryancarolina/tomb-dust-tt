@@ -70,9 +70,10 @@ TurnTruth(
 
 | Mode | Builder | Status (APP-083) |
 |------|---------|------------------|
-| **creation** | `build_creation_turn_truth(creation)` | **Phase 1 — this batch** |
+| **creation** | `build_creation_turn_truth(creation)` | **Phase 1 — done** |
 | **exploration** | `build_exploration_turn_truth(status, tool_results, gate_flags)` | **Phase 2 — future** (`app-exploration-delve-spec.md`) |
-| **combat** | `build_combat_turn_truth(status, combat_state, tool_results)` | **Phase 3 — future** (`app-combat-play-spec.md`) |
+| **encounter** | `build_encounter_turn_truth(status, encounter_phase, tool_results, gate_flags)` | **APP-089** — pre-combat; verify before `start_combat` |
+| **combat** | `build_combat_turn_truth(status, combat_state, mechanical_slice, phase_label)` | **APP-090** — per-phase verify in `_combat_llm_loop_inner` |
 
 #### Truth-as-context
 
@@ -148,6 +149,8 @@ Phase 1 deliverables:
 **Subsumed (Phase 1 docs):** APP-082; creation flavor slices of APP-078/059/073 — verify rules replace strip-first as pass gate; compose strippers optional defense-in-depth until consolidated.
 
 **Future phases:** APP-024 site-entry strip → exploration verify rules (Phase 2); APP-028 combat failure prefix → combat verify rules (Phase 3); economy/inventory prose (Phase 4).
+
+**APP-089 / APP-090 coordination (2026-05-22):** Encounter FSM uses `build_encounter_turn_truth` + verify before `start_combat`. After `start_combat` ok, only `build_combat_turn_truth` per combat phase (APP-090) — encounter verify **must not** run in `_combat_llm_loop_inner`. Schedule: APP-083 Phase 2 encounter builder with APP-089; Phase 3 per-phase combat builder with APP-090.
 
 #### Observability
 
@@ -354,6 +357,95 @@ Expand table incrementally; do not block APP-080 on every tool if `remember_fact
 - Engine/bridge `int()` belt-and-suspenders in `semantic.remember` — orchestrator is primary.
 - Exposing `fortune_spend.amount` in tools/bridge (separate ticket if needed).
 
+### Transcript sanitize (APP-031)
+
+**Problem:** In-turn tool loops build ephemeral `messages` arrays across `_llm_loop`, `_creation_llm_loop`, and `_combat_llm_loop_inner`. Malformed assistant `tool_calls` (empty array, missing `id`/`function.name`, merged XML in arguments) plus appended `tool` results cause provider **400** on the next depth:
+
+```text
+Tool-call assistant message produced no valid function calls but is followed by tool result messages
+```
+
+Persisted `self.history` stores only `{role: user|assistant, content}` — tool rounds are dropped before persist. Failure surface is **in-turn arrays only**. APP-080 coerces args before dispatch but does not repair the transcript.
+
+**Policy:** **Proactive sanitize before send** — every orchestrator `chat_completion` receives a repaired array. APP-032 (reactive 400 → truncate/retry once) is the safety net; reuse the same helper after truncate.
+
+**Boundary:** Sanitize the API **`messages` array** — not player-facing prose (APP-073/083), not tool args (APP-080). Implementation lives in **`orchestrator.py`** (ticket scope); `openrouter.chat_completion` remains pass-through.
+
+#### Helper contract
+
+`sanitize_transcript_messages(messages) -> list[dict]`:
+
+- Returns a **new** list; shallow-copies message dicts into the output.
+- **Must not** mutate the caller’s input list or dicts already in that list (shared arrays for APP-032).
+- Never raises. Walk input left-to-right per invariants below; drop/reorder invalid entries.
+- **Safe-prefix fallback:** if the walk would yield **empty** output while input was non-empty: (1) all leading `system` messages from input, in order; (2) if any `user` exists, append the **last** `user` only; (3) otherwise `[]`. Empty input → `[]`.
+
+#### Invariants
+
+After `sanitize_transcript_messages(messages)`:
+
+| Rule | Action |
+|------|--------|
+| Valid `tool_call` | Non-empty `id`; `function.name` non-empty string; `function.arguments` present (string) |
+| Invalid entries in `tool_calls` | Stripped from assistant message |
+| Assistant with no valid calls after strip | Content-only assistant (no orphan `tool_calls`) |
+| Each `tool` message | `tool_call_id` matches an `id` from nearest preceding assistant with unresolved valid calls |
+| Unmatched `tool` messages | Dropped |
+| Valid multi-tool chain | Preserved unchanged (ids + order) |
+| Walk yields empty but input non-empty | Safe-prefix fallback (see Helper contract) |
+
+#### APP-028 ordering
+
+Exploration/combat failure paths insert `system` “TOOL FAILED …” between assistant `tool_calls` and `tool` results. Sanitizer **reorders**: all `tool` messages for that round immediately follow the assistant; intervening `system`/`user` messages move **after** the tool block (content preserved).
+
+#### Wire points
+
+Preferred: orchestrator wrapper (e.g. `_chat_completion`) calling `sanitize_transcript_messages` then `openrouter.chat_completion`.
+
+| Call site | Context |
+|-----------|---------|
+| `_call_narration_llm` | Creation flavor |
+| `_narrate_only` | Combat narrate |
+| `_creation_llm_loop` | Creation tools |
+| `_combat_llm_loop_inner` | Combat tools |
+| Combat narrate pass | Full chain + user brief, `tools=None` |
+| `_llm_loop` | Exploration tools |
+
+#### APP-031 vs APP-032
+
+| Ticket | Role |
+|--------|------|
+| **APP-031** | Always sanitize before send; enforce invariants |
+| **APP-032** | On malformed-transcript 400, truncate to safe prefix, sanitize, retry **once** |
+
+Shared primitive: `sanitize_transcript_messages` — no duplicate repair logic.
+
+#### Observability (optional v1)
+
+When drops/reorders occur: JSONL `transcript_sanitized` (`dropped_tools`, `stripped_calls`, `reordered_system`) — may defer to APP-034.
+
+#### Tests (APP-031)
+
+```bash
+cd app && python -m pytest tests/test_transcript_sanitize.py -q
+```
+
+| Case | Expected |
+|------|----------|
+| Orphan `tool` with no preceding assistant `tool_calls` | Removed |
+| Assistant `tool_calls: []` + following `tool` | Orphan tools stripped; assistant de-tooled |
+| Invalid `tool_calls` (missing `id` / `function.name`) + `tool` | Invalid calls stripped; orphan tools removed |
+| Valid assistant + two tools, one id unmatched | Unmatched `tool` dropped |
+| Assistant → system TOOL FAILED → `tool` | Tools immediately after assistant; system after tool block |
+| Valid multi-tool chain round-trip | All ids preserved |
+| Mock `_llm_loop` depth ≥1 | `chat_completion` `messages` satisfy invariants |
+| Caller list + dict refs unchanged after sanitize | Non-mutating contract |
+| Tool-only input, or invalid tail after valid prefix | Safe-prefix fallback per Helper contract |
+
+Use pytest fixtures for Holt-session malformed arrays — not gitignored session JSONL in CI.
+
+**Ticket:** [APP-031](backlog/app-031-transcript-sanitize-orphan-tool-messages.md) · **Run spec:** [spec.md](backlog/runs/app-031-transcript-sanitize-orphan-tool-messages/spec.md)
+
 ---
 
 ## Task checklist
@@ -366,16 +458,17 @@ Expand table incrementally; do not block APP-080 on every tool if `remember_fact
 - [x] Normalize + validate LLM tool args before bridge dispatch (APP-080)
 - [x] Mechanical-truth narration gate — Phase 1 creation verify+retry (APP-083)
 - [x] `finish_reason: length` recovery policy — creation paths + exploration fallback (APP-079)
+- [x] Transcript sanitize — orphan tool messages before every `chat_completion` (APP-031)
 - [ ] Mechanical-truth narration gate — Phase 2 exploration (APP-083 follow-on)
 - [ ] Mechanical-truth narration gate — Phase 3 combat (APP-083 follow-on)
 
-**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 1 creation in batch), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-031](backlog/app-031-transcript-sanitize-orphan-tool-messages.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 1 creation in batch), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-032](backlog/app-032-400-retry-on-malformed-transcript.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
 ## Problem (from logs)
 
-- Google 400: *Tool-call assistant message produced no valid function calls but is followed by tool result messages*
+- Google 400: *Tool-call assistant message produced no valid function calls but is followed by tool result messages* — see § **Transcript sanitize (APP-031)**
 - SQLite cross-thread error (2026-05-18)
 
 ---
@@ -386,6 +479,7 @@ Expand table incrementally; do not block APP-080 on every tool if `remember_fact
 cd app && python -m pytest tests/test_tool_args.py -q
 cd app && python -m pytest tests/test_narration_verify.py -q   # APP-083 Phase 1
 cd app && python -m pytest tests/test_llm_truncation_recovery.py -q   # APP-079
+cd app && python -m pytest tests/test_transcript_sanitize.py -q   # APP-031
 cd app && python -m pytest tests/ -q
 ```
 
@@ -428,7 +522,7 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 | `tools.py` | OpenAI function schemas |
 | `context.py` | State block for LLM |
 | `system_prompt.py` | GM persona + rules |
-| `openrouter.py` | API client, history sanitize |
+| `openrouter.py` | API client (pass-through; transcript sanitize in orchestrator — APP-031) |
 | `choice_memory.py` | Creation choice recall |
 
 ---
@@ -437,6 +531,9 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 
 | Date | Change |
 |------|--------|
+| 2026-05-22 | APP-031 done: `sanitize_transcript_messages`, `_safe_prefix_fallback`, `Orchestrator._chat_completion` wired at all six call sites; APP-028 TOOL FAILED reorder at send boundary; `test_transcript_sanitize.py` (T1–T10) |
+| 2026-05-22 | APP-031 PM spec: § Transcript sanitize — proactive `sanitize_transcript_messages` before every orchestrator `chat_completion`; invariants, APP-028 reorder, APP-032 pairing; file map clarifies openrouter pass-through |
+| 2026-05-22 | APP-031 PM r2: helper non-mutating contract, safe-prefix fallback algorithm, test rows for mutability + tail fallback; ticket Expected files include `test_transcript_sanitize.py` |
 | 2026-05-21 | APP-083 Phase 1 done: `narration_verify.py` (`TurnTruth`, `verify_narration`, `format_turn_truth_for_prompt`); `narrate_with_verification` wired on all creation flavor paths; JSONL `narration_verify_*` events |
 | 2026-05-21 | APP-079 done: `handle_finish_reason_length` + `LengthRecoveryResult`; discard-on-length when code body pending; NAME flavor retry/fallback; exploration `_llm_loop` falls back to `_last_content`; `test_llm_truncation_recovery.py` |
 | 2026-05-21 | APP-079 PM spec: § `finish_reason: length` recovery — recovery matrix, wire points, APP-083 integration (discard before verify when body pending), shared `NARRATION_LLM_MAX_ATTEMPTS` budget |

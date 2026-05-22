@@ -186,6 +186,129 @@ def handle_finish_reason_length(
     return LengthRecoveryResult(action="none", next_prose=prose)
 
 
+def _is_valid_tool_call(tc: Any) -> bool:
+    """Structural tool_call validity (APP-031); not APP-080 arg semantics."""
+    if not isinstance(tc, dict):
+        return False
+    tc_id = tc.get("id")
+    if not isinstance(tc_id, str) or not tc_id.strip():
+        return False
+    fn = tc.get("function")
+    if not isinstance(fn, dict):
+        return False
+    name = fn.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return False
+    if "arguments" not in fn:
+        return False
+    if not isinstance(fn.get("arguments"), str):
+        return False
+    return True
+
+
+def _normalize_assistant_message(msg: dict[str, Any]) -> dict[str, Any] | None:
+    """Pass 1: strip invalid tool_calls; drop empty assistant shells."""
+    copy = {**msg}
+    raw_calls = copy.get("tool_calls")
+    if raw_calls is not None:
+        if not isinstance(raw_calls, list):
+            raw_calls = []
+        valid = [tc for tc in raw_calls if _is_valid_tool_call(tc)]
+        if valid:
+            copy["tool_calls"] = [{**tc} for tc in valid]
+            return copy
+        copy.pop("tool_calls", None)
+    if copy.get("content") is None:
+        return None
+    return copy
+
+
+def _safe_prefix_fallback(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """When sanitize would return empty, keep leading system + last user (APP-031)."""
+    if not messages:
+        return []
+    prefix: list[dict[str, Any]] = []
+    for msg in messages:
+        if msg.get("role") != "system":
+            break
+        prefix.append({**msg})
+    last_user: dict[str, Any] | None = None
+    for msg in messages:
+        if msg.get("role") == "user":
+            last_user = msg
+    if last_user is not None:
+        prefix.append({**last_user})
+    return prefix
+
+
+def sanitize_transcript_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Repair in-turn tool transcript before chat_completion (APP-031)."""
+    if not messages:
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "assistant":
+            norm = _normalize_assistant_message({**msg})
+            if norm is not None:
+                normalized.append(norm)
+        else:
+            normalized.append({**msg})
+
+    output: list[dict[str, Any]] = []
+    i = 0
+    n = len(normalized)
+    while i < n:
+        msg = normalized[i]
+        role = msg.get("role")
+
+        if role == "tool":
+            i += 1
+            continue
+
+        if role == "assistant":
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                expected_ids = {tc["id"] for tc in tool_calls}
+                seg_start = i + 1
+                seg_end = seg_start
+                while seg_end < n:
+                    next_msg = normalized[seg_end]
+                    if next_msg.get("role") == "assistant":
+                        next_calls = next_msg.get("tool_calls")
+                        if next_calls:
+                            break
+                    seg_end += 1
+
+                tools: list[dict[str, Any]] = []
+                deferred: list[dict[str, Any]] = []
+                for seg_msg in normalized[seg_start:seg_end]:
+                    if seg_msg.get("role") == "tool":
+                        tool_id = seg_msg.get("tool_call_id")
+                        if tool_id in expected_ids:
+                            tools.append({**seg_msg})
+                    else:
+                        deferred.append({**seg_msg})
+
+                output.append({**msg})
+                output.extend(tools)
+                output.extend(deferred)
+                i = seg_end
+                continue
+
+            output.append({**msg})
+            i += 1
+            continue
+
+        output.append({**msg})
+        i += 1
+
+    if not output and messages:
+        return _safe_prefix_fallback(messages)
+    return output
+
+
 class Orchestrator:
     """Manages the GM turn loop."""
 
@@ -221,6 +344,15 @@ class Orchestrator:
 
     def get_status(self) -> dict:
         return self.bridge.status()
+
+    def is_map_travel_blocked(self) -> bool:
+        status = self.bridge.status()
+        roster = status.get("roster") or []
+        if self.creation.active:
+            return True
+        if status.get("awaiting") == "CHARACTER_CREATION" and not roster:
+            return True
+        return False
 
     def get_player_suggestions(self) -> list[str]:
         from ui.suggestions import build_player_suggestions
@@ -1039,17 +1171,34 @@ class Orchestrator:
             {"role": "user", "content": player_input},
         ]
 
+    def _chat_completion(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list | None = None,
+        tool_choice: str | dict | None = "auto",
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> dict:
+        clean = sanitize_transcript_messages(messages)
+        return chat_completion(
+            self.client,
+            model=self.model,
+            messages=clean,
+            tools=tools,
+            tool_choice=tool_choice,
+            max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
+            temperature=temperature if temperature is not None else self.temperature,
+        )
+
     def _call_narration_llm(self, messages: list[dict[str, Any]]) -> str:
         """Short LLM flavor call (~120 tokens, no tools)."""
         log_llm_request(len(messages), self.model, 0)
         try:
-            response = chat_completion(
-                self.client,
-                model=self.model,
+            response = self._chat_completion(
                 messages=messages,
                 tools=None,
                 max_tokens=_CREATION_FLAVOR_MAX_TOKENS,
-                temperature=self.temperature,
             )
         except Exception as exc:
             log_error("narrate_flavor", str(exc))
@@ -1670,14 +1819,7 @@ class Orchestrator:
         """Call LLM with NO tools — pure narration."""
         log_llm_request(len(messages), self.model, 0)
         try:
-            response = chat_completion(
-                self.client,
-                model=self.model,
-                messages=messages,
-                tools=None,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-            )
+            response = self._chat_completion(messages=messages, tools=None)
         except Exception as exc:
             log_error("narrate_only", str(exc))
             return "The clerk regards you with a weary sigh."
@@ -1697,14 +1839,10 @@ class Orchestrator:
             log_llm_request(len(messages), self.model, depth)
 
             try:
-                response = chat_completion(
-                    self.client,
-                    model=self.model,
+                response = self._chat_completion(
                     messages=messages,
                     tools=tools if depth < 2 else None,
                     tool_choice=tool_choice if depth < 2 else "none",
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
                 )
             except Exception as exc:
                 log_error("creation_llm_loop", str(exc))
@@ -2044,14 +2182,10 @@ class Orchestrator:
 
         log_llm_request(len(messages), self.model, depth)
         try:
-            response = chat_completion(
-                self.client,
-                model=self.model,
+            response = self._chat_completion(
                 messages=messages,
                 tools=[COMBAT_ACTION_TOOL],
                 tool_choice="auto",
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
             )
         except Exception as exc:
             return f"[Mechanics failed — API error: {exc}]"
@@ -2129,14 +2263,7 @@ class Orchestrator:
             {"role": "user", "content": brief + "\n\nNarrate the combat results honestly. Do not call more tools."},
         ]
         try:
-            final = chat_completion(
-                self.client,
-                model=self.model,
-                messages=narrate_messages,
-                tools=None,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-            )
+            final = self._chat_completion(messages=narrate_messages, tools=None)
             return final.get("content") or brief
         except Exception:
             return brief
@@ -2209,13 +2336,9 @@ class Orchestrator:
         log_llm_request(len(messages), self.model, depth)
 
         try:
-            response = chat_completion(
-                self.client,
-                model=self.model,
+            response = self._chat_completion(
                 messages=messages,
                 tools=TOOLS if (allow_tools and depth < 3) else None,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
             )
         except Exception as exc:
             log_error("chat_completion", str(exc))
