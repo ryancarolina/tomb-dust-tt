@@ -29,6 +29,7 @@ class App:
 
         self._orchestrator = None
         self._tts_config = config.get("tts", {})
+        self._tts_enabled = self._tts_config.get("mode") != "text_only"
         self._turn_state = "idle"  # idle | thinking | speaking
         self._current_turn_id = 0
         self._turn_lock = threading.Lock()
@@ -68,13 +69,16 @@ class App:
                 elif event.type == pygame.MOUSEMOTION:
                     self.sidebar.handle_hover(event.pos)
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    map_addr = self.sidebar.handle_map_click(event.pos)
-                    if map_addr and self._can_submit() and not self._map_travel_blocked():
-                        self._submit(f"travel to {map_addr}")
+                    if self.sidebar.handle_voice_toggle_click(event.pos):
+                        self._toggle_tts_enabled()
                     else:
-                        result = self.input_box.handle_click(event.pos)
-                        if result and self._can_submit():
-                            self._submit(result)
+                        map_addr = self.sidebar.handle_map_click(event.pos)
+                        if map_addr and self._can_submit() and not self._map_travel_blocked():
+                            self._submit(f"travel to {map_addr}")
+                        else:
+                            result = self.input_box.handle_click(event.pos)
+                            if result and self._can_submit():
+                                self._submit(result)
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self._save_session()
@@ -118,6 +122,10 @@ class App:
             self.narration = NarrationPanel(narr_rect)
             self.input_box = InputBox(input_rect)
             self.sidebar = Sidebar(sidebar_rect, content_root=content_root)
+
+        mode = self._tts_config.get("mode", "speak_dialogue")
+        self.sidebar.set_tts_chip_visible(mode != "text_only")
+        self.sidebar.set_tts_enabled(self._tts_enabled)
 
     def _init_orchestrator(self):
         def _init():
@@ -234,6 +242,14 @@ class App:
         self._status_text = status_text
         self.sidebar.set_speaker("narrator", False)
 
+    def _toggle_tts_enabled(self) -> None:
+        self._tts_enabled = not self._tts_enabled
+        self.sidebar.set_tts_enabled(self._tts_enabled)
+        if not self._tts_enabled and self._turn_state == "speaking":
+            from tomb_gm.services.tts.queue import request_stop
+            request_stop()
+            self._set_turn_idle()
+
     def _draw_status(self, screen: pygame.Surface):
         font = pygame.font.SysFont("Consolas", FONT_SIZE_SMALL)
         if self._turn_state == "thinking":
@@ -327,7 +343,11 @@ class App:
         if turn_id != self._current_turn_id:
             return
 
-        if narration and self._tts_config.get("mode") != "text_only":
+        if (
+            narration
+            and self._tts_enabled
+            and self._tts_config.get("mode") != "text_only"
+        ):
             threading.Thread(
                 target=self._speak_narration,
                 args=(narration, lines, turn_id),
@@ -376,7 +396,9 @@ class App:
     def _speak_narration(self, text: str, lines: list[dict] | None, turn_id: int):
         if turn_id != self._current_turn_id:
             return
-        if self._tts_config.get("mode") == "text_only":
+        if not self._tts_enabled or self._tts_config.get("mode") == "text_only":
+            if turn_id == self._current_turn_id:
+                self._ui_queue.put(("turn_idle", turn_id))
             return
 
         self._ui_queue.put(("speaking", None))
@@ -496,3 +518,6 @@ class App:
                         self.sidebar.map.visited.add(real_addr)
             except Exception:
                 pass
+
+        self._tts_enabled = self._tts_config.get("mode") != "text_only"
+        self.sidebar.set_tts_enabled(self._tts_enabled)

@@ -17,6 +17,8 @@ class Sidebar:
         self._map_travel_blocked_hint = "Finish Registry intake first"
         self._creation_step: str | None = None
         self._creation_step_display: str | None = None
+        self._tts_chip_visible = False
+        self._tts_enabled = True
         self._do_layout(rect)
 
     def _do_layout(self, rect: pygame.Rect):
@@ -25,6 +27,8 @@ class Sidebar:
         map_h = rect.height - npc_h - stats_h
 
         self.npc_card = NpcCard(pygame.Rect(rect.left, rect.top, rect.width, npc_h))
+        self.npc_card.set_tts_chip_visible(self._tts_chip_visible)
+        self.npc_card.set_tts_enabled(self._tts_enabled)
         self.stats = StatsPanel(pygame.Rect(rect.left, rect.top + npc_h, rect.width, stats_h))
         self.map = MapView(
             pygame.Rect(rect.left, rect.top + npc_h + stats_h, rect.width, map_h),
@@ -57,7 +61,19 @@ class Sidebar:
     def set_speaker(self, voice: str, speaking: bool = True):
         self.npc_card.set_speaker(voice, speaking)
 
+    def set_tts_chip_visible(self, visible: bool) -> None:
+        self._tts_chip_visible = visible
+        self.npc_card.set_tts_chip_visible(visible)
+
+    def set_tts_enabled(self, enabled: bool) -> None:
+        self._tts_enabled = enabled
+        self.npc_card.set_tts_enabled(enabled)
+
+    def handle_voice_toggle_click(self, pos: tuple[int, int]) -> bool:
+        return self.npc_card.handle_voice_toggle_click(pos)
+
     def handle_hover(self, pos: tuple[int, int]):
+        self.npc_card.handle_voice_hover(pos)
         if self.map.rect.collidepoint(pos):
             self.map.handle_hover(pos)
 
