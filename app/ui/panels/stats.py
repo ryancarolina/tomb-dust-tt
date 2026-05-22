@@ -25,7 +25,6 @@ class StatsPanel:
         self.location_name = "—"
         self.address = "—"
         self.conditions: list[str] = []
-        self.known_spells: list[str] = []
         self.creation_step_display: str | None = None
         self._font = None
         self._font_small = None
@@ -74,7 +73,6 @@ class StatsPanel:
                 pass
 
             self.conditions = pc.get("conditions", [])
-            self.known_spells = pc.get("known_spells") or []
 
         party = status.get("party")
         if party:
@@ -174,16 +172,6 @@ class StatsPanel:
         addr_surf = self._font.render(self.address, True, TEXT_SECONDARY)
         screen.blit(addr_surf, (x, y))
         y += addr_surf.get_height() + 12
-
-        if self.known_spells:
-            sp_label = self._font_small.render("Spells", True, TEXT_MUTED)
-            screen.blit(sp_label, (x, y))
-            y += sp_label.get_height() + 2
-            for sp in self.known_spells[:4]:
-                sp_surf = self._font_small.render(f"• {sp.replace('-', ' ').title()}", True, TEXT_SECONDARY)
-                screen.blit(sp_surf, (x, y))
-                y += sp_surf.get_height() + 1
-            y += 8
 
         # Conditions (if any)
         if self.conditions:

@@ -12,6 +12,7 @@ from pathlib import Path
 from ui.theme import BG_DARK, TEXT_MUTED, TEXT_ACCENT, FONT_SIZE_SMALL, FONT_SIZE
 from ui.panels.narration import NarrationPanel
 from ui.panels.input_box import InputBox
+from ui.panels.character_panel import CharacterPanel
 from ui.panels.sidebar import Sidebar
 
 UI_EVENT = pygame.USEREVENT + 1
@@ -26,6 +27,11 @@ class App:
         self.width = ui_cfg.get("window_width", 1280)
         self.height = ui_cfg.get("window_height", 800)
         self.narration_ratio = ui_cfg.get("narration_width_ratio", 0.7)
+        self.character_panel_ratio = ui_cfg.get("character_panel_width_ratio", 0.22)
+        self.sidebar_ratio = ui_cfg.get(
+            "sidebar_width_ratio",
+            max(0.2, 1.0 - self.narration_ratio),
+        )
 
         self._orchestrator = None
         self._tts_config = config.get("tts", {})
@@ -41,6 +47,7 @@ class App:
         self._last_save_time = 0
         self._autosave_interval = 60.0
         self._map_travel_blocked_flag = False
+        self._selected_character_item_id: str | None = None
 
     def run(self):
         pygame.init()
@@ -64,13 +71,18 @@ class App:
                     screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
                     self._layout(self.width, self.height)
                 elif event.type == pygame.MOUSEWHEEL:
-                    if self.narration.rect.collidepoint(pygame.mouse.get_pos()):
+                    mouse_pos = pygame.mouse.get_pos()
+                    if self.character_panel.rect.collidepoint(mouse_pos):
+                        self.character_panel.handle_wheel(event.y)
+                    elif self.narration.rect.collidepoint(mouse_pos):
                         self._scroll_velocity = -event.y * 300
                 elif event.type == pygame.MOUSEMOTION:
                     self.sidebar.handle_hover(event.pos)
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if self.sidebar.handle_voice_toggle_click(event.pos):
                         self._toggle_tts_enabled()
+                    elif self.character_panel.handle_click(event.pos):
+                        pass
                     else:
                         map_addr = self.sidebar.handle_map_click(event.pos)
                         if map_addr and self._can_submit() and not self._map_travel_blocked():
@@ -93,6 +105,7 @@ class App:
             self._autosave()
 
             screen.fill(BG_DARK)
+            self.character_panel.draw(screen)
             self.narration.draw(screen)
             self.input_box.draw(screen)
             self.sidebar.draw(screen)
@@ -103,22 +116,39 @@ class App:
         pygame.quit()
 
     def _layout(self, w: int, h: int):
-        sidebar_w = int(w * (1 - self.narration_ratio))
-        narr_w = w - sidebar_w
+        character_w = int(w * self.character_panel_ratio)
+        sidebar_w = int(w * self.sidebar_ratio)
+        center_w = w - character_w - sidebar_w
+        if center_w < 240:
+            center_w = 240
+            if character_w + sidebar_w > w - center_w:
+                overage = character_w + sidebar_w - (w - center_w)
+                shrink_left = min(character_w - 120, overage // 2) if character_w > 120 else 0
+                character_w -= max(0, shrink_left)
+                overage = character_w + sidebar_w - (w - center_w)
+                if overage > 0 and sidebar_w > 180:
+                    sidebar_w -= min(sidebar_w - 180, overage)
+        center_w = max(1, w - character_w - sidebar_w)
         input_h = 50
         narr_h = h - input_h
 
-        narr_rect = pygame.Rect(0, 0, narr_w, narr_h)
-        input_rect = pygame.Rect(0, narr_h, narr_w, input_h)
-        sidebar_rect = pygame.Rect(narr_w, 0, sidebar_w, h)
+        character_rect = pygame.Rect(0, 0, character_w, h)
+        narr_rect = pygame.Rect(character_w, 0, center_w, narr_h)
+        input_rect = pygame.Rect(character_w, narr_h, center_w, input_h)
+        sidebar_rect = pygame.Rect(character_w + center_w, 0, sidebar_w, h)
 
         content_root = Path(__file__).resolve().parents[2] / "build"
 
         if hasattr(self, "narration"):
+            self.character_panel.resize(character_rect)
             self.narration.resize(narr_rect)
             self.input_box.resize(input_rect)
             self.sidebar.resize(sidebar_rect)
         else:
+            self.character_panel = CharacterPanel(
+                character_rect,
+                on_item_selected=self._on_character_item_selected,
+            )
             self.narration = NarrationPanel(narr_rect)
             self.input_box = InputBox(input_rect)
             self.sidebar = Sidebar(sidebar_rect, content_root=content_root)
@@ -182,6 +212,7 @@ class App:
             elif msg_type == "status":
                 self._map_travel_blocked_flag = bool(data.get("map_travel_blocked"))
                 self.sidebar.update_from_status(data)
+                self._refresh_character_panel_data(data)
             elif msg_type == "map_update":
                 if isinstance(data, dict):
                     self.sidebar.map.update_position(
@@ -217,6 +248,11 @@ class App:
             elif msg_type == "speaking":
                 self._turn_state = "speaking"
                 self._status_text = "GM is speaking (Enter to interrupt)"
+            elif msg_type == "character_item_selected":
+                if isinstance(data, dict):
+                    self._selected_character_item_id = data.get("item_id")
+                else:
+                    self._selected_character_item_id = data
 
     def _update_scroll(self, dt: float):
         if abs(self._scroll_velocity) > 1:
@@ -393,6 +429,44 @@ class App:
             ("suggestions", self._orchestrator.get_player_suggestions())
         )
 
+    def _on_character_item_selected(self, item_id: str | None) -> None:
+        self._ui_queue.put(("character_item_selected", {"item_id": item_id}))
+
+    def _refresh_character_panel_data(self, status: dict | None = None) -> None:
+        if not self._orchestrator or not hasattr(self, "character_panel"):
+            return
+        bridge = getattr(self._orchestrator, "bridge", None)
+        if not bridge:
+            self.character_panel.update_inventory(None)
+            self.character_panel.update_spells(None)
+            return
+
+        character_id = None
+        roster = (status or {}).get("roster") if isinstance(status, dict) else None
+        if roster:
+            top = roster[0]
+            character_id = top.get("character_id") or top.get("id")
+
+        inventory_payload = None
+        try:
+            inventory_payload = bridge.list_inventory(character_id=character_id)
+        except TypeError:
+            inventory_payload = bridge.list_inventory()
+        except Exception:
+            inventory_payload = None
+
+        if inventory_payload and inventory_payload.get("ok"):
+            character_id = inventory_payload.get("character_id") or character_id
+        self.character_panel.update_inventory(inventory_payload)
+
+        spells_payload = None
+        if character_id:
+            try:
+                spells_payload = bridge.list_known_spells(character_id)
+            except Exception:
+                spells_payload = None
+        self.character_panel.update_spells(spells_payload)
+
     def _speak_narration(self, text: str, lines: list[dict] | None, turn_id: int):
         if turn_id != self._current_turn_id:
             return
@@ -508,9 +582,10 @@ class App:
             pass
 
         if self._orchestrator:
+            synced_status = None
             try:
-                status = self._orchestrator.get_status()
-                party = status.get("party")
+                synced_status = self._orchestrator.get_status()
+                party = synced_status.get("party")
                 if party:
                     real_addr = party.get("address")
                     if real_addr:
@@ -518,6 +593,11 @@ class App:
                         self.sidebar.map.visited.add(real_addr)
             except Exception:
                 pass
+            if synced_status is not None:
+                try:
+                    self._ui_queue.put(("status", self._enrich_status_for_ui(synced_status)))
+                except Exception:
+                    pass
 
         self._tts_enabled = self._tts_config.get("mode") != "text_only"
         self.sidebar.set_tts_enabled(self._tts_enabled)
