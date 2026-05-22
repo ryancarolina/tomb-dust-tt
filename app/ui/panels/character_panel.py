@@ -31,7 +31,7 @@ class CharacterPanel:
         self._spell_rows: list[dict] = []
         self._backpack_empty_message = "No delver yet"
         self._spells_empty_message = "No spells known"
-        self._selected_item_id: str | None = None
+        self._selected_item_instance_id: str | None = None
         self._selected_spell_index: int | None = None
 
         self._scroll_offset = 0
@@ -97,9 +97,9 @@ class CharacterPanel:
         self._scroll_offset += -wheel_y * 26
         self._clamp_scroll()
 
-    def _emit_item_selected(self, item_id: str | None):
+    def _emit_item_selected(self, item: dict[str, str] | None):
         if self.on_item_selected:
-            self.on_item_selected(item_id)
+            self.on_item_selected(item)
 
     def handle_click(self, pos: tuple[int, int]) -> bool:
         if not self.rect.collidepoint(pos):
@@ -119,8 +119,8 @@ class CharacterPanel:
 
         rows = self._rows_for_active_tab()
         if not rows:
-            if self.active_tab == self.TAB_BACKPACK and self._selected_item_id is not None:
-                self._selected_item_id = None
+            if self.active_tab == self.TAB_BACKPACK and self._selected_item_instance_id is not None:
+                self._selected_item_instance_id = None
                 self._emit_item_selected(None)
             return True
 
@@ -128,17 +128,26 @@ class CharacterPanel:
         row_index = rel_y // self._row_height
 
         if row_index < 0 or row_index >= len(rows):
-            if self.active_tab == self.TAB_BACKPACK and self._selected_item_id is not None:
-                self._selected_item_id = None
+            if self.active_tab == self.TAB_BACKPACK and self._selected_item_instance_id is not None:
+                self._selected_item_instance_id = None
                 self._emit_item_selected(None)
             return True
 
         selected = rows[row_index]
         if self.active_tab == self.TAB_BACKPACK:
-            next_item_id = selected.get("item_id")
-            if next_item_id != self._selected_item_id:
-                self._selected_item_id = next_item_id
-                self._emit_item_selected(next_item_id)
+            next_instance_id = selected.get("instance_id")
+            next_catalog_item_id = selected.get("catalog_item_id")
+            if next_instance_id != self._selected_item_instance_id:
+                self._selected_item_instance_id = next_instance_id
+                if next_instance_id and next_catalog_item_id:
+                    self._emit_item_selected(
+                        {
+                            "instance_id": next_instance_id,
+                            "item_id": next_catalog_item_id,
+                        }
+                    )
+                else:
+                    self._emit_item_selected(None)
         else:
             self._selected_spell_index = row_index
         return True
@@ -153,8 +162,9 @@ class CharacterPanel:
             pack = payload.get("pack") or []
             if pack:
                 for idx, item in enumerate(pack):
-                    item_id = item.get("instanceId") or item.get("itemId") or f"pack-{idx}"
-                    label = item.get("displayName") or item.get("itemId") or "Unknown item"
+                    instance_id = item.get("instanceId") or f"pack-{idx}"
+                    catalog_item_id = item.get("itemId")
+                    label = item.get("displayName") or catalog_item_id or "Unknown item"
                     equipped = bool(item.get("equipped")) or bool(item.get("equippedSlots"))
                     quantity = item.get("quantity")
                     uses = item.get("uses")
@@ -164,8 +174,14 @@ class CharacterPanel:
                         label = f"{label} ({uses})"
                     if equipped:
                         label = f"{label} [E]"
-                    rows.append({"item_id": str(item_id), "label": str(label)})
-                    if self._selected_item_id == str(item_id):
+                    rows.append(
+                        {
+                            "instance_id": str(instance_id),
+                            "catalog_item_id": str(catalog_item_id) if catalog_item_id else None,
+                            "label": str(label),
+                        }
+                    )
+                    if self._selected_item_instance_id == str(instance_id):
                         selected_item_still_present = True
                 empty_message = "Backpack empty"
             else:
@@ -175,8 +191,8 @@ class CharacterPanel:
 
         self._backpack_rows = rows
         self._backpack_empty_message = empty_message
-        if self._selected_item_id is not None and not selected_item_still_present:
-            self._selected_item_id = None
+        if self._selected_item_instance_id is not None and not selected_item_still_present:
+            self._selected_item_instance_id = None
             self._emit_item_selected(None)
         self._clamp_scroll()
 
@@ -268,7 +284,7 @@ class CharacterPanel:
                     continue
                 is_selected = False
                 if self.active_tab == self.TAB_BACKPACK:
-                    is_selected = row.get("item_id") == self._selected_item_id
+                    is_selected = row.get("instance_id") == self._selected_item_instance_id
                 elif self._selected_spell_index is not None:
                     is_selected = idx == self._selected_spell_index
                 if is_selected:

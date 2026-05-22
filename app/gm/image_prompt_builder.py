@@ -77,6 +77,10 @@ class ImagePromptBuilder:
             prompt = self._build_item_prompt(entity_id)
         return self.sanitize_prompt(prompt)
 
+    def build_item(self, item_id: str) -> str:
+        """Build and sanitize an item-specific illustration prompt."""
+        return self.sanitize_prompt(self._build_item_prompt(item_id))
+
     def _style_suffix(self, *, accent: str, environment: str) -> str:
         return _STYLE_SUFFIX.format(accent=accent, environment=environment)
 
@@ -150,7 +154,7 @@ class ImagePromptBuilder:
         display = str(item.get("displayName") or _titleize(item_id))
         desc = _safe_text(str(item.get("description") or "field-ready adventuring equipment."))
         subject = (
-            f"{display}, isolated prop portrait on worn parchment and timber tabletop, "
+            f"{display}, isolated item study with parchment-framed composition on a worn timber tabletop, "
             f"{desc} Emphasize material wear, practical craftsmanship, and delver utility."
         )
         return f"{subject} {self._style_suffix(accent='iron-gray', environment='quiet workshop backdrop')}"

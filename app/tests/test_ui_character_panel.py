@@ -85,7 +85,7 @@ def test_backpack_selection_emits_queue_message(app_config):
         app.character_panel.handle_click((body.left + 8, body.top + 8))
 
         messages = _drain_queue(app)
-        assert ("character_item_selected", {"item_id": "it-1"}) in messages
+        assert ("character_item_selected", {"instance_id": "it-1", "item_id": "rations"}) in messages
     finally:
         pygame.quit()
 
@@ -109,7 +109,7 @@ def test_backpack_click_empty_clears_selection(app_config):
 
         app.character_panel.handle_click((body.left + 8, body.bottom - 8))
         messages = _drain_queue(app)
-        assert ("character_item_selected", {"item_id": None}) in messages
+        assert ("character_item_selected", {"instance_id": None, "item_id": None}) in messages
     finally:
         pygame.quit()
 

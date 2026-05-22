@@ -43,3 +43,12 @@ def test_prompt_builder_supports_all_entity_types(entity_type: str, entity_id: s
 def test_prompt_builder_rejects_unknown_entity_type():
     with pytest.raises(ValueError):
         _builder().build_prompt("unknown", "id-1")
+
+
+@pytest.mark.parametrize("item_id", ["longsword", "rations"])
+def test_build_item_wrapper_uses_item_parchment_framing(item_id: str):
+    prompt = _builder().build_item(item_id)
+    lower = prompt.lower()
+    assert "parchment-framed composition" in lower
+    assert "deckled edges" in lower
+    assert "dungeons and dragons" not in lower
