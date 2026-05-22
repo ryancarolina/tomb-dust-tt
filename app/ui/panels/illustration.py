@@ -21,8 +21,17 @@ from ui.theme import (
 )
 
 
+DEFAULT_TITLE = "Tomb Dust"
+
+
 class IllustrationPanel:
-    def __init__(self, rect: pygame.Rect):
+    def __init__(
+        self,
+        rect: pygame.Rect,
+        *,
+        default_image_path: Path | str | None = None,
+        default_title: str = DEFAULT_TITLE,
+    ):
         self.rect = rect
         self._font = None
         self._font_small = None
@@ -35,10 +44,19 @@ class IllustrationPanel:
         self._image_rect = pygame.Rect(0, 0, 0, 0)
         self._caption_rect = pygame.Rect(0, 0, 0, 0)
 
+        self._default_title = default_title or DEFAULT_TITLE
+        self._default_surface: pygame.Surface | None = None
+        if default_image_path:
+            try:
+                self._default_surface = pygame.image.load(str(Path(default_image_path)))
+            except Exception:
+                self._default_surface = None
+
         self._illustration_path: str | None = None
-        self._illustration_title = ""
+        self._illustration_title = self._default_title
         self._loading = False
         self._image_surface: pygame.Surface | None = None
+        self._showing_default = self._default_surface is not None
 
         self._layout()
 
@@ -85,22 +103,57 @@ class IllustrationPanel:
         self.rect = rect
         self._layout()
 
-    def set_illustration(self, path: str | None = None, title: str = "", loading: bool = False) -> None:
-        prev_loading = self._loading
-        self._illustration_title = title or ""
-        next_loading = bool(loading)
-        next_path = str(path) if path else None
-        if next_path == self._illustration_path and prev_loading == next_loading:
-            return
-        self._loading = next_loading
-        self._illustration_path = next_path
+    def clear_to_default(self) -> None:
+        self._loading = False
+        self._illustration_path = None
         self._image_surface = None
-        if next_path and not self._loading:
-            try:
-                self._image_surface = pygame.image.load(str(Path(next_path)))
-            except Exception:
-                self._illustration_path = None
-                self._image_surface = None
+        self._showing_default = self._default_surface is not None
+        self._illustration_title = self._default_title if self._showing_default else ""
+
+    def set_illustration(self, path: str | None = None, title: str = "", loading: bool = False) -> None:
+        next_loading = bool(loading)
+        if next_loading:
+            prev_loading = self._loading
+            next_path = str(path) if path else None
+            self._illustration_title = title or ""
+            if next_path == self._illustration_path and prev_loading == next_loading:
+                return
+            self._loading = True
+            self._showing_default = False
+            self._illustration_path = next_path
+            self._image_surface = None
+            return
+
+        next_path = str(path) if path else None
+        if not next_path:
+            self.clear_to_default()
+            return
+
+        if next_path == self._illustration_path and not self._loading:
+            if title:
+                self._illustration_title = title
+            return
+
+        self._loading = False
+        self._showing_default = False
+        self._illustration_path = next_path
+        self._illustration_title = title or ""
+        self._image_surface = None
+        try:
+            self._image_surface = pygame.image.load(str(Path(next_path)))
+        except Exception:
+            self._illustration_path = None
+            self._image_surface = None
+            self.clear_to_default()
+
+    def _display_surface(self) -> pygame.Surface | None:
+        if self._loading:
+            return None
+        if self._image_surface is not None:
+            return self._image_surface
+        if self._showing_default:
+            return self._default_surface
+        return None
 
     def set_images_enabled(self, enabled: bool) -> None:
         self._images_enabled = bool(enabled)
@@ -124,15 +177,16 @@ class IllustrationPanel:
         self._images_chip_hovered = self._images_chip_rect.collidepoint(pos)
 
     def _draw_letterboxed_image(self, screen: pygame.Surface) -> None:
-        if not self._image_surface:
+        surface = self._display_surface()
+        if not surface:
             return
-        src_w, src_h = self._image_surface.get_size()
+        src_w, src_h = surface.get_size()
         if src_w <= 0 or src_h <= 0:
             return
         scale = min(self._image_rect.width / src_w, self._image_rect.height / src_h)
         draw_w = max(1, int(src_w * scale))
         draw_h = max(1, int(src_h * scale))
-        scaled = pygame.transform.smoothscale(self._image_surface, (draw_w, draw_h))
+        scaled = pygame.transform.smoothscale(surface, (draw_w, draw_h))
         draw_x = self._image_rect.centerx - draw_w // 2
         draw_y = self._image_rect.centery - draw_h // 2
         screen.blit(scaled, (draw_x, draw_y))
@@ -162,7 +216,7 @@ class IllustrationPanel:
                     self._image_rect.centery - loading.get_height() // 2,
                 ),
             )
-        elif not self._image_surface:
+        elif not self._display_surface():
             empty = self._font_small.render("No illustration yet", True, TEXT_MUTED)
             screen.blit(
                 empty,

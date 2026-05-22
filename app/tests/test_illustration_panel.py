@@ -52,6 +52,59 @@ def test_set_illustration_loads_surface_and_draws(tmp_path: Path):
         pygame.quit()
 
 
+def test_default_title_shows_when_no_active_illustration(tmp_path: Path):
+    _init_pygame()
+    try:
+        from ui.panels.illustration import IllustrationPanel
+
+        image_path = tmp_path / "title.png"
+        source = pygame.Surface((320, 240))
+        source.fill((90, 70, 50))
+        pygame.image.save(source, str(image_path))
+
+        panel = IllustrationPanel(
+            pygame.Rect(0, 0, 480, 260),
+            default_image_path=image_path,
+            default_title="Tomb Dust",
+        )
+        assert panel._showing_default is True
+        assert panel._display_surface() is not None
+        assert panel._illustration_title == "Tomb Dust"
+
+        panel.clear_to_default()
+        assert panel._showing_default is True
+        assert panel._illustration_title == "Tomb Dust"
+    finally:
+        pygame.quit()
+
+
+def test_entity_illustration_replaces_default(tmp_path: Path):
+    _init_pygame()
+    try:
+        from ui.panels.illustration import IllustrationPanel
+
+        default_path = tmp_path / "title.png"
+        entity_path = tmp_path / "npc.png"
+        for path, color in ((default_path, (40, 40, 80)), (entity_path, (180, 120, 60))):
+            surf = pygame.Surface((200, 200))
+            surf.fill(color)
+            pygame.image.save(surf, str(path))
+
+        panel = IllustrationPanel(
+            pygame.Rect(0, 0, 480, 260),
+            default_image_path=default_path,
+        )
+        panel.set_illustration(path=str(entity_path), title="Marshal Garrick Holt", loading=False)
+        assert panel._showing_default is False
+        assert panel._illustration_path == str(entity_path)
+
+        panel.clear_to_default()
+        assert panel._showing_default is True
+        assert panel._illustration_title == "Tomb Dust"
+    finally:
+        pygame.quit()
+
+
 def test_loading_state_uses_generating_placeholder():
     _init_pygame()
     try:

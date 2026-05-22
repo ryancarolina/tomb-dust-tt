@@ -1,0 +1,10 @@
+{
+  "entity_type": "title",
+  "entity_id": "tomb-dust-title",
+  "source": "bundled",
+  "prompt_id": "H-module-title",
+  "model": "black-forest-labs/flux.2-klein-4b",
+  "aspect_ratio": "4:3",
+  "prompt": "Classic 1980s tabletop fantasy adventure module cover painting. Large ornate title lettering at the top reading TOMB DUST in weathered gold and bone-white fantasy capitals, like vintage module covers. Central scene: a grim carved stone dungeon archway receding into darkness, guttering torchlight, drifting tomb dust and cobwebs, a lone armored delver silhouette on worn flagstones. Extraction fantasy mood, Registry ledger stamp hint in a bottom corner. Hand-painted oil illustration on worn illustration board with subtle paper grain and deckled edges, 1980s tabletop fantasy RPG cover painting, heroic Western fantasy realism, visible brushstrokes, dramatic directional lighting and chiaroscuro, natural saturated tones, muted earth palette with amber torchlight accent, painterly stone and weathered metal, atmospheric underground entrance, fold creases and aged print texture on the cover surface.",
+  "generated_at": "2026-05-22T20:25:26.763656+00:00"
+}

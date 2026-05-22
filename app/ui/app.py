@@ -176,7 +176,11 @@ class App:
                 character_rect,
                 on_item_selected=self._on_character_item_selected,
             )
-            self.illustration = IllustrationPanel(illustration_rect)
+            default_title_path = self._content_root / "data" / "illustrations" / "tomb-dust-title.png"
+            self.illustration = IllustrationPanel(
+                illustration_rect,
+                default_image_path=default_title_path if default_title_path.is_file() else None,
+            )
             self.narration = NarrationPanel(narr_rect)
             self.input_box = InputBox(input_rect)
             self.sidebar = Sidebar(sidebar_rect, content_root=self._content_root)
@@ -288,7 +292,7 @@ class App:
                         loading=bool(data.get("loading", False)),
                     )
             elif msg_type == "illustration_clear":
-                self.illustration.set_illustration(path=None, title="", loading=False)
+                self.illustration.clear_to_default()
             elif msg_type == "character_item_selected":
                 if isinstance(data, dict):
                     self._selected_character_item_instance_id = data.get("instance_id")
