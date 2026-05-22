@@ -23,3 +23,14 @@ ui:
   window_height: 800
   font_size: 16
   narration_width_ratio: 0.7
+  character_panel_width_ratio: 0.22
+  sidebar_width_ratio: 0.30
+
+images:
+  enabled: false
+  provider: openrouter
+  model: black-forest-labs/flux.2-klein-4b
+  portrait_aspect_ratio: "1:1"
+  scene_aspect_ratio: "4:3"
+  max_generations_per_session: 30
+  concurrency: 1
