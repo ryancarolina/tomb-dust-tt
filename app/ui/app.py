@@ -505,6 +505,7 @@ class App:
         else:
             out["creation_step"] = None
             out["creation_step_display"] = None
+        out["creation_active"] = bool(self._orchestrator.creation.active)
         return out
 
     def _queue_turn_status(self, turn_id: int) -> None:
@@ -517,7 +518,7 @@ class App:
         status = self._enrich_status_for_ui(raw_status)
         self._ui_queue.put(("status", status))
 
-        entities = self._image_resolver.detect_entities(self._prev_engine_status, raw_status)
+        entities = self._image_resolver.detect_entities(self._prev_engine_status, status)
         winner = self._image_resolver.pick_winner(
             entities,
             item_selected=bool(self._selected_character_catalog_item_id),
@@ -557,7 +558,7 @@ class App:
                     entity_id,
                     self._entity_display_name(entity_id),
                 )
-        self._prev_engine_status = deepcopy(raw_status)
+        self._prev_engine_status = deepcopy(status)
 
     def _queue_turn_suggestions(self, turn_id: int) -> None:
         """Unconditional chip refresh after every turn (success or error)."""
@@ -735,7 +736,7 @@ class App:
         if trigger_source:
             payload["trigger_source"] = trigger_source
         log_entry("image_request", payload)
-        should_show_loading = bool(config_enabled and self._images_enabled)
+        should_show_loading = bool(self._images_enabled)
         if should_show_loading:
             self._ui_queue.put(
                 (

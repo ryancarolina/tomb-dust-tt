@@ -10,6 +10,8 @@ from tomb_gm.services.content import ContentService
 
 
 class ImageResolver:
+    HUB_SPAWN_ADDRESS = "32-C"
+
     KEY_NPC_VOICES = {
         "marshal-garrick-holt",
         "isla-brack",
@@ -104,6 +106,14 @@ class ImageResolver:
                     "priority": self.PRIORITY_LOCATION,
                 }
             )
+        elif self._is_first_hub_arrival(prev, curr):
+            out.append(
+                {
+                    "entity_type": "location",
+                    "entity_id": self.HUB_SPAWN_ADDRESS,
+                    "priority": self.PRIORITY_LOCATION,
+                }
+            )
 
         prev_site_id = str(prev_party.get("site_id") or "").strip()
         curr_site_id = str(curr_party.get("site_id") or "").strip()
@@ -130,6 +140,43 @@ class ImageResolver:
                 }
             )
         return out
+
+    @staticmethod
+    def _roster_nonempty(status: dict[str, Any]) -> bool:
+        roster = status.get("roster")
+        return isinstance(roster, list) and len(roster) > 0
+
+    @classmethod
+    def _is_creation_active(cls, status: dict[str, Any]) -> bool:
+        if status.get("creation_active") is True:
+            return True
+        if status.get("creation.active") is True:
+            return True
+        creation = status.get("creation")
+        if isinstance(creation, dict) and creation.get("active") is True:
+            return True
+        return bool(status.get("creation_step"))
+
+    @classmethod
+    def _is_first_hub_arrival(
+        cls,
+        prev: dict[str, Any],
+        curr: dict[str, Any],
+        *,
+        hub_address: str | None = None,
+    ) -> bool:
+        hub = str(hub_address or cls.HUB_SPAWN_ADDRESS).strip()
+        if not cls._roster_nonempty(curr):
+            return False
+        curr_party = curr.get("party") if isinstance(curr.get("party"), dict) else {}
+        if str(curr_party.get("mode") or "").lower() != "surface":
+            return False
+        if str(curr_party.get("address") or "").strip() != hub:
+            return False
+
+        roster_appeared = not cls._roster_nonempty(prev) and cls._roster_nonempty(curr)
+        creation_ended = cls._is_creation_active(prev) and not cls._is_creation_active(curr)
+        return roster_appeared or creation_ended
 
     def pick_winner(
         self,

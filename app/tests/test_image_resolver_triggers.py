@@ -89,6 +89,50 @@ def test_detect_entities_table_driven_status_deltas():
             },
             "expected": [("room", "breley-undercrypt__ossuary-hall", 4)],
         },
+        {
+            "name": "first hub arrival when roster appears at 32-C",
+            "prev": {
+                "party": {"address": "32-C", "mode": "surface"},
+                "roster": [],
+                "creation_active": True,
+            },
+            "curr": {
+                "party": {"address": "32-C", "mode": "surface"},
+                "roster": [{"character_id": "pc-1", "name": "Test Delver"}],
+                "creation_active": False,
+            },
+            "expected": [("location", "32-C", 5)],
+        },
+        {
+            "name": "creation ends at 32-C without address delta",
+            "prev": {
+                "party": {"address": "32-C", "mode": "surface"},
+                "roster": [{"character_id": "pc-1", "name": "Test Delver"}],
+                "creation_active": True,
+                "creation_step": "FINALIZE",
+            },
+            "curr": {
+                "party": {"address": "32-C", "mode": "surface"},
+                "roster": [{"character_id": "pc-1", "name": "Test Delver"}],
+                "creation_active": False,
+                "creation_step": None,
+            },
+            "expected": [("location", "32-C", 5)],
+        },
+        {
+            "name": "no repeat hub arrival while staying at 32-C",
+            "prev": {
+                "party": {"address": "32-C", "mode": "surface"},
+                "roster": [{"character_id": "pc-1", "name": "Test Delver"}],
+                "creation_active": False,
+            },
+            "curr": {
+                "party": {"address": "32-C", "mode": "surface"},
+                "roster": [{"character_id": "pc-1", "name": "Test Delver"}],
+                "creation_active": False,
+            },
+            "expected": [],
+        },
     ]
 
     for case in cases:

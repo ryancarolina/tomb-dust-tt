@@ -431,7 +431,6 @@ def test_p09_image_gen_stale_callback(isolated_workspace, service_logs):
 @pytest.mark.parametrize(
     "config_enabled,runtime_enabled,expected_reason",
     [
-        (False, True, "config_off"),
         (True, False, "runtime_off"),
         (False, False, "both_off"),
     ],
@@ -465,6 +464,24 @@ def test_p10_image_gen_skipped_gate_reasons(
     assert resolve[0][1]["source"] == "skipped"
     assert resolve[0][1]["skip_reason"] == expected_reason
     assert resolve[0][1]["path"] is None
+
+
+def test_p10_runtime_on_config_off_generates(isolated_workspace, service_logs):
+    service = _service(
+        isolated_workspace,
+        image_generator=lambda *args, **kwargs: _PNG_BYTES,
+        client_factory=lambda: object(),
+    )
+    resolved = service.resolve(
+        "camp-a",
+        "monster",
+        "grave-ghoul",
+        images_enabled=True,
+        config=_config(enabled=False),
+    )
+    assert resolved is not None
+    assert not any(t == "image_gen_skipped" for t, _ in service_logs)
+    assert any(t == "image_gen_start" for t, _ in service_logs)
 
 
 def test_p10_image_gen_skipped_session_cap(isolated_workspace, service_logs):

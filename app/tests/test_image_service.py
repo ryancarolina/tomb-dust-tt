@@ -134,6 +134,24 @@ def test_resolve_enforces_session_cap(isolated_workspace):
     assert second is None
 
 
+def test_resolve_generates_when_config_disabled_runtime_enabled(isolated_workspace):
+    """Runtime chip On is the player gate; config.enabled false must not block API."""
+    service = _service(
+        isolated_workspace,
+        image_generator=lambda *args, **kwargs: _PNG_BYTES,
+        client_factory=lambda: object(),
+    )
+    resolved = service.resolve(
+        "camp-a",
+        "monster",
+        "grave-ghoul",
+        images_enabled=True,
+        config=_config(enabled=False),
+    )
+    assert resolved is not None
+    assert Path(resolved).is_file()
+
+
 def test_resolve_retries_once_after_moderation(isolated_workspace, monkeypatch):
     events: list[str] = []
     monkeypatch.setattr("gm.image_service.log_entry", lambda event, data: events.append(event))

@@ -18,11 +18,12 @@ DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-klein-4b"
 
 
 def _skip_reason(config_enabled: bool, runtime_enabled: bool) -> str:
-    if not config_enabled and not runtime_enabled:
-        return "both_off"
-    if not config_enabled:
-        return "config_off"
-    return "runtime_off"
+    """Skip reason when runtime Images toggle is off (config is not a player gate)."""
+    if not runtime_enabled:
+        if not config_enabled:
+            return "both_off"
+        return "runtime_off"
+    raise ValueError("skip reason requested while runtime Images is on")
 
 
 def _emit_resolve_result(
@@ -146,7 +147,7 @@ class ImageService:
             return str(seeded)
 
         config_enabled = bool(images_cfg.get("enabled", False))
-        if not (config_enabled and images_enabled):
+        if not images_enabled:
             skip_reason = _skip_reason(config_enabled, images_enabled)
             log_entry(
                 "image_gen_skipped",
@@ -155,6 +156,8 @@ class ImageService:
                     "entity_type": entity_type,
                     "entity_id": entity_id,
                     "reason": skip_reason,
+                    "config_enabled": config_enabled,
+                    "runtime_enabled": images_enabled,
                 },
             )
             _emit_resolve_result(
