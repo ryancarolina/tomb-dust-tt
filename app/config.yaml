@@ -2,6 +2,7 @@ llm:
   provider: openrouter
   model: anthropic/claude-haiku-4.5
   max_tokens: 2048
+  creation_flavor_max_tokens: 500
   temperature: 0.8
 
 tts:

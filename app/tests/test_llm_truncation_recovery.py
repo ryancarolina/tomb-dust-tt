@@ -17,6 +17,25 @@ def test_creation_length_discards_flavor_before_compose():
     assert recovery.next_prose == ""
 
 
+def test_creation_flavor_passes_max_tokens_500(orchestrator, monkeypatch):
+    captured: dict = {}
+
+    def fake_chat_completion(client, **kwargs):
+        captured.update(kwargs)
+        return {
+            "content": "Brief flavor prose.",
+            "tool_calls": [],
+            "finish_reason": "stop",
+        }
+
+    monkeypatch.setattr("gm.orchestrator.chat_completion", fake_chat_completion)
+
+    result = orchestrator._call_narration_llm([{"role": "user", "content": "flavor"}])
+
+    assert captured.get("max_tokens") == 500
+    assert result == "Brief flavor prose."
+
+
 def test_skills_step_discards_truncated_flavor(orchestrator, monkeypatch):
     """Player sees code skills table only when LLM hits length mid-table."""
     orchestrator.creation.active = True

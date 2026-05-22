@@ -100,7 +100,7 @@ _PREMATURE_COMPLETION_COPY_RE = re.compile(
     re.IGNORECASE,
 )
 _DEATH_MESSAGE_RE = re.compile(r"\*\*.+\*\* is dead\.", re.IGNORECASE)
-_CREATION_FLAVOR_MAX_TOKENS = 120
+_CREATION_FLAVOR_MAX_TOKENS = 500
 NARRATION_LLM_MAX_ATTEMPTS = 6
 NARRATION_VERIFY_MAX_RETRIES = 5
 LENGTH_MAX_RECOVERY_RETRIES = 1
@@ -388,6 +388,9 @@ class Orchestrator:
         self.model = llm_cfg.get("model", "anthropic/claude-sonnet-4")
         self.max_tokens = llm_cfg.get("max_tokens", 1024)
         self.temperature = llm_cfg.get("temperature", 0.8)
+        self._creation_flavor_max_tokens = int(
+            llm_cfg.get("creation_flavor_max_tokens", _CREATION_FLAVOR_MAX_TOKENS)
+        )
 
         self.client = create_client()
         self.bridge = GameBridge()
@@ -1443,13 +1446,13 @@ class Orchestrator:
                 raise
 
     def _call_narration_llm(self, messages: list[dict[str, Any]]) -> str:
-        """Short LLM flavor call (~120 tokens, no tools)."""
+        """Short LLM flavor call (configurable creation flavor cap, default 500; no tools)."""
         log_llm_request(len(messages), self.model, 0)
         try:
             response = self._chat_completion(
                 messages=messages,
                 tools=None,
-                max_tokens=_CREATION_FLAVOR_MAX_TOKENS,
+                max_tokens=self._creation_flavor_max_tokens,
                 context="narrate_flavor",
             )
         except Exception as exc:
@@ -1461,7 +1464,7 @@ class Orchestrator:
         return content
 
     def _narrate_flavor(self, messages: list[dict[str, Any]]) -> str:
-        """Short LLM flavor during creation (~120 tokens, no tools)."""
+        """Short LLM flavor during creation (configurable creation flavor cap, default 500; no tools)."""
         return self._call_narration_llm(messages)
 
     def narrate_with_verification(
