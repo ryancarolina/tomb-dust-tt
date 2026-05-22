@@ -39,21 +39,42 @@ All pipeline artifacts live under **`tmp/backlog/runs/<APP-XXX>-<task-name>/`**.
 4. **Subagent prompt must include** (see [agents.md § Dispatch prompts](agents.md#dispatch-prompts)):
    - Role name, `backlog_ticket`, absolute `run-folder` path, ticket path, domain spec path
    - Deliverables + [AGENTS.md](../../AGENTS.md) constraints
-   - **Reflection requirement** (write `reflection-<role>[-rN].md` before returning)
+   - **Reflection** (internal before return — no file; see below)
+   - Stage 6 drift: **Drift check** block in return (no file; see below)
+5. **Subagent return** — after reflect→retry loop (≤3 attempts): deliverable paths + **Reflection** block (`Attempts`, `Handoff`); Stage 6 drift adds **Drift check** block (no file).
+6. **After subagent returns** — read deliverables + **Reflection** block (+ **Drift check** at Stage 6). If `Handoff: needs human input`, stop lane and ask user. Else update `status.md`, next dispatch.
 
-5. **After subagent returns** — orchestrator reads artifacts + reflection, updates `status.md`, decides next dispatch or BLOCKED.
+7. **Subagent type:** `generalPurpose` (default). Use `explore` only for read-only recon with no file writes.
 
-6. **Subagent type:** `generalPurpose` (default). Use `explore` only for read-only recon with no file writes.
+### Reflection (internal — no artifact, retry up to 3)
 
-### Reflection (every subagent)
+Before returning, each subagent **reflects privately** — confirm the job is done and nothing was missed. **Do not** write `reflection-*.md` or any reflection file.
 
-Before returning, each subagent **must** write **`run-folder/reflection-<role>[-rN].md`** ([template](templates.md#reflection)):
+**Reflect → retry loop (max 3 attempts per dispatch):**
 
-- What it did vs deliverable
-- What it might have missed (gaps, untested paths, open questions)
-- Whether orchestrator should dispatch another role or human input
+1. Do the work for this dispatch’s deliverable(s).
+2. **Reflect** — did I complete the task correctly? Anything missed?
+3. If **yes, complete** → return to orchestrator with **Reflection** block (`Handoff: ready`).
+4. If **gaps remain** and **attempt < 3** → fix the gaps, go to step 2.
+5. If **gaps remain** after **attempt 3** → return with **Reflection** block (`Handoff: needs human input`) — list blockers; do not pretend done.
 
-Orchestrator reads reflections when planning the next gate; do not skip because the subagent summary “sounds fine.”
+Count attempts **within this dispatch only** (one PM spec dispatch = up to 3 self-retries before escalating).
+
+Include in the return message:
+
+- **Attempts:** 1 | 2 | 3
+- **Completed** — deliverables written
+- **Self-critique** — what might be thin or wrong
+- **Missed?** — checklist (scope, AC, ticket, canon)
+- **Handoff** — `ready for next gate` | `needs human input` (required if attempt 3 and incomplete)
+
+The orchestrator uses this block when planning the next gate. If **Handoff: needs human input**, orchestrator stops the lane and asks the user — do not advance to the next stage.
+
+### Drift check (Stage 6 only — no artifact)
+
+Stage 6 QA still **syncs domain specs and ticket AC in the repo**, but **does not** write `drift-check.md` or `reflection-qa-drift.md`.
+
+Return message includes a **Drift check** block (see [templates.md](templates.md)): **Verdict** (`PASS` | `UPDATED` | `FAIL`), specs compared, domain spec updates, **Release ready**. Orchestrator runs `release --done` only when **Release ready: yes** and drift **Verdict** is not `FAIL`.
 
 ## When to use
 
@@ -221,8 +242,8 @@ Stop and **ask for human input** when any QA loop exhausts 3 iterations without 
 **Orchestrator:**
 
 1. Announce: **Dispatching Research agent**.
-2. Task subagent → deliver `research-brief.md` + `reflection-research.md` ([agents.md](agents.md#research-agent)).
-3. Verify brief exists; read reflection; update `status.md` (Stage 0 ✅, Research ✅, `registry_gap` noted).
+2. Task subagent → deliver `research-brief.md` ([agents.md](agents.md#research-agent)).
+3. Verify brief exists; read return **Reflection** block; update `status.md` (Stage 0 ✅, Research ✅, `registry_gap` noted).
 
 **Research subagent** (not orchestrator) explores code, traces paths, reads AGENTS.md + domain spec, writes the brief per [templates.md](templates.md).
 
@@ -257,13 +278,13 @@ Research **must** declare `registry_gap` in `research-brief.md`:
 
 ### PM writes spec
 
-**Orchestrator:** announce **Dispatching PM agent** → Task → verify `spec.md` (+ domain spec updates) + `reflection-pm.md` → `status.md` PM draft ✅.
+**Orchestrator:** announce **Dispatching PM agent** → Task → verify `spec.md` (+ domain spec updates) → `status.md` PM draft ✅.
 
 **PM subagent:** [agents.md § PM](agents.md#pm-agent) — honor `registry_gap`, write `run-folder/spec.md`, update domain specs as required.
 
 ### QA reviews spec (adversarial)
 
-**Orchestrator:** announce **Dispatching QA agent** (spec review round *N*) → Task → read `qa-spec-pass.md` or `qa-spec-report-<n>.md` + `reflection-qa-spec[-rN].md`.
+**Orchestrator:** announce **Dispatching QA agent** (spec review round *N*) → Task → read `qa-spec-pass.md` or `qa-spec-report-<n>.md` + return **Reflection** block.
 
 **QA subagent** ([agents.md § QA](agents.md#qa-agent)): ticket gate, registry/drift gate, adversarial review — **PASS** or **FAIL** per existing rules.
 
@@ -277,13 +298,13 @@ If still failing after round 3: **BLOCKED — spec QA** → human input.
 
 ### Dev writes plan
 
-**Orchestrator:** announce **Dispatching Dev agent** (plan) → Task → `plan.md` + `reflection-dev-plan.md` → status Dev plan draft ✅.
+**Orchestrator:** announce **Dispatching Dev agent** (plan) → Task → `plan.md` → status Dev plan draft ✅.
 
 **Dev subagent:** deep code-path traces, `plan.md` ⊆ ticket **Expected files** ([agents.md § Dev](agents.md#dev-agent)).
 
 ### QA reviews plan (adversarial, code-level)
 
-**Orchestrator:** announce **Dispatching QA agent** (plan review round *N*) → Task → pass/report + reflection.
+**Orchestrator:** announce **Dispatching QA agent** (plan review round *N*) → Task → pass/report + return **Reflection** block.
 
 **QA subagent:** independent traces, ticket scope gate — existing PASS/FAIL rules.
 
@@ -297,7 +318,7 @@ On **FAIL:** **Dispatching Dev agent** (plan revision) → **Dispatching QA agen
 
 ### Dev splits work streams
 
-**Orchestrator:** announce **Dispatching Dev agent** (workstreams) → Task → `workstreams.md` + `reflection-dev-workstreams.md`.
+**Orchestrator:** announce **Dispatching Dev agent** (workstreams) → Task → `workstreams.md`.
 
 **Dev subagent** defines streams in `workstreams.md` from `plan.md`.
 
@@ -305,15 +326,15 @@ On **FAIL:** **Dispatching Dev agent** (plan revision) → **Dispatching QA agen
 
 **Orchestrator:** announce **Dispatching Dev agent** — **APP-XXX** (streams…) → Task(s) for **one ticket**. Multiple streams for the same ticket = multiple Tasks in one message. **Different tickets** in the same wave = multiple Tasks in one message (each prompt: single APP-XXX + `focus` set).
 
-Each implementation subagent: **one ticket only** — stream section from that ticket’s `workstreams.md`, tests to run, `reflection-dev-impl-<stream-id>.md`.
+Each implementation subagent: **one ticket only** — stream section from that ticket’s `workstreams.md`, tests to run.
 
-**Orchestrator after all return:** merge conflicts **within the ticket**, integration tests, read reflections, update **that** `status.md` and batch board stage.
+**Orchestrator after all return:** merge conflicts **within the ticket**, integration tests, read return **Reflection** blocks, update **that** `status.md` and batch board stage.
 
 ## Stage 5 — QA final implementation
 
 **Orchestrator:** announce **Dispatching QA agent** (implementation review round *N*) → Task.
 
-**QA subagent:** review diffs, run tests, map ticket AC — `qa-implementation-pass.md` or `qa-implementation-report.md` + `reflection-qa-impl[-rN].md`.
+**QA subagent:** review diffs, run tests, map ticket AC — `qa-implementation-pass.md` or `qa-implementation-report.md`.
 
 On **FAIL:** **Dispatching Dev agent** (fix) → **Dispatching QA agent** (≤3 rounds). Exhausted → **BLOCKED — implementation QA**.
 
@@ -321,11 +342,11 @@ On **FAIL:** **Dispatching Dev agent** (fix) → **Dispatching QA agent** (≤3 
 
 After **this ticket’s** implementation PASS (do not mix tickets in one drift report):
 
-**Orchestrator:** announce **Dispatching QA agent** — **APP-XXX only** (drift) → Task → `run-folder/drift-check.md` + `reflection-qa-drift.md`.
+**Orchestrator:** announce **Dispatching QA agent** — **APP-XXX only** (drift) → Task. No drift artifact file.
 
-**QA subagent:** compare code vs specs **for this ticket**; update domain spec changelog if needed; mark **this** ticket AC done.
+**QA subagent:** compare code vs specs **for this ticket**; update domain spec changelog if needed; mark **this** ticket AC done. Return **Drift check** block + **Reflection** block in the message (see [templates.md](templates.md)).
 
-**Orchestrator:** `python tmp/backlog/claim_ticket.py release APP-XXX --done` → then Stage 7 **for this ticket only**.
+**Orchestrator:** `python tmp/backlog/claim_ticket.py release APP-XXX --done` → then Stage 7 **for this ticket only**. Release archives the ticket markdown to `tmp/backlog/closed/`.
 
 In a **batch**, repeat Stages 6–7 per lane. Updating a **shared** domain spec for ticket B is OK after ticket A’s commit if A already landed spec changes — avoid two lanes editing the same spec file at once.
 
@@ -343,7 +364,7 @@ In a **batch**, repeat Stages 6–7 per lane. Updating a **shared** domain spec 
 2. Stage **only this ticket’s** paths:
    - **This** ticket’s **Expected files** only
    - Domain spec(s) **this** ticket touched
-   - **This** `tmp/backlog/app-xxx-*.md`
+   - **This** `tmp/backlog/app-xxx-*.md` (active root) or `tmp/backlog/closed/app-xxx-*.md` after archive
    - **This** `tmp/backlog/runs/APP-XXX-<task>/` (recommended)
 3. **Never** stage another ticket’s paths in the same commit.
 4. **Never** commit `tmp/.active-ticket.json`, `tmp/.active-batch.json`, secrets, or `play/workspace/`.
@@ -357,11 +378,11 @@ In a **batch**, repeat Stages 6–7 per lane. Updating a **shared** domain spec 
 6. Record the hash in **this** `run-folder/status.md` and the batch board **Commit** column.
 7. Verify: no unstaged `app/` paths remain **from this ticket** before moving to the next lane.
 
-**Skip commit** only if the user opted out for the **whole session**; note in **this** `drift-check.md`. Other lanes in the batch still commit unless user said otherwise.
+**Skip commit** only if the user opted out for the **whole session**; note in **this** `status.md`. Other lanes in the batch still commit unless user said otherwise.
 
 ### 7b — Human playtest plan (per lane)
 
-**Orchestrator:** announce **Dispatching QA agent** — **APP-XXX** (human playtest) → Task → **this** `run-folder/human-test-plan.md` + `reflection-qa-playtest.md`.
+**Orchestrator:** announce **Dispatching QA agent** — **APP-XXX** (human playtest) → Task → **this** `run-folder/human-test-plan.md`.
 
 **QA subagent** writes playtest doc per [templates.md](templates.md). This is **playtest**, not pytest:
 
@@ -385,7 +406,8 @@ Derive cases from `spec.md`, ticket AC, and what actually shipped (e.g. creation
 |------|--------|
 | Real subagents | Research / PM / Dev / QA = Task dispatches; orchestrator does not do their work inline |
 | Announce dispatches | User-visible **Dispatching {Role} agent** before every Task call |
-| Reflection | Every subagent writes `reflection-<role>[-rN].md` before return |
+| Reflection | Internal reflect→retry loop (≤3 attempts per dispatch); **Reflection** block in return — escalate human if still incomplete after 3 |
+| Drift check | Stage 6 only — no file; **Drift check** block in QA return message; domain spec + ticket AC updates still land in repo |
 | Ticket first | No Research without Stage 0 claim; hooks enforce `app/` edits |
 | Role separation | Do not skip Research before PM; do not implement before plan QA PASS |
 | QA mindset | Assume defects exist; require evidence (file:line, trace) for findings |
@@ -418,16 +440,14 @@ All paths relative to **`tmp/backlog/runs/<APP-XXX>-<task-name>/`**:
 | `qa-plan-report-*.md` / `qa-plan-pass.md` | QA / Dev loop |
 | `workstreams.md` | Dev |
 | `qa-implementation-report.md` / `qa-implementation-pass.md` | QA / Dev |
-| `drift-check.md` | QA |
 | `human-test-plan.md` | QA (Stage 7) |
-| `reflection-*.md` | Each subagent (required before return) |
 
 ## Tomb Dust pointers
 
 | Area | Read first |
 |------|------------|
 | Project rules | [AGENTS.md](../../AGENTS.md) |
-| Backlog | [tmp/backlog/README.md](../../tmp/backlog/README.md) |
+| Backlog | [tmp/backlog/README.md](../../tmp/backlog/README.md) (active) · [closed/](../../tmp/backlog/closed/README.md) |
 | Search | `python tmp/backlog/claim_ticket.py search --open-only` |
 | Schedule | `python tmp/backlog/claim_ticket.py schedule APP-XXX APP-YYY` |
 | Claim batch | `python tmp/backlog/claim_ticket.py claim-batch APP-XXX ...` |

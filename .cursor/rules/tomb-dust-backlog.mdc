@@ -5,7 +5,14 @@ alwaysApply: true
 
 # Tomb Dust backlog gate
 
-**Full index:** [`tmp/backlog/README.md`](../../tmp/backlog/README.md) · **Template:** [`tmp/backlog/TEMPLATE.md`](../../tmp/backlog/TEMPLATE.md)
+**Full index:** [`tmp/backlog/README.md`](../../tmp/backlog/README.md) (active) · [`tmp/backlog/closed/`](../../tmp/backlog/closed/README.md) (done/cancelled) · **Template:** [`tmp/backlog/TEMPLATE.md`](../../tmp/backlog/TEMPLATE.md)
+
+## Layout
+
+| Location | Holds |
+|----------|--------|
+| `tmp/backlog/*.md` | **Active** tickets — `open`, `in_progress` only (plus `TEMPLATE.md`, example ticket) |
+| `tmp/backlog/closed/*.md` | **Archived** tickets — `done`, `cancelled` |
 
 ## No ticket, no change
 
@@ -41,7 +48,7 @@ Writes **`tmp/.active-batch.json`** (≤3 tickets) and **`tmp/.active-ticket.jso
 
 ## After implementing
 
-1. Check ticket acceptance criteria; mark **Status** → `done` + **Closed** date (or use `release --done`).
+1. Check ticket acceptance criteria; mark **Status** → `done` + **Closed** date (or use `release --done` / `release --cancelled` — archives to `tmp/backlog/closed/`).
 2. Update domain spec changelog.
 3. Run **`release --done`** to clear `tmp/.active-ticket.json`.
 

@@ -6,7 +6,7 @@ Copy sections into **`tmp/backlog/runs/<APP-XXX>-<task-name>/`** files. Replace 
 
 **Paths:** write only under `tmp/backlog/runs/<APP-XXX>-<task-name>/`. Never `.dev-team/` or out-of-tree pointers.
 
-**Subagents:** each role is a Task dispatch from the orchestrator; every subagent writes a `reflection-*.md` before returning ([agents.md](agents.md)).
+**Subagents:** reflect→retry loop (≤3 attempts per dispatch); **Reflection** block in return message only — no files.
 
 ---
 
@@ -52,41 +52,40 @@ _Update **Pipeline stage** as each lane advances. Set **Commit** to hash after S
 
 ---
 
-## reflection
+## Subagent return (Reflection block — not a file)
 
-Every Research / PM / Dev / QA subagent writes one reflection file **before returning**.
-
-Naming: `reflection-<role>.md` · revisions: `reflection-pm-r2.md` · streams: `reflection-dev-impl-ws1.md` · QA: `reflection-qa-spec.md`, `reflection-qa-plan-r2.md`, etc.
+After **reflect→retry loop** (≤3 attempts). Include in the Task return message:
 
 ```markdown
-# Reflection: <Role> — <APP-XXX> <stage>
+## Reflection
 
-**Agent:** Research | PM | Dev | QA
-**Round:** 1 | 2 | 3 (if applicable)
-**Deliverables:** <files written>
-
-## Completed
-
-- …
-
-## Self-critique
-
-- What might be wrong or thin in my work?
-- What did I assume without verifying?
-
-## Did I miss anything?
-
-- [ ] Ticket scope / Expected files
-- [ ] Domain spec / registry_gap / AGENTS.md
-- [ ] Code paths not traced
-- [ ] Tests or AC not mapped
-- [ ] …
-
-## Handoff
-
-**Ready for:** <next role / gate>
-**Escalate human if:** <condition or none>
+**Attempts:** 1 | 2 | 3
+**Completed:** …
+**Self-critique:** …
+**Missed?:** …
+**Handoff:** ready for next gate | needs human input
 ```
+
+- **ready** — task complete after self-review
+- **needs human input** — required if still incomplete after attempt 3 (list blockers)
+
+Do **not** write this to disk.
+
+## Drift check (Stage 6 only — not a file)
+
+Include in the QA drift-gate Task return message (alongside **Reflection**):
+
+```markdown
+## Drift check
+
+**Verdict:** PASS | UPDATED | FAIL
+**Specs compared:** …
+**Domain spec updates:** <paths + § or none>
+**Ticket AC:** all checked / noted exceptions
+**Release ready:** yes | no — <blockers if no>
+```
+
+Do **not** write `drift-check.md` or `reflection-qa-drift.md`.
 
 ---
 
@@ -106,15 +105,14 @@ Naming: `reflection-<role>.md` · revisions: `reflection-pm-r2.md` · streams: `
 ## Checklist
 
 - [ ] Stage 0 — ticket claimed (`tmp/.active-ticket.json`, ticket `in_progress`)
-- [ ] Research → research-brief.md + reflection-research.md (dispatched)
-- [ ] PM spec draft + reflection-pm.md (dispatched)
-- [ ] QA spec PASS (round __/3) + reflection-qa-spec.md (dispatched)
-- [ ] Dev plan + reflection-dev-plan.md (dispatched)
-- [ ] QA plan PASS (round __/3) + reflection-qa-plan.md (dispatched)
-- [ ] workstreams + parallel impl (each stream: reflection-dev-impl-*)
-- [ ] QA implementation PASS + reflection-qa-impl.md (dispatched)
-- [ ] Stage 6 — drift check + ticket release (`claim_ticket.py release APP-XXX --done`)
-- [ ] Stage 6 — drift + release `--done` (this ticket only)
+- [ ] Research → research-brief.md (dispatched)
+- [ ] PM spec draft (dispatched)
+- [ ] QA spec PASS (round __/3, backlog_ticket verified)
+- [ ] Dev plan (dispatched)
+- [ ] QA plan PASS (round __/3, ticket scope verified)
+- [ ] workstreams + parallel implementation
+- [ ] QA implementation PASS (dispatched)
+- [ ] Stage 6 — drift check (return **Drift check** block; domain spec + ticket AC synced) + release (`claim_ticket.py release APP-XXX --done`)
 - [ ] Stage 7 — git commit **this APP-XXX only** (hash: ______)
 - [ ] Stage 7 — human-test-plan.md (this run folder only)
 - [ ] Batch board row updated (if multi-ticket)
@@ -444,34 +442,6 @@ Also create matching backlog ticket if ongoing work remains.
 **Tests run:** …
 **Diff scope reviewed:** …
 **Ticket AC:** all checked / noted exceptions
-```
-
----
-
-## drift-check.md
-
-```markdown
-# Drift Check: <APP-XXX>-<task-name>
-
-**backlog_ticket:** APP-XXX
-**Verdict:** PASS | UPDATED
-
-## Specs compared
-
-| Spec | Drift? | Action |
-|------|--------|--------|
-| | no | — |
-| | yes | updated §… changelog entry |
-
-## Ticket close
-
-- [ ] Ticket acceptance criteria checked in ticket file
-- [ ] `python tmp/backlog/claim_ticket.py release APP-XXX --done`
-- [ ] `tmp/.active-ticket.json` cleared
-
-## Notes
-
-…
 ```
 
 ---
