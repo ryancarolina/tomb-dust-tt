@@ -418,7 +418,7 @@ Preferred: orchestrator wrapper (e.g. `_chat_completion`) calling `sanitize_tran
 | **APP-031** | Always sanitize before send; enforce invariants |
 | **APP-032** | On malformed-transcript 400, truncate to safe prefix, sanitize, retry **once** |
 
-Shared primitive: `sanitize_transcript_messages` — no duplicate repair logic.
+Shared primitives: `sanitize_transcript_messages`, `_safe_prefix_fallback` — no duplicate repair logic.
 
 #### Observability (optional v1)
 
@@ -446,6 +446,71 @@ Use pytest fixtures for Holt-session malformed arrays — not gitignored session
 
 **Ticket:** [APP-031](backlog/app-031-transcript-sanitize-orphan-tool-messages.md) · **Run spec:** [spec.md](backlog/runs/app-031-transcript-sanitize-orphan-tool-messages/spec.md)
 
+### Reactive 400 retry (APP-032)
+
+**Problem:** APP-031 eliminates most orphan-tool / ordering failures proactively, but strict providers (Google via OpenRouter) may still reject an in-turn array with **400 Bad Request**. Uncaught exceptions reach caller `except Exception` paths — exploration returns `"The GM falters. (API error: …)"` and the turn dies.
+
+**Policy:** **Reactive truncate → sanitize → retry once** inside `Orchestrator._chat_completion`. APP-031 runs first on every call; APP-032 is the safety net when sanitize alone is insufficient.
+
+**Boundary:** Same as APP-031 — in-turn `messages` arrays only; `openrouter.chat_completion` remains pass-through.
+
+#### Detection
+
+`is_malformed_transcript_400(exc) -> bool` — **narrow** classification; unrelated 400s must not retry.
+
+| Condition | Required |
+|-----------|----------|
+| Exception type | `openai.BadRequestError` or `openai.APIStatusError` with `status_code == 400` |
+| Message heuristic | `str(exc)` (case-insensitive) matches ≥1 transcript substring: `tool-call assistant message produced no valid function calls`; `no valid function calls but is followed by tool`; or `tool result messages` when `tool_call` / `tool_calls` also present |
+| Unrelated 400 | No retry — e.g. invalid model, API key, context length |
+
+#### Retry pipeline (`_chat_completion`)
+
+```text
+clean = sanitize_transcript_messages(messages)
+try: return chat_completion(…, messages=clean)
+except exc:
+  if not is_malformed_transcript_400(exc): raise
+  truncated = _safe_prefix_fallback(messages)   # caller's original array
+  retry_clean = sanitize_transcript_messages(truncated)
+  return chat_completion(…, messages=retry_clean)   # exactly one retry; re-raise on failure
+```
+
+| Rule | Contract |
+|------|----------|
+| Retry budget | **Once per `_chat_completion` invocation** — each loop depth may retry independently |
+| Non-mutating | Caller `messages` list/dicts unchanged; retry uses internal copies only (APP-031 contract) |
+| Truncate floor | Leading `system` messages + last `user` only (`_safe_prefix_fallback`) — drops in-turn tool chain |
+| Kwargs | Second attempt uses same `tools`, `tool_choice`, `max_tokens`, `temperature` |
+| Success | Return value indistinguishable from first-attempt success |
+| Exhaustion | Second failure re-raises; existing caller fallbacks unchanged |
+
+#### Wire point
+
+Single intercept in `_chat_completion` — all six APP-031 call sites inherit retry without duplicate logic.
+
+#### Observability (optional v1)
+
+On retry path: JSONL `transcript_400_retry` (`attempt`, `prefix_len`, `original_len`) — may defer to APP-034 alongside `transcript_sanitized`.
+
+#### Tests (APP-032)
+
+```bash
+cd app && python -m pytest tests/test_transcript_400_retry.py -q
+```
+
+| Case | Expected |
+|------|----------|
+| Malformed-transcript 400 then success | 2 HTTP attempts; 2nd `messages` satisfies invariants + safe-prefix shape |
+| Unrelated 400 (invalid model) | No retry; exception propagates |
+| Malformed 400 twice | Propagates after 2 attempts |
+| Non-400 (429, connection) | No retry |
+| `is_malformed_transcript_400` parametrize | Google string → true; unrelated → false |
+| Caller list immutability | Shared `messages` ref unchanged after retry |
+| `_llm_loop` depth ≥1 integration | Turn completes without GM falters fallback |
+
+**Ticket:** [APP-032](backlog/app-032-400-retry-on-malformed-transcript.md) · **Run spec:** [spec.md](backlog/runs/app-032-400-retry-malformed-transcript/spec.md)
+
 ---
 
 ## Task checklist
@@ -459,10 +524,11 @@ Use pytest fixtures for Holt-session malformed arrays — not gitignored session
 - [x] Mechanical-truth narration gate — Phase 1 creation verify+retry (APP-083)
 - [x] `finish_reason: length` recovery policy — creation paths + exploration fallback (APP-079)
 - [x] Transcript sanitize — orphan tool messages before every `chat_completion` (APP-031)
+- [x] Reactive 400 retry on malformed transcript in `_chat_completion` (APP-032)
 - [ ] Mechanical-truth narration gate — Phase 2 exploration (APP-083 follow-on)
 - [ ] Mechanical-truth narration gate — Phase 3 combat (APP-083 follow-on)
 
-**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 1 creation in batch), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-032](backlog/app-032-400-retry-on-malformed-transcript.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 1 creation in batch), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-033](backlog/app-033-sqlite-threading-policy.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -480,6 +546,7 @@ cd app && python -m pytest tests/test_tool_args.py -q
 cd app && python -m pytest tests/test_narration_verify.py -q   # APP-083 Phase 1
 cd app && python -m pytest tests/test_llm_truncation_recovery.py -q   # APP-079
 cd app && python -m pytest tests/test_transcript_sanitize.py -q   # APP-031
+cd app && python -m pytest tests/test_transcript_400_retry.py -q   # APP-032
 cd app && python -m pytest tests/ -q
 ```
 
@@ -531,6 +598,8 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 
 | Date | Change |
 |------|--------|
+| 2026-05-22 | APP-032 done: `is_malformed_transcript_400` narrow 400 classifier; `_chat_completion` truncate via `_safe_prefix_fallback` + sanitize + retry once; `test_transcript_400_retry.py` (R1–R7); pairs with APP-031 proactive sanitize |
+| 2026-05-22 | APP-032 PM spec: § Reactive 400 retry — narrow 400 detection, truncate via `_safe_prefix_fallback` + sanitize, once per `_chat_completion`; test module `test_transcript_400_retry.py`; pairs with APP-031 |
 | 2026-05-22 | APP-031 done: `sanitize_transcript_messages`, `_safe_prefix_fallback`, `Orchestrator._chat_completion` wired at all six call sites; APP-028 TOOL FAILED reorder at send boundary; `test_transcript_sanitize.py` (T1–T10) |
 | 2026-05-22 | APP-031 PM spec: § Transcript sanitize — proactive `sanitize_transcript_messages` before every orchestrator `chat_completion`; invariants, APP-028 reorder, APP-032 pairing; file map clarifies openrouter pass-through |
 | 2026-05-22 | APP-031 PM r2: helper non-mutating contract, safe-prefix fallback algorithm, test rows for mutability + tail fallback; ticket Expected files include `test_transcript_sanitize.py` |

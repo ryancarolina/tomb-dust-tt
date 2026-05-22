@@ -20,6 +20,7 @@ from gm.creation import (
     CreationState,
     CREATION_STEPS,
     CREATION_STATUS_LABELS,
+    format_creation_step_display,
     RACES,
     CLASS_INFO,
     format_skills_table,
@@ -54,6 +55,8 @@ from gm.creation import (
 )
 from gm.choice_memory import creation_choice_fact
 from tomb_gm.services.memory.choice_facts import tool_impact_fact
+from openai import APIStatusError, BadRequestError
+
 from gm.openrouter import create_client, chat_completion
 from gm.system_prompt import SYSTEM_PROMPT
 from gm.tools import TOOLS, SET_CREATION_CHOICE_TOOL, COMBAT_ACTION_TOOL
@@ -309,6 +312,31 @@ def sanitize_transcript_messages(messages: list[dict[str, Any]]) -> list[dict[st
     return output
 
 
+_MALFORMED_TRANSCRIPT_MARKERS = (
+    "tool-call assistant message produced no valid function calls",
+    "no valid function calls but is followed by tool",
+)
+
+
+def is_malformed_transcript_400(exc: BaseException) -> bool:
+    """Narrow 400 classifier for transcript tool-order rejections (APP-032)."""
+    try:
+        if not isinstance(exc, (BadRequestError, APIStatusError)):
+            return False
+        if getattr(exc, "status_code", None) != 400:
+            return False
+        msg = str(exc).casefold()
+        if any(m in msg for m in _MALFORMED_TRANSCRIPT_MARKERS):
+            return True
+        if "tool result messages" in msg and (
+            "tool_call" in msg or "tool_calls" in msg
+        ):
+            return True
+        return False
+    except Exception:
+        return False
+
+
 class Orchestrator:
     """Manages the GM turn loop."""
 
@@ -353,6 +381,12 @@ class Orchestrator:
         if status.get("awaiting") == "CHARACTER_CREATION" and not roster:
             return True
         return False
+
+    def get_creation_step_badge(self) -> dict[str, str] | None:
+        if not self.creation.active:
+            return None
+        step = self.creation.step
+        return {"step": step, "display_label": format_creation_step_display(step)}
 
     def get_player_suggestions(self) -> list[str]:
         from ui.suggestions import build_player_suggestions
@@ -1181,8 +1215,7 @@ class Orchestrator:
         temperature: float | None = None,
     ) -> dict:
         clean = sanitize_transcript_messages(messages)
-        return chat_completion(
-            self.client,
+        cc_kwargs = dict(
             model=self.model,
             messages=clean,
             tools=tools,
@@ -1190,6 +1223,17 @@ class Orchestrator:
             max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
             temperature=temperature if temperature is not None else self.temperature,
         )
+        try:
+            return chat_completion(self.client, **cc_kwargs)
+        except Exception as exc:
+            if not is_malformed_transcript_400(exc):
+                raise
+            truncated = _safe_prefix_fallback(messages)
+            retry_clean = sanitize_transcript_messages(truncated)
+            return chat_completion(
+                self.client,
+                **{**cc_kwargs, "messages": retry_clean},
+            )
 
     def _call_narration_llm(self, messages: list[dict[str, Any]]) -> str:
         """Short LLM flavor call (~120 tokens, no tools)."""
