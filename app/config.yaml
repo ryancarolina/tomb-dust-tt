@@ -20,12 +20,12 @@ tts:
 
 ui:
   window_width: 1280
-  window_height: 800
+  window_height: 960
   font_size: 16
   narration_width_ratio: 0.7
   character_panel_width_ratio: 0.22
   sidebar_width_ratio: 0.30
-  illustration_height_ratio: 0.35
+  illustration_height_ratio: 0.45
 
 images:
   enabled: false

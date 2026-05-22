@@ -150,8 +150,8 @@ class App:
         center_w = max(1, w - character_w - sidebar_w)
         input_h = 50
         center_h = h - input_h
-        min_illustration_h = 160
-        min_narration_h = 120
+        min_illustration_h = 200
+        min_narration_h = 180
         requested_illustration_h = int(center_h * self.illustration_ratio)
         illustration_h = max(min_illustration_h, requested_illustration_h)
         if center_h - illustration_h < min_narration_h:

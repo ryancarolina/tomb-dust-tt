@@ -19,13 +19,13 @@ def test_layout_splits_center_with_illustration_ratio(app_config):
         from ui.app import App
 
         app = App(app_config)
-        app._layout(1280, 800)
+        app._layout(1280, 960)
 
         center_h = app.illustration.rect.height + app.narration.rect.height
-        expected = int((800 - 50) * app_config["ui"]["illustration_height_ratio"])
+        expected = int((960 - 50) * app_config["ui"]["illustration_height_ratio"])
         assert app.illustration.rect.left == app.character_panel.rect.right
         assert abs(app.illustration.rect.height - expected) <= 1
-        assert center_h == 800 - 50
+        assert center_h == 960 - 50
     finally:
         pygame.quit()
 
