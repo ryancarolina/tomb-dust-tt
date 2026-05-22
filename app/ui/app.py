@@ -6,10 +6,15 @@ import json
 import queue
 import threading
 import time
+from copy import deepcopy
 import pygame
 from pathlib import Path
 
+from tomb_gm.services.content import ContentService
 from ui.theme import BG_DARK, TEXT_MUTED, TEXT_ACCENT, FONT_SIZE_SMALL, FONT_SIZE
+from gm.image_resolver import ImageResolver
+from gm.image_service import ImageService
+from ui.panels.illustration import IllustrationPanel
 from ui.panels.narration import NarrationPanel
 from ui.panels.input_box import InputBox
 from ui.panels.character_panel import CharacterPanel
@@ -32,10 +37,17 @@ class App:
             "sidebar_width_ratio",
             max(0.2, 1.0 - self.narration_ratio),
         )
+        self.illustration_ratio = float(ui_cfg.get("illustration_height_ratio", 0.35))
 
         self._orchestrator = None
         self._tts_config = config.get("tts", {})
         self._tts_enabled = self._tts_config.get("mode") != "text_only"
+        self._images_config = config.get("images", {}) or {}
+        self._images_enabled = bool(self._images_config.get("enabled", False))
+        self._image_service: ImageService | None = None
+        self._content_root = Path(__file__).resolve().parents[2] / "build"
+        self._content_service: ContentService | None = None
+        self._image_resolver = ImageResolver()
         self._turn_state = "idle"  # idle | thinking | speaking
         self._current_turn_id = 0
         self._turn_lock = threading.Lock()
@@ -47,7 +59,10 @@ class App:
         self._last_save_time = 0
         self._autosave_interval = 60.0
         self._map_travel_blocked_flag = False
-        self._selected_character_item_id: str | None = None
+        self._selected_character_item_instance_id: str | None = None
+        self._selected_character_catalog_item_id: str | None = None
+        self._selected_npc_id: str | None = None
+        self._prev_engine_status: dict | None = None
 
     def run(self):
         pygame.init()
@@ -78,11 +93,14 @@ class App:
                         self._scroll_velocity = -event.y * 300
                 elif event.type == pygame.MOUSEMOTION:
                     self.sidebar.handle_hover(event.pos)
+                    self.illustration.handle_images_hover(event.pos)
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if self.sidebar.handle_voice_toggle_click(event.pos):
                         self._toggle_tts_enabled()
                     elif self.character_panel.handle_click(event.pos):
                         pass
+                    elif self.illustration.handle_images_toggle_click(event.pos):
+                        self._toggle_images_enabled()
                     else:
                         map_addr = self.sidebar.handle_map_click(event.pos)
                         if map_addr and self._can_submit() and not self._map_travel_blocked():
@@ -106,6 +124,7 @@ class App:
 
             screen.fill(BG_DARK)
             self.character_panel.draw(screen)
+            self.illustration.draw(screen)
             self.narration.draw(screen)
             self.input_box.draw(screen)
             self.sidebar.draw(screen)
@@ -130,17 +149,25 @@ class App:
                     sidebar_w -= min(sidebar_w - 180, overage)
         center_w = max(1, w - character_w - sidebar_w)
         input_h = 50
-        narr_h = h - input_h
+        center_h = h - input_h
+        min_illustration_h = 160
+        min_narration_h = 120
+        requested_illustration_h = int(center_h * self.illustration_ratio)
+        illustration_h = max(min_illustration_h, requested_illustration_h)
+        if center_h - illustration_h < min_narration_h:
+            illustration_h = max(80, center_h - min_narration_h)
+        illustration_h = max(80, min(center_h - 40, illustration_h))
+        narr_h = max(40, center_h - illustration_h)
 
         character_rect = pygame.Rect(0, 0, character_w, h)
-        narr_rect = pygame.Rect(character_w, 0, center_w, narr_h)
-        input_rect = pygame.Rect(character_w, narr_h, center_w, input_h)
+        illustration_rect = pygame.Rect(character_w, 0, center_w, illustration_h)
+        narr_rect = pygame.Rect(character_w, illustration_h, center_w, narr_h)
+        input_rect = pygame.Rect(character_w, illustration_h + narr_h, center_w, input_h)
         sidebar_rect = pygame.Rect(character_w + center_w, 0, sidebar_w, h)
-
-        content_root = Path(__file__).resolve().parents[2] / "build"
 
         if hasattr(self, "narration"):
             self.character_panel.resize(character_rect)
+            self.illustration.resize(illustration_rect)
             self.narration.resize(narr_rect)
             self.input_box.resize(input_rect)
             self.sidebar.resize(sidebar_rect)
@@ -149,20 +176,25 @@ class App:
                 character_rect,
                 on_item_selected=self._on_character_item_selected,
             )
+            self.illustration = IllustrationPanel(illustration_rect)
             self.narration = NarrationPanel(narr_rect)
             self.input_box = InputBox(input_rect)
-            self.sidebar = Sidebar(sidebar_rect, content_root=content_root)
+            self.sidebar = Sidebar(sidebar_rect, content_root=self._content_root)
 
         mode = self._tts_config.get("mode", "speak_dialogue")
         self.sidebar.set_tts_chip_visible(mode != "text_only")
         self.sidebar.set_tts_enabled(self._tts_enabled)
+        self.illustration.set_images_chip_visible(True)
+        self.illustration.set_images_enabled(self._images_enabled)
 
     def _init_orchestrator(self):
         def _init():
             try:
                 from gm.orchestrator import Orchestrator
                 self._orchestrator = Orchestrator(self.config)
-                status = self._enrich_status_for_ui(self._orchestrator.get_status())
+                raw_status = self._orchestrator.get_status()
+                self._prev_engine_status = deepcopy(raw_status)
+                status = self._enrich_status_for_ui(raw_status)
                 self._ui_queue.put(("status", status))
 
                 has_save = self._orchestrator.bridge.has_save()
@@ -248,11 +280,38 @@ class App:
             elif msg_type == "speaking":
                 self._turn_state = "speaking"
                 self._status_text = "GM is speaking (Enter to interrupt)"
+            elif msg_type == "illustration":
+                if isinstance(data, dict):
+                    self.illustration.set_illustration(
+                        path=data.get("path"),
+                        title=data.get("title", ""),
+                        loading=bool(data.get("loading", False)),
+                    )
+            elif msg_type == "illustration_clear":
+                self.illustration.set_illustration(path=None, title="", loading=False)
             elif msg_type == "character_item_selected":
                 if isinstance(data, dict):
-                    self._selected_character_item_id = data.get("item_id")
+                    self._selected_character_item_instance_id = data.get("instance_id")
+                    self._selected_character_catalog_item_id = data.get("item_id")
                 else:
-                    self._selected_character_item_id = data
+                    self._selected_character_item_instance_id = None
+                    self._selected_character_catalog_item_id = data
+
+                if self._selected_character_catalog_item_id:
+                    catalog_item_id = self._selected_character_catalog_item_id
+                    self._request_illustration(
+                        "item",
+                        catalog_item_id,
+                        self._item_display_name(catalog_item_id),
+                    )
+                elif self._selected_npc_id:
+                    self._request_illustration(
+                        "npc",
+                        self._selected_npc_id,
+                        self._entity_display_name(self._selected_npc_id),
+                    )
+                else:
+                    self._ui_queue.put(("illustration_clear", None))
 
     def _update_scroll(self, dt: float):
         if abs(self._scroll_velocity) > 1:
@@ -285,6 +344,14 @@ class App:
             from tomb_gm.services.tts.queue import request_stop
             request_stop()
             self._set_turn_idle()
+
+    def _toggle_images_enabled(self) -> None:
+        self._images_enabled = not self._images_enabled
+        self.illustration.set_images_enabled(self._images_enabled)
+        if not self._images_enabled:
+            service = self._image_service
+            if service:
+                service.cancel_generation()
 
     def _draw_status(self, screen: pygame.Surface):
         font = pygame.font.SysFont("Consolas", FONT_SIZE_SMALL)
@@ -349,6 +416,11 @@ class App:
 
             from tomb_gm.services.tts.scene import parse_scene
             lines = parse_scene(narration)
+            if not self._selected_character_catalog_item_id:
+                npc_id = self._image_resolver.primary_key_npc_from_lines(lines)
+                if npc_id:
+                    self._selected_npc_id = npc_id
+                    self._request_illustration("npc", npc_id, self._entity_display_name(npc_id))
 
             self._ui_queue.put(("narration_text", narration))
 
@@ -416,10 +488,27 @@ class App:
         if turn_id != self._current_turn_id or not self._orchestrator:
             return
         try:
-            status = self._enrich_status_for_ui(self._orchestrator.get_status())
+            raw_status = self._orchestrator.get_status()
         except Exception:
             return
+        status = self._enrich_status_for_ui(raw_status)
         self._ui_queue.put(("status", status))
+
+        winner = self._image_resolver.pick_winner(
+            self._image_resolver.detect_entities(self._prev_engine_status, raw_status),
+            item_selected=bool(self._selected_character_catalog_item_id),
+            npc_id=None,
+        )
+        if winner:
+            entity_type = str(winner.get("entity_type") or "").strip()
+            entity_id = str(winner.get("entity_id") or "").strip()
+            if entity_type and entity_id:
+                self._request_illustration(
+                    entity_type,
+                    entity_id,
+                    self._entity_display_name(entity_id),
+                )
+        self._prev_engine_status = deepcopy(raw_status)
 
     def _queue_turn_suggestions(self, turn_id: int) -> None:
         """Unconditional chip refresh after every turn (success or error)."""
@@ -429,8 +518,107 @@ class App:
             ("suggestions", self._orchestrator.get_player_suggestions())
         )
 
-    def _on_character_item_selected(self, item_id: str | None) -> None:
-        self._ui_queue.put(("character_item_selected", {"item_id": item_id}))
+    def _on_character_item_selected(self, item: dict | str | None) -> None:
+        if isinstance(item, dict):
+            payload = {
+                "instance_id": item.get("instance_id"),
+                "item_id": item.get("item_id"),
+            }
+        elif isinstance(item, str):
+            payload = {"instance_id": None, "item_id": item}
+        else:
+            payload = {"instance_id": None, "item_id": None}
+        self._ui_queue.put(("character_item_selected", payload))
+
+    def _entity_display_name(self, entity_id: str) -> str:
+        return str(entity_id).replace("-", " ").replace("_", " ").title()
+
+    def _resolve_campaign_slug(self) -> str:
+        if not self._orchestrator:
+            return "default"
+        try:
+            status = self._orchestrator.get_status()
+        except Exception:
+            return "default"
+        active = status.get("active") if isinstance(status, dict) else None
+        if isinstance(active, dict):
+            slug = active.get("campaign_slug")
+            if slug:
+                return str(slug)
+        return "default"
+
+    def _get_content_service(self) -> ContentService:
+        if self._content_service is None:
+            self._content_service = ContentService(self._content_root)
+        return self._content_service
+
+    def _item_display_name(self, item_id: str) -> str:
+        try:
+            item = self._get_content_service().load_item(item_id) or {}
+        except Exception:
+            item = {}
+        return str(item.get("displayName") or self._entity_display_name(item_id))
+
+    def _get_image_service(self) -> ImageService:
+        if self._image_service is None:
+            repo_root = Path(__file__).resolve().parents[2]
+            self._image_service = ImageService(
+                workspace=repo_root / "play" / "workspace",
+                content_root=self._content_root,
+                async_generation=True,
+            )
+        return self._image_service
+
+    def _request_illustration(self, entity_type: str, entity_id: str, title: str) -> None:
+        if not self._orchestrator:
+            return
+        campaign_slug = self._resolve_campaign_slug()
+        service = self._get_image_service()
+        images_cfg = self._images_config
+        should_show_loading = bool(images_cfg.get("enabled", False) and self._images_enabled)
+        if should_show_loading:
+            self._ui_queue.put(
+                (
+                    "illustration",
+                    {
+                        "entity_type": entity_type,
+                        "entity_id": entity_id,
+                        "title": title,
+                        "loading": True,
+                    },
+                )
+            )
+
+        def _on_complete(path: str | None) -> None:
+            if path:
+                self._ui_queue.put(
+                    (
+                        "illustration",
+                        {
+                            "entity_type": entity_type,
+                            "entity_id": entity_id,
+                            "title": title,
+                            "path": path,
+                            "loading": False,
+                        },
+                    )
+                )
+            elif should_show_loading:
+                self._ui_queue.put(("illustration_clear", None))
+
+        def _resolve() -> None:
+            resolved = service.resolve(
+                campaign_slug,
+                entity_type,
+                entity_id,
+                images_enabled=self._images_enabled,
+                config=self.config,
+                on_complete=_on_complete,
+            )
+            if resolved:
+                _on_complete(resolved)
+
+        threading.Thread(target=_resolve, daemon=True).start()
 
     def _refresh_character_panel_data(self, status: dict | None = None) -> None:
         if not self._orchestrator or not hasattr(self, "character_panel"):
@@ -595,6 +783,7 @@ class App:
                 pass
             if synced_status is not None:
                 try:
+                    self._prev_engine_status = deepcopy(synced_status)
                     self._ui_queue.put(("status", self._enrich_status_for_ui(synced_status)))
                 except Exception:
                     pass

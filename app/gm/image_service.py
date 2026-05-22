@@ -36,6 +36,7 @@ class ImageService:
         self._client: Any | None = None
         self._generations_this_session = 0
         self._async_generation = async_generation
+        self._generation_epoch = 0
 
     def resolve(
         self,
@@ -45,6 +46,7 @@ class ImageService:
         *,
         images_enabled: bool,
         config: dict[str, Any],
+        on_complete: Callable[[str | None], None] | None = None,
     ) -> str | None:
         if entity_type not in ENTITY_TYPES:
             raise ValueError(f"Unsupported image entity type: {entity_type}")
@@ -105,6 +107,8 @@ class ImageService:
                     "reason": "disabled",
                 },
             )
+            if on_complete:
+                on_complete(None)
             return None
 
         max_per_session = int(images_cfg.get("max_generations_per_session", 30))
@@ -119,9 +123,12 @@ class ImageService:
                     "max": max_per_session,
                 },
             )
+            if on_complete:
+                on_complete(None)
             return None
 
         if self._async_generation:
+            epoch = self._generation_epoch
             thread = Thread(
                 target=self._generate_and_cache,
                 kwargs={
@@ -132,6 +139,8 @@ class ImageService:
                     "prompt_hash": prompt_hash,
                     "model": model,
                     "aspect_ratio": self._aspect_ratio(entity_type, images_cfg),
+                    "on_complete": on_complete,
+                    "generation_epoch": epoch,
                 },
                 daemon=True,
             )
@@ -146,7 +155,13 @@ class ImageService:
             prompt_hash=prompt_hash,
             model=model,
             aspect_ratio=self._aspect_ratio(entity_type, images_cfg),
+            on_complete=on_complete,
+            generation_epoch=self._generation_epoch,
         )
+
+    def cancel_generation(self) -> None:
+        """Invalidate async callbacks for generations started before now."""
+        self._generation_epoch += 1
 
     def _generate_and_cache(
         self,
@@ -158,6 +173,8 @@ class ImageService:
         prompt_hash: str,
         model: str,
         aspect_ratio: str,
+        on_complete: Callable[[str | None], None] | None = None,
+        generation_epoch: int | None = None,
     ) -> str | None:
         self._generations_this_session += 1
         log_entry(
@@ -183,6 +200,8 @@ class ImageService:
                     "error": str(exc),
                 },
             )
+            if on_complete and self._should_run_callback(generation_epoch):
+                on_complete(None)
             return None
 
         path = self._cache.save(
@@ -208,7 +227,15 @@ class ImageService:
                 "path": str(path),
             },
         )
-        return str(path)
+        resolved = str(path)
+        if on_complete and self._should_run_callback(generation_epoch):
+            on_complete(resolved)
+        return resolved
+
+    def _should_run_callback(self, generation_epoch: int | None) -> bool:
+        if generation_epoch is None:
+            return True
+        return generation_epoch == self._generation_epoch
 
     def _call_provider(self, *, model: str, prompt: str, aspect_ratio: str) -> bytes:
         client = self._client

@@ -25,6 +25,7 @@ ui:
   narration_width_ratio: 0.7
   character_panel_width_ratio: 0.22
   sidebar_width_ratio: 0.30
+  illustration_height_ratio: 0.35
 
 images:
   enabled: false
