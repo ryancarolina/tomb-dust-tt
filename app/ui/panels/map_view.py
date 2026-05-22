@@ -42,6 +42,9 @@ FOG_COLOR = (30, 32, 38)
 PLAYER_COLOR = (220, 200, 80)
 COMPASS_COLOR = (140, 150, 160)
 
+_HINT_PAD = 6
+_HINT_LINE_GAP = 2
+
 
 class MapView:
     def __init__(self, rect: pygame.Rect, content_root: Path | None = None):
@@ -114,23 +117,14 @@ class MapView:
         else:
             self._draw_surface(screen)
 
-    def _draw_surface(self, screen: pygame.Surface):
-        """Draw 3x3 top-down grid centered on current cell."""
+    def _compute_surface_grid(self) -> tuple[int, int, int, int, int, int]:
+        """Return (x, grid_x, grid_y, grid_w, grid_h, info_y) for surface layout."""
         x = self.rect.left + PANEL_PADDING
         y = self.rect.top + PANEL_PADDING
-
-        # Title
+        self._ensure_fonts()
         title = self._font.render("MAP", True, TEXT_MUTED)
-        screen.blit(title, (x, y))
         y += title.get_height() + 4
 
-        # Get current cell data
-        current = self._addresses.get(self.current_address, {})
-        col = current.get("column", 32)
-        row = current.get("row", "C")
-        row_ord = ord(row)
-
-        # Compute available space for the 3x3 grid
         available_w = self.rect.width - PANEL_PADDING * 2
         available_h = self.rect.height - (y - self.rect.top) - PANEL_PADDING - 60
 
@@ -139,6 +133,78 @@ class MapView:
         grid_h = cell_size * 3
         grid_x = x + (available_w - grid_w) // 2
         grid_y = y + 14
+        info_y = grid_y + grid_h + 16
+        return x, grid_x, grid_y, grid_w, grid_h, info_y
+
+    def _surface_grid_metrics(self) -> tuple[pygame.Rect, int]:
+        _, grid_x, grid_y, grid_w, grid_h, info_y = self._compute_surface_grid()
+        return pygame.Rect(grid_x, grid_y, grid_w, grid_h), info_y
+
+    def _wrap_hint_lines(self, text: str, max_width: int) -> list[pygame.Surface]:
+        self._ensure_fonts()
+        words = text.split()
+        lines: list[pygame.Surface] = []
+        current = ""
+        for word in words:
+            trial = word if not current else f"{current} {word}"
+            if self._font_small.size(trial)[0] <= max_width:
+                current = trial
+            else:
+                if current:
+                    lines.append(self._font_small.render(current, True, TEXT_MUTED))
+                current = word
+        if current:
+            lines.append(self._font_small.render(current, True, TEXT_MUTED))
+        return lines
+
+    def _layout_hint_placements(
+        self, overlay_rect: pygame.Rect, lines: list[pygame.Surface]
+    ) -> tuple[pygame.Rect, list[tuple[pygame.Surface, tuple[int, int]]]]:
+        if not lines:
+            return pygame.Rect(0, 0, 0, 0), []
+
+        total_h = sum(s.get_height() for s in lines) + _HINT_LINE_GAP * max(0, len(lines) - 1)
+        start_y = overlay_rect.top + max(_HINT_PAD, (overlay_rect.height - total_h) // 2)
+
+        placements: list[tuple[pygame.Surface, tuple[int, int]]] = []
+        union: pygame.Rect | None = None
+        y = start_y
+        for line in lines:
+            x = overlay_rect.left + (overlay_rect.width - line.get_width()) // 2
+            placements.append((line, (x, y)))
+            line_rect = pygame.Rect(x, y, line.get_width(), line.get_height())
+            union = line_rect if union is None else union.union(line_rect)
+            y += line.get_height() + _HINT_LINE_GAP
+
+        return union or pygame.Rect(0, 0, 0, 0), placements
+
+    def _travel_block_hint_rect(self, overlay_rect: pygame.Rect) -> pygame.Rect | None:
+        if not (self.travel_blocked and self._hovering):
+            return None
+        self._ensure_fonts()
+        max_w = max(1, overlay_rect.width - 2 * _HINT_PAD)
+        lines = self._wrap_hint_lines(self.travel_blocked_hint, max_w)
+        union_rect, _ = self._layout_hint_placements(overlay_rect, lines)
+        return union_rect if lines else None
+
+    def _draw_surface(self, screen: pygame.Surface):
+        """Draw 3x3 top-down grid centered on current cell."""
+        x = self.rect.left + PANEL_PADDING
+        y = self.rect.top + PANEL_PADDING
+
+        # Title
+        title = self._font.render("MAP", True, TEXT_MUTED)
+        screen.blit(title, (x, y))
+
+        x, grid_x, grid_y, grid_w, grid_h, info_y = self._compute_surface_grid()
+
+        # Get current cell data
+        current = self._addresses.get(self.current_address, {})
+        col = current.get("column", 32)
+        row = current.get("row", "C")
+        row_ord = ord(row)
+
+        cell_size = grid_w // 3
 
         # Compass labels
         compass_n = self._font_small.render("N", True, COMPASS_COLOR)
@@ -207,7 +273,6 @@ class MapView:
                     pygame.draw.rect(screen, (180, 160, 80), ind_rect)
 
         # Location name and scene progress below grid
-        info_y = grid_y + grid_h + 16
         display_name = current.get("displayName", self.current_address)
         name_surf = self._font.render(display_name, True, TEXT_PRIMARY)
         screen.blit(name_surf, (x, info_y))
@@ -223,7 +288,7 @@ class MapView:
 
         if self.travel_blocked:
             grid_rect = pygame.Rect(grid_x, grid_y, grid_w, grid_h)
-            self._draw_travel_block_overlay(screen, grid_rect, x, grid_y + grid_h + 16)
+            self._draw_travel_block_overlay(screen, grid_rect)
 
     def _draw_dungeon(self, screen: pygame.Surface):
         """Draw dungeon room view with exits."""
@@ -273,22 +338,35 @@ class MapView:
                 self.rect.width - PANEL_PADDING * 2,
                 y - (self.rect.top + PANEL_PADDING + 20),
             )
-            self._draw_travel_block_overlay(screen, content_rect, x, y + 4)
+            self._draw_travel_block_overlay(screen, content_rect, hint_outside=(x, y + 4))
 
     def _draw_travel_block_overlay(
         self,
         screen: pygame.Surface,
         overlay_rect: pygame.Rect,
-        hint_x: int,
-        hint_y: int,
-    ):
+        *,
+        hint_outside: tuple[int, int] | None = None,
+    ) -> None:
         overlay = pygame.Surface((overlay_rect.width, overlay_rect.height), pygame.SRCALPHA)
         muted = TEXT_MUTED
         overlay.fill((muted[0], muted[1], muted[2], 102))
         screen.blit(overlay, overlay_rect.topleft)
-        if self.travel_blocked and self._hovering:
+
+        if not (self.travel_blocked and self._hovering):
+            return
+
+        self._ensure_fonts()
+
+        if hint_outside is not None:
             hint_surf = self._font_small.render(self.travel_blocked_hint, True, TEXT_MUTED)
-            screen.blit(hint_surf, (hint_x, hint_y))
+            screen.blit(hint_surf, hint_outside)
+            return
+
+        max_w = max(1, overlay_rect.width - 2 * _HINT_PAD)
+        lines = self._wrap_hint_lines(self.travel_blocked_hint, max_w)
+        _, placements = self._layout_hint_placements(overlay_rect, lines)
+        for surf, pos in placements:
+            screen.blit(surf, pos)
 
     def _parse_address(self, address: str) -> tuple[int, str]:
         parts = address.split("-")

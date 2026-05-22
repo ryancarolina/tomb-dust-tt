@@ -106,7 +106,7 @@ Manual: creation table step + submit → player line and table tail visible with
 
 ### Map travel during creation (APP-037)
 
-**Ticket:** [APP-037](backlog/app-037-block-map-travel-during-creation.md) · **Engine mirror:** [APP-008](backlog/app-008-hard-gate-exploration-during-creation.md) (`creation.active` hard-gate in orchestrator).
+**Ticket:** [APP-037](backlog/app-037-block-map-travel-during-creation.md) · **Layout fix:** [APP-091](backlog/app-091-map-travel-block-hint-overlap-fix.md) · **Engine mirror:** [APP-008](backlog/app-008-hard-gate-exploration-during-creation.md) (`creation.active` hard-gate in orchestrator).
 
 During Registry intake the map **still displays** (hub cell, fog, labels from `party.address`) but **travel actions are disabled** — greyed overlay, no `travel to …` submit, hover hint.
 
@@ -124,12 +124,28 @@ Same dual-condition policy as [APP-065](backlog/app-065-suggestion-chips-no-stal
 #### Layers (defense in depth)
 
 1. **`app/ui/app.py`** — skip `_submit(f"travel to {addr}")` when blocked (even if `handle_click` returns an address after APP-063).
-2. **`MapView`** — `set_travel_blocked`; `handle_click` → `None` when blocked; muted overlay on draw; hover shows hint.
+2. **`MapView`** — `set_travel_blocked`; `handle_click` → `None` when blocked; muted overlay on draw; hover shows hint **inside** the grid overlay (APP-091).
 3. **Engine (APP-008)** — exploration tools rejected while `creation.active`; UI does not replace this gate.
 
 #### Player copy
 
 - Default hover hint: **"Finish Registry intake first"** (ticket allows equivalent wording in UI only if tests lock the default string).
+
+#### Hint placement (APP-091)
+
+When `travel_blocked` and the cursor is over the map panel (`_hovering`), the hover hint must remain readable **without obscuring** the location footer below the 3×3 grid.
+
+| Rule | Detail |
+|------|--------|
+| **Draw inside overlay** | On surface map (`_draw_surface`), blit the hint **inside** the grid `overlay_rect` passed to `_draw_travel_block_overlay` — centered horizontally and vertically within that rect. |
+| **Footer reserved** | `displayName` (e.g. **Breley Keep** at `32-C`) and the scene-progress line (`Scene n/m …`) stay on their own rows at `grid_y + grid_h + 16` and below — **never** share Y with the hover hint. |
+| **No footer-row hint** | Do **not** pass `hint_y = grid_y + grid_h + 16` (or any Y on the footer label rows) for surface-map hover hints. |
+| **Wrap on narrow column** | Word-wrap the hint to `overlay_rect.width` (minus small horizontal padding) when the sidebar map column is narrow ([APP-062](backlog/app-062-left-character-panel-inventory-spells-tabs.md)); multi-line centering inside the overlay is acceptable. |
+| **Copy unchanged** | Default string remains **"Finish Registry intake first"** — layout-only fix; no orchestrator or enriched-status changes. |
+| **Dungeon path** | `_draw_dungeon` may keep its existing overlay/hint layout; surface creation repro (`32-C`) is the primary AC path. Avoid regressing dungeon hint placement if travel block ever applies there. |
+| **Gate behavior unchanged** | Overlay fill, gated `handle_click`, sidebar resize cache, and `is_map_travel_blocked()` — APP-037 only; APP-091 is draw-layout only. |
+
+**Acceptance (APP-091):** hover during creation at hub → hint visible inside muted grid; **Breley Keep** (or current `displayName`) and scene line remain legible beneath the grid.
 
 #### Re-enable
 
@@ -146,8 +162,8 @@ Map lives in right sidebar (`stats` + `map` split). Travel block is `MapView` st
 | `app/gm/orchestrator.py` | `is_map_travel_blocked()` — reads `creation.active` and `bridge.status()`; not narration |
 | `app/ui/app.py` | Enrich `("status", …)` with `map_travel_blocked` / hint (init, success path, and `_process_turn` `finally`); guard map click → `_submit` when blocked |
 | `app/ui/panels/sidebar.py` | Forward blocked flag from status to `MapView`; optional short-circuit in `handle_map_click` |
-| `app/ui/panels/map_view.py` | `set_travel_blocked`, muted overlay, hover hint, gated `handle_click` |
-| `app/tests/test_ui_map_creation_gate.py` | Unit tests for `is_map_travel_blocked`, MapView gated click, enriched status payload |
+| `app/ui/panels/map_view.py` | `set_travel_blocked`, muted overlay, hover hint inside grid overlay (APP-091), gated `handle_click` |
+| `app/tests/test_ui_map_creation_gate.py` | Unit tests for `is_map_travel_blocked`, MapView gated click, enriched status payload; hint placement outside footer row (APP-091) |
 
 ### Suggestion chips
 
@@ -289,6 +305,7 @@ Badge is draw state on `StatsPanel` inside right sidebar stats half — `Sidebar
 - [x] **APP-060:** Tail-follow scroll after `_rebuild()`; error path scroll; `test_narration_scroll.py` (spec: [Narration scroll behavior](#narration-scroll-behavior-app-060)).
 
 - [x] **APP-037:** Map travel blocked during Registry intake; orchestrator `is_map_travel_blocked()`; overlay + hint; enriched status refresh (spec: [Map travel during creation](#map-travel-during-creation-app-037)).
+- [x] **APP-091:** Map travel-block hover hint inside grid overlay; footer `displayName` / scene rows reserved; wrap on narrow sidebar; placement unit test (spec: [Hint placement (APP-091)](#hint-placement-app-091)).
 - [x] **APP-065:** Always-clear chips; code-owned player map + blocklist; no narration scrape (spec: [Suggestion chips](#suggestion-chips)).
 
 ---
@@ -296,7 +313,7 @@ Badge is draw state on `StatsPanel` inside right sidebar stats half — `Sidebar
 ## Tests
 
 - Manual: scroll, history, map click sends travel string to orchestrator when travel not blocked.
-- **APP-037:** `python -m pytest app/tests/test_ui_map_creation_gate.py -q` — `is_map_travel_blocked`, MapView gated click, status payload (when added).
+- **APP-037 / APP-091:** `python -m pytest app/tests/test_ui_map_creation_gate.py -q` — `is_map_travel_blocked`, MapView gated click, status payload; hint blit rect inside overlay / outside footer label row (APP-091).
 - **APP-037 regression:** `python -m pytest app/tests/test_creation_flow.py -q` — post-finalize travel not blocked.
 - **APP-065:** `python -m pytest app/tests/test_ui_suggestions.py -q` — builder map, blocklist, inactive-creation guard, equipment non-confirm path.
 - **APP-065 regression:** `python -m pytest app/tests/test_creation_flow.py app/tests/test_session_resume_failure.py -q` — narration `Awaiting:` asserts unchanged.
@@ -317,9 +334,9 @@ Badge is draw state on `StatsPanel` inside right sidebar stats half — `Sidebar
 | `ui/panels/stats.py` | Engine-backed HP, phase, location (APP-035); Registry step badge (APP-036) |
 | `gm/creation.py` | `CREATION_STEP_DISPLAY` — badge labels keyed by `creation.step` (APP-036) |
 | `gm/orchestrator.py` | `get_creation_step_badge()` (APP-036) |
-| `ui/panels/map_view.py` | AV-GRID map; travel block overlay + hint (APP-037) |
+| `ui/panels/map_view.py` | AV-GRID map; travel block overlay + hint inside grid (APP-037, APP-091) |
 | `ui/suggestions.py` | Player chip maps + blocklist (APP-065) |
-| `tests/test_ui_map_creation_gate.py` | APP-037 unit tests for travel block during creation |
+| `tests/test_ui_map_creation_gate.py` | APP-037/APP-091 unit tests for travel block + hint placement |
 | `tests/test_ui_suggestions.py` | APP-065 unit tests for chip builder |
 | `tests/test_ui_creation_badge.py` | APP-036 unit tests for creation step badge |
 | `tests/test_narration_scroll.py` | APP-060 unit tests for narration tail-follow scroll |
@@ -342,3 +359,4 @@ Badge is draw state on `StatsPanel` inside right sidebar stats half — `Sidebar
 | 2026-05-22 | **APP-060 draft:** § Narration scroll behavior — tail-follow after `_rebuild`, queue paths (player/narration/error), always-follow policy, `test_narration_scroll.py` (PM) |
 | 2026-05-22 | **APP-060 done:** `_follow_tail` + `request_follow_tail()` in `draw()` after `_rebuild()`; `_smooth_scroll_to_bottom()` defers pin; error handler follows tail; 6 unit tests |
 | 2026-05-22 | **APP-036 done:** `CREATION_STEP_DISPLAY` + `format_creation_step_display`; `get_creation_step_badge()`; enriched `creation_step` / `creation_step_display`; Registry badge at stats panel top; sidebar resize cache; 9 unit tests |
+| 2026-05-22 | **APP-091 done:** hint inside grid overlay (wrap + center); footer rows reserved; `_travel_block_hint_rect` test helper; dungeon path `hint_outside` preserved; 11 unit tests in `test_ui_map_creation_gate.py` |

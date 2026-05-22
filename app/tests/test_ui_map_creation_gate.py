@@ -68,6 +68,40 @@ def test_map_view_click_blocked_returns_none():
         pygame.quit()
 
 
+def test_map_view_hint_blit_inside_overlay_not_footer_row():
+    os.environ["SDL_VIDEODRIVER"] = "dummy"
+    pygame.init()
+    try:
+        from pathlib import Path
+
+        from ui.panels.map_view import MapView
+
+        build_root = Path(__file__).resolve().parents[2] / "build"
+        mv = MapView(pygame.Rect(0, 0, 240, 320), content_root=build_root)
+        mv.update_position("32-C")
+        mv.set_travel_blocked(True)
+        mv._hovering = True
+        mv._ensure_fonts()
+
+        grid_rect, info_y = mv._surface_grid_metrics()
+        hint_rect = mv._travel_block_hint_rect(grid_rect)
+
+        assert hint_rect is not None
+        assert grid_rect.contains(hint_rect)
+        assert hint_rect.top >= grid_rect.top
+        assert hint_rect.bottom <= grid_rect.bottom
+        assert hint_rect.bottom < info_y
+        assert grid_rect.top <= hint_rect.centery <= grid_rect.bottom
+
+        max_w = max(1, grid_rect.width - 12)
+        hint_full_w = mv._font_small.size(mv.travel_blocked_hint)[0]
+        wrap_w = max_w if hint_full_w > max_w else max(1, max_w - 1)
+        wrapped = mv._wrap_hint_lines(mv.travel_blocked_hint, wrap_w)
+        assert len(wrapped) >= 2
+    finally:
+        pygame.quit()
+
+
 def test_map_view_default_hint_string():
     os.environ["SDL_VIDEODRIVER"] = "dummy"
     pygame.init()
