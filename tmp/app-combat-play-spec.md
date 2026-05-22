@@ -10,13 +10,99 @@
 
 - Combat starts via `start_combat` / `start_combat_from_trigger` with valid monster ids from `build/data/monsters/`.
 - Turn order from engine; monster turns via `run_combat_monster_turns`.
+- After a successful PC **`combat_action`**, orchestrator **`_combat_auto_chain()`** runs monster turns in code until the turn returns to a PC or combat ends (APP-029) — wired from `_combat_turn` and `_combat_llm_loop_inner`.
 - PC actions: `combat_attack`, `combat_action`, `cast_spell`, `fortune_spend`.
 - UI stays in combat mode until `combat_end` or engine clears combat.
 - **Failed tool → no success fiction** — code-owned `[Mechanics failed — …]`; database / tool `ok` leads narration (see § Combat tool failure narration).
+- **Attack pre-gating (APP-026):** Before any PC attack dispatch, orchestrator `_gate_pc_attack` requires `status.combat` and attacker in `combat.initiative` — see § Combat attack gating.
 
 ### Death
 
 - On PC death: `process_delver_death`, corpse loot, offer `new game` (session-persistence spec).
+
+### Encounter → combat entry (APP-089 handoff)
+
+Combat does **not** begin on `enter_dungeon` alone. See [`app-exploration-delve-spec.md`](app-exploration-delve-spec.md) § Encounter awareness.
+
+| Event | Combat spec behavior |
+|-------|---------------------|
+| Threat in room, no `start_combat` | Exploration encounter verify only |
+| `start_combat` ok | `status.combat` set; orchestrator routes `_combat_turn` |
+| Surprise / ambush | Engine flags from encounter contest before round 1 (canon `encounter.md`) |
+
+### Phased combat narration + verify (APP-090) — draft
+
+**Ticket:** [APP-090](backlog/app-090-combat-phased-narration-and-death-beat.md)
+
+After APP-029 auto-chain, narration is **split and verified per phase** — not one LLM pass over the full mechanical list.
+
+| Phase | Verify step | Emit |
+|-------|-------------|------|
+| `player_resolve` | `build_combat_turn_truth` + slice of PC `combat_action` | Player spell/attack outcome |
+| `monster_act` | truth from `monster_attack` rows | Each enemy response |
+| `death` | truth from killing blow + HP 0 | Dramatic death beat **required** |
+| `run_end` | code-owned (no LLM verify) | Corpse + new game offer |
+
+Uses APP-083 Phase 3: `verify_narration` → retry → publish for each phase. Violations: `damage_without_tool`, `hit_without_tool`, `skipped_killing_blow`.
+
+---
+
+## Combat attack gating (APP-026)
+
+**Ticket:** [APP-026](backlog/app-026-combat-attack-gating.md) · **Run spec:** [`runs/app-026-combat-attack-gating/spec.md`](backlog/runs/app-026-combat-attack-gating/spec.md)
+
+APP-028 owns **visible failure narration** when tools return `ok: false`. APP-026 adds **orchestrator pre-gates** so invalid PC attacks fail **before** bridge/engine dispatch.
+
+### Helper: `_gate_pc_attack(attacker_id) -> dict | None`
+
+**Location:** `app/gm/orchestrator.py`
+
+| Step | Check | On fail |
+|------|-------|---------|
+| 1 | `bridge.status()` → `combat = status.get("combat")` | `{ok: false, error: "no active combat for session"}` |
+| 2 | Resolve `attacker_id` against `combat["combatants"]` by **id** or **displayName** (case-insensitive; mirror engine `_resolve_combatant_id`) | Unresolved → use raw id in error |
+| 3 | Resolved id ∈ `combat["initiative"][].id` | `{ok: false, error: f"attacker not in combat: {attacker_id}"}` |
+| 4 | Pass | Return **`None`** |
+
+**Out of scope for gate:** turn order (`not your turn`) — `_execute_combat_action` + engine `_assert_actor_turn` remain owners.
+
+### Wire points
+
+| Path | When | Behavior |
+|------|------|----------|
+| `_execute_tool` → `combat_attack` | Exploration loop (`status.combat` null path) | Run gate; on failure return dict **without** `bridge.combat_attack` |
+| `_execute_combat_action` | `action.upper().strip() == "ATTACK"` | Run gate on `actor_id` before turn check + `bridge.combat_action` |
+
+When combat is active in DB, exploration `combat_attack` remains blocked by the existing combat-only tool guard (`During combat only combat_action is available`) — gate applies on the no-combat exploration path and on ATTACK inside combat loop.
+
+**Case rule:** Gate condition must use `action.upper().strip() == "ATTACK"` (engine normalizes the same way; app `tool_args._normalize_combat_action` does not uppercase). Literal `action == "ATTACK"` would skip the gate for lowercase `"attack"` from LLM tool args.
+
+### APP-028 interaction
+
+Gated failures feed the same `_COMBAT_TOOL_NAMES` / `all_failed` strip paths. Error strings **must** stay compatible with existing narration tests (e.g. `no active combat for session`, `attacker not in combat: …`).
+
+### Tests (APP-026)
+
+**Module:** `app/tests/test_combat_attack_gating.py` _(new)_
+
+| ID | Test | Pass |
+|----|------|------|
+| **G1** | `_execute_tool("combat_attack")` when `status.combat` null | ✓ |
+| **G2** | `_gate_pc_attack` — id not in initiative | ✓ |
+| **G3** | `_gate_pc_attack` — displayName resolves to initiative id | ✓ |
+| **G4** | `_execute_combat_action("ATTACK")` when no combat | ✓ |
+| **G5** | `_execute_combat_action("ATTACK")` — not in initiative | ✓ |
+| **G6** | Valid gate → `bridge.combat_attack` called | ✓ |
+| **G6b** | `_execute_combat_action("ATTACK")` valid initiative + turn | ✓ |
+| **G7** | APP-028 T4 regression (`test_combat_failure_narration`) | ✓ |
+| **G8** | `_execute_combat_action("attack")` — not in initiative | ✓ |
+
+**Commands:**
+
+```bash
+python -m pytest app/tests/test_combat_attack_gating.py -q
+python -m pytest app/tests/test_combat_failure_narration.py -q
+```
 
 ---
 
@@ -127,8 +213,10 @@ On beat-trigger failure or `all_failed` content strip, log tool names and errors
 - [x] `combat_fsm.py` + orchestrator `_combat_turn`
 - [x] `combat_attack` wired through bridge → `tomb_gm.services.simulation.combat.combat_attack`
 - [x] **APP-028** — combat tool failure narration (§ above)
+- [x] **APP-029** — monster auto-chain after PC `combat_action` (`_combat_auto_chain`)
+- [x] **APP-026** — orchestrator `_gate_pc_attack` before `combat_attack` / `combat_action` ATTACK
 
-**Open work:** [APP-026](backlog/app-026-combat-attack-gating.md)–[APP-030](backlog/app-030-combat-integration-test.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-027](backlog/app-027-validate-monster-id-at-combat-start.md), [APP-030](backlog/app-030-combat-integration-test.md), [APP-090](backlog/app-090-combat-phased-narration-and-death-beat.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -137,6 +225,7 @@ On beat-trigger failure or `all_failed` content strip, log tool names and errors
 ```bash
 python -m pytest play/tomb_gm/tests/test_combat*.py -q
 python -m pytest play/tomb_gm/tests/test_combat_beat_trigger.py -q
+python -m pytest app/tests/test_combat_attack_gating.py -q
 ```
 
 ### APP-028 — combat failure narration (app layer)
@@ -168,6 +257,20 @@ python -m pytest app/tests/test_combat_failure_narration.py -q
 - Attack outside combat → visible failure; GM does not describe a hit.
 - Unknown monster id → error before narration.
 - Beat-trigger encounter with failed start → no ghoul-attack fiction while `combat: null`.
+- APP-026: orchestrator rejects `combat_attack` before engine when `status.combat` null.
+
+### APP-026 — combat attack gating (app layer)
+
+**Module:** `app/tests/test_combat_attack_gating.py` _(new)_
+
+See § **Combat attack gating (APP-026)** for G1–G8 + G6b table.
+
+**Commands:**
+
+```bash
+python -m pytest app/tests/test_combat_attack_gating.py -q
+python -m pytest app/tests/test_combat_failure_narration.py -q
+```
 
 ---
 
@@ -176,10 +279,11 @@ python -m pytest app/tests/test_combat_failure_narration.py -q
 | File | Role |
 |------|------|
 | `gm/combat_fsm.py` | Combat step state; `pending_start` / `pending_monsters` |
-| `gm/orchestrator.py` | `_combat_turn`, `_handle_combat_trigger`, `_llm_loop`, `_combat_llm_loop_inner` |
+| `gm/orchestrator.py` | `_combat_turn`, `_handle_combat_trigger`, `_llm_loop`, `_combat_llm_loop_inner`, `_combat_auto_chain`, **`_gate_pc_attack`** |
 | `gm/bridge.py` | Combat service wrappers |
 | `gm/tools.py` | Combat tool schemas |
 | `app/tests/test_combat_failure_narration.py` | APP-028 orchestration tests |
+| `app/tests/test_combat_attack_gating.py` | APP-026 attack pre-gate tests |
 
 ---
 
@@ -191,3 +295,7 @@ python -m pytest app/tests/test_combat_failure_narration.py -q
 | 2026-05-21 | APP-028 PM draft: § Combat tool failure narration — beat-trigger, `all_failed` content strip, tool inventory, tests T1–T6 |
 | 2026-05-21 | APP-028 PM r2: R1 `_llm_loop` short-circuit contract; tests T1–T11 (all five exploration tools, R4 partial-failure injection) |
 | 2026-05-21 | **APP-028 done:** `_handle_combat_trigger` failure string + `_beat_combat_start_failure` short-circuit; `_COMBAT_TOOL_NAMES` exploration `all_failed` strip; combat inner strip + partial `TOOL FAILED` injection; `test_combat_failure_narration.py` T1–T11 green |
+| 2026-05-22 | **APP-029 done:** `_combat_auto_chain()` runs `run_combat_monster_turns()` after PC action until PC turn or combat end |
+| 2026-05-22 | **APP-026 PM draft:** § Combat attack gating — `_gate_pc_attack`, wire `combat_attack` + `combat_action` ATTACK, tests G1–G7 |
+| 2026-05-22 | **APP-026 PM r2:** R3 case-normalized ATTACK gate (`action.upper().strip()`); tests G6b, G8; G4/G5 fixture clarity |
+| 2026-05-22 | **APP-026 done:** `_gate_pc_attack` + `_resolve_combatant_id_for_gate`; wired `_execute_tool` `combat_attack` and `_execute_combat_action` ATTACK; `test_combat_attack_gating.py` G1–G8 + G6b green; APP-028 regression green |
