@@ -57,12 +57,15 @@ def test_full_creation_apprentice_caster(orchestrator, monkeypatch):
             assert orchestrator.creation.active is True
         if text == "Dumpy":
             assert "Pick **one race**" in last
-            assert "| Race | Adjustments | Description |" in last
+            assert "| Race | Adjustments |" in last
+            assert "Description |" not in last
             assert "Awaiting: RACE_INPUT" in last
             assert last.strip() != "The clerk waits."
             assert orchestrator.creation.races_table_shown is True
         if text == "human":
             assert orchestrator.creation.classes_table_shown is True
+            assert "| Class | Requirement | Key skills |" in last
+            assert "Starting GP" not in last
             assert "Attr | Base | Genetic | Life Evt | Racial | Final" in last
             assert "Life event: Unremarkable Youth" in last
             for attr, final in FIXED_ROLL["final_attributes"].items():
@@ -306,7 +309,8 @@ def test_name_advance_presents_race_table(orchestrator):
     assert orchestrator.creation.step == "RACE"
     assert orchestrator.creation.races_table_shown is True
     assert "Pick **one race**" in narration
-    assert "| Race | Adjustments | Description |" in narration
+    assert "| Race | Adjustments |" in narration
+    assert "Description |" not in narration
     assert "Awaiting: RACE_INPUT" in narration
     assert narration.strip() != "The clerk waits."
 

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import re
+
 from types import SimpleNamespace
 
 from gm.creation import (
+    ensure_equipment_gold,
+    format_equipment_summary,
     format_roll_stats_table,
+    strip_flavor_equipment_claims,
     strip_flavor_stats_table,
     strip_llm_status_tags,
 )
+from gm.narration_verify import VerificationResult
 from test_creation_flow import FIXED_ROLL
 
 
@@ -172,3 +178,102 @@ def test_roll_stats_narration_single_stats_table(orchestrator, monkeypatch):
 
     for attr, final in FIXED_ROLL["final_attributes"].items():
         assert str(final) in narration
+
+
+def _setup_equipment_gold(orchestrator) -> None:
+    creation = orchestrator.creation
+    creation.active = True
+    creation.step = "EQUIPMENT_GOLD"
+    creation.name = "Sumpty"
+    creation.race = "undead"
+    creation.chosen_class = "novice"
+    creation.chosen_skills = ["spellcasting", "medicine", "lore"]
+    creation.chosen_schools = ["divine", "ward"]
+    creation.chosen_spells = ["mend-light", "aegis-spark"]
+    creation.gold_roll = 1
+    ensure_equipment_gold(creation)
+
+
+_EQUIPMENT_FLAVOR_GP_RE = re.compile(r"\d+\s*(?:gp|gold|coin)", re.IGNORECASE)
+
+
+def test_strip_flavor_equipment_claims_unit():
+    banter = "Sign here when you're ready?"
+    clerk_line = "The clerk stamps the form and waits."
+
+    gold_pieces = (
+        f"{clerk_line} The clerk slides fifty gold pieces across the counter. {banter}"
+    )
+    out_gold = strip_flavor_equipment_claims(gold_pieces)
+    assert "fifty gold" not in out_gold.lower()
+    assert banter in out_gold
+    assert clerk_line in out_gold
+    assert not _EQUIPMENT_FLAVOR_GP_RE.search(out_gold)
+
+    gp_pouch = f"{clerk_line} Here is your 5 gp pouch for the road. {banter}"
+    out_gp = strip_flavor_equipment_claims(gp_pouch)
+    assert "5 gp" not in out_gp
+    assert banter in out_gp
+    assert not _EQUIPMENT_FLAVOR_GP_RE.search(out_gp)
+
+    kit_list = (
+        f"{clerk_line}\n\n"
+        "Registry kit: bedroll, rations, waterskin, and a coin pouch.\n\n"
+        f"{banter}"
+    )
+    out_kit = strip_flavor_equipment_claims(kit_list)
+    assert "Registry kit" not in out_kit
+    assert "bedroll" not in out_kit
+    assert "rations" not in out_kit
+    assert banter in out_kit
+    assert not _EQUIPMENT_FLAVOR_GP_RE.search(out_kit)
+
+    prose_only = f"{clerk_line}\n\n{banter}"
+    assert strip_flavor_equipment_claims(prose_only) == prose_only
+
+    assert strip_flavor_equipment_claims("") == ""
+    assert strip_flavor_equipment_claims("   \n  ") == ""
+
+
+BAD_EQUIPMENT_FLAVOR = (
+    "The clerk counts out fifty gold pieces and stacks a bedroll on the counter.\n\n"
+    "Registry kit: bedroll, rations, waterskin.\n\n"
+    "Sign here when you're ready?"
+)
+
+
+def test_compose_flavor_sanitize_equipment(orchestrator):
+    _setup_equipment_gold(orchestrator)
+    body = format_equipment_summary(orchestrator.creation)
+
+    narration = orchestrator._compose_creation_narration(BAD_EQUIPMENT_FLAVOR, body)
+
+    flavor = _flavor_region(narration, body_marker="**Registry kit:**")
+    assert not _EQUIPMENT_FLAVOR_GP_RE.search(flavor)
+    assert "bedroll" not in flavor.lower()
+    assert "Sign here when you're ready?" in flavor
+    assert f"**Starting gold:** {orchestrator.creation.starting_gold} gp" in narration
+
+
+def test_equipment_narration_gp_only_in_body(orchestrator, monkeypatch):
+    _setup_equipment_gold(orchestrator)
+    starting_gold = orchestrator.creation.starting_gold
+
+    _patch_llm_content(
+        monkeypatch,
+        BAD_EQUIPMENT_FLAVOR,
+        finish_reason="stop",
+        orchestrator=orchestrator,
+    )
+    monkeypatch.setattr(
+        "gm.orchestrator.verify_narration",
+        lambda prose, truth: VerificationResult(passed=True),
+    )
+
+    narration = orchestrator._auto_present_equipment("continue")
+
+    flavor = _flavor_region(narration, body_marker="**Registry kit:**")
+    assert not _EQUIPMENT_FLAVOR_GP_RE.search(flavor)
+    assert "fifty gold" not in flavor.lower()
+    assert f"**Starting gold:** {starting_gold} gp" in narration
+    assert "Awaiting: EQUIPMENT_GOLD_CONFIRMATION" in narration

@@ -403,6 +403,71 @@ def eligible_schools_for_class(class_key: str) -> list[dict[str, Any]]:
     return list(schools)
 
 
+def _truncate_cell(text: str, max_len: int = 40) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[:37] + "…"
+
+
+CREATION_TABLE_CELL_LIMITS: dict[str, dict[str, int]] = {
+    "RACE": {"Race": 14, "Adjustments": 40},
+    "CLASS": {"Class": 12, "Requirement": 28, "Key skills": 40},
+    "SKILLS": {"Skill": 22},
+    "SPELL_SCHOOLS": {"Themes": 35},
+    "SPELLS": {"Effect": 40},
+}
+
+_TABLE_SEP_RE = re.compile(r"^\s*\|[-:\s|]+\|\s*$")
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|")
+
+
+def _parse_first_md_table(table_md: str) -> tuple[list[str], list[list[str]]] | None:
+    lines = (table_md or "").splitlines()
+    for i, line in enumerate(lines):
+        if not line.strip().startswith("|"):
+            continue
+        if i + 1 >= len(lines) or not _TABLE_SEP_RE.match(lines[i + 1]):
+            continue
+        headers = [c.strip() for c in line.strip().strip("|").split("|")]
+        rows: list[list[str]] = []
+        j = i + 2
+        while j < len(lines) and _TABLE_ROW_RE.match(lines[j]):
+            rows.append([c.strip() for c in lines[j].strip().strip("|").split("|")])
+            j += 1
+        return headers, rows
+    return None
+
+
+def validate_table_cell_lengths(table_md: str, step: str) -> list[str]:
+    """Return contract violations for the first markdown table in *table_md*."""
+    limits = CREATION_TABLE_CELL_LIMITS.get(step)
+    if not limits:
+        return []
+    parsed = _parse_first_md_table(table_md)
+    if not parsed:
+        return [f"{step}:no table found"]
+    headers, rows = parsed
+    col_idx = {name: headers.index(name) for name in limits if name in headers}
+    violations: list[str] = []
+    for row in rows:
+        for col_name, max_len in limits.items():
+            idx = col_idx.get(col_name)
+            if idx is None or idx >= len(row):
+                continue
+            cell = row[idx].strip()
+            if len(cell) > max_len:
+                violations.append(f"{step}.{col_name}:{cell}={len(cell)}>{max_len}")
+    return violations
+
+
+def assert_table_contract(step: str, md: str) -> None:
+    violations = validate_table_cell_lengths(md, step)
+    if violations:
+        import pytest
+
+        pytest.fail("\n".join(violations))
+
+
 def tier1_spells_for_schools(school_ids: list[str]) -> list[dict[str, Any]]:
     chosen = set(school_ids)
     return [
@@ -454,6 +519,7 @@ def format_spells_table(chosen_class: str, school_ids: list[str]) -> str:
             effect = f"Heal {spell['heal'].get('dice', '?')}"
         elif spell.get("attack"):
             effect = f"Attack {spell['attack'].get('damage', '?')}"
+        effect = _truncate_cell(effect, 40)
         lines.append(
             f"| {spell['displayName']} (`{spell['id']}`) | {spell.get('school', '?')} | "
             f"{spell.get('mpCost', '?')} | {effect} |"
@@ -661,6 +727,62 @@ def strip_flavor_stats_table(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
+_EQUIPMENT_WORD_NUMBERS = (
+    r"one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
+    r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred"
+)
+_EQUIPMENT_CLAIM_RE = re.compile(
+    r"(?:"
+    r"\d+\s*gp\b"
+    r"|\d+\s*gold\b"
+    r"|\bgold pieces?\b"
+    r"|\bgold coins?\b"
+    rf"|\b(?:{_EQUIPMENT_WORD_NUMBERS})\s+"
+    r"(?:gp|\bgold\b|gold\s+pieces?|gold\s+coins?|\bcoins?\b)"
+    r"|\bcoin pouch\b"
+    r"|\bstarting (?:coin|gold)\b"
+    r"|\bRegistry kit\b"
+    r"|\bbedroll\b"
+    r"|\brations\b"
+    r"|\bwaterskin\b"
+    r")",
+    re.IGNORECASE,
+)
+_FLAVOR_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _split_equipment_flavor_sentences(paragraph: str) -> list[str]:
+    """Split a flavor paragraph into sentence- or line-scoped chunks."""
+    parts: list[str] = []
+    for line in paragraph.splitlines():
+        chunk = line.strip()
+        if not chunk:
+            continue
+        if _FLAVOR_SENTENCE_SPLIT_RE.search(chunk):
+            parts.extend(p.strip() for p in _FLAVOR_SENTENCE_SPLIT_RE.split(chunk) if p.strip())
+        else:
+            parts.append(chunk)
+    return parts
+
+
+def strip_flavor_equipment_claims(text: str) -> str:
+    """Remove GP/kit economics from LLM flavor; code owns format_equipment_summary() body."""
+    if not (text or "").strip():
+        return ""
+    kept_paragraphs: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", (text or "").strip()):
+        kept_sentences: list[str] = []
+        for sentence in _split_equipment_flavor_sentences(paragraph):
+            if _EQUIPMENT_CLAIM_RE.search(sentence):
+                continue
+            kept_sentences.append(sentence)
+        if kept_sentences:
+            kept_paragraphs.append(" ".join(kept_sentences))
+    result = "\n\n".join(kept_paragraphs)
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
 _PREMATURE_FLAVOR_MARKERS = (
     re.compile(r"pre[-_]?delve", re.IGNORECASE),
     re.compile(r"awaiting:\s*reception_choice", re.IGNORECASE),
@@ -734,12 +856,12 @@ def format_races_table() -> str:
     lines = [
         "Pick **one race**. Reply with the race name.",
         "",
-        "| Race | Adjustments | Description |",
-        "|:------|:-------------|:-------------|",
+        "| Race | Adjustments |",
+        "|:------|:-------------|",
     ]
     for name, info in RACES.items():
         lines.append(
-            f"| {name.replace('-', ' ').title()} | {_format_mods(info['mods'])} | {info['description']} |"
+            f"| {race_display_title(name)} | {_format_mods(info['mods'])} |"
         )
     return "\n".join(lines)
 
@@ -780,16 +902,16 @@ def format_classes_table(eligible: list[str]) -> str:
     lines = [
         "Pick **one tier-1 class** you qualify for.",
         "",
-        "| Class | Requirement | Key skills | Starting GP |",
-        "|:------|:-------------|:-----------|:------------|",
+        "| Class | Requirement | Key skills |",
+        "|:------|:-------------|:-----------|",
     ]
     for cls in eligible:
         info = CLASS_INFO.get(cls)
         if not info:
             continue
-        keys = ", ".join(info["key_skills"][:4])
+        keys = _truncate_cell(", ".join(info["key_skills"][:4]), 40)
         lines.append(
-            f"| {cls.title()} | {info['requirement']} | {keys} | {info['base_gp']} gp |"
+            f"| {cls.title()} | {info['requirement']} | {keys} |"
         )
     return "\n".join(lines)
 

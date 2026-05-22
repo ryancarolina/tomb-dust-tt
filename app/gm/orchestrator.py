@@ -37,6 +37,7 @@ from gm.creation import (
     strip_llm_meta_narration,
     strip_flavor_race_table,
     strip_flavor_stats_table,
+    strip_flavor_equipment_claims,
     race_display_title,
     sanitize_premature_completion_flavor,
     SKILL_DISPLAY,
@@ -1264,6 +1265,7 @@ class Orchestrator:
         cleaned = strip_llm_status_tags(flavor)
         cleaned = strip_flavor_race_table(cleaned)
         cleaned = strip_flavor_stats_table(cleaned)
+        cleaned = strip_flavor_equipment_claims(cleaned)
         cleaned = self._sanitize_creation_flavor(cleaned)
         try:
             roster_len = len(self.bridge.status().get("roster") or [])
@@ -1932,7 +1934,9 @@ class Orchestrator:
         ensure_equipment_gold(self.creation)
         err = f"**Note:** {error}\n\n" if error else ""
         flavor = self.narrate_with_verification(
-            "Hand over the Registry kit and coin pouch; ask for explicit confirmation.",
+            "Brief Registry clerk banter only — mood, paperwork, confirmation ask. "
+            "Do not mention kit contents, gold amounts, GP, coin pouches, or item lists; "
+            "code appends the authoritative Registry kit summary.",
             player_input,
             body_pending=True,
             skip_llm=bool(error),

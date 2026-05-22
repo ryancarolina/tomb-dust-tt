@@ -1,4 +1,9 @@
-"""Mechanical-truth verification for creation flavor (APP-083 Phase 1)."""
+"""Mechanical-truth verification for creation flavor (APP-083 Phase 1).
+
+APP-059 EQUIPMENT_GOLD: flavor must not mention GP/gold/coin economics or kit
+inventory — any mention fails verify (including amounts matching truth). Word-form
+English numbers covered: one–twenty, thirty–ninety, hundred.
+"""
 
 from __future__ import annotations
 
@@ -31,6 +36,29 @@ _ENUMERATION_RE = re.compile(
 )
 _GP_CLAIM_RE = re.compile(
     r"(\d+)\s*(?:gp|\bgold\b|gold\s+pieces?|gold\s+coins?|\bcoins?\b)",
+    re.IGNORECASE,
+)
+# APP-059: any economics prose in EQUIPMENT_GOLD flavor (not only mismatch).
+_EQUIPMENT_WORD_NUMBERS = (
+    r"one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
+    r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred"
+)
+_EQUIPMENT_GP_DIGIT_RE = re.compile(
+    r"\d+\s*(?:gp|\bgold\b|gold\s+pieces?|gold\s+coins?|\bcoins?\b)",
+    re.IGNORECASE,
+)
+_EQUIPMENT_GP_WORD_RE = re.compile(
+    rf"\b(?:{_EQUIPMENT_WORD_NUMBERS})\s+"
+    r"(?:gp|\bgold\b|gold\s+pieces?|gold\s+coins?|\bcoins?\b)",
+    re.IGNORECASE,
+)
+_EQUIPMENT_GP_PHRASE_RE = re.compile(
+    r"\b(?:coin pouch|starting gold|gold pieces?|gold coins?)\b",
+    re.IGNORECASE,
+)
+_EQUIPMENT_KIT_RE = re.compile(
+    r"\b(?:Registry kit|bedroll|rations|waterskin|pouch)\b",
     re.IGNORECASE,
 )
 _AWAITING_RE = re.compile(r"\bAwaiting:\s*\S+", re.IGNORECASE)
@@ -213,6 +241,14 @@ def verify_narration(prose: str, truth: TurnTruth) -> VerificationResult:
                 violations.append(f"off_catalog_spell:{display}")
 
     if truth.step == "EQUIPMENT_GOLD" and truth.starting_gold_gp is not None:
+        if (
+            _EQUIPMENT_GP_DIGIT_RE.search(text)
+            or _EQUIPMENT_GP_WORD_RE.search(text)
+            or _EQUIPMENT_GP_PHRASE_RE.search(text)
+        ):
+            violations.append("equipment_gp_mention")
+        if _EQUIPMENT_KIT_RE.search(text):
+            violations.append("equipment_kit_mention")
         for m in _GP_CLAIM_RE.finditer(text):
             claimed = int(m.group(1))
             if claimed != truth.starting_gold_gp:

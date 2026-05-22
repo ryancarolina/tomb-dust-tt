@@ -69,6 +69,38 @@ def test_verify_rejects_wrong_gold_on_equipment_step():
     assert any(v.startswith("gold_mismatch") for v in result.violations)
 
 
+def test_verify_equipment_word_form_gold_fails():
+    creation = _novice_creation(step="EQUIPMENT_GOLD")
+    ensure_equipment_gold(creation)
+    truth = build_creation_turn_truth(creation)
+    prose = "The clerk slides fifty gold pieces across the counter."
+    result = verify_narration(prose, truth)
+    assert not result.passed
+    assert "equipment_gp_mention" in result.violations
+
+
+def test_verify_equipment_matching_gp_fails():
+    creation = _novice_creation(step="EQUIPMENT_GOLD")
+    ensure_equipment_gold(creation)
+    truth = build_creation_turn_truth(creation)
+    assert truth.starting_gold_gp is not None
+    prose = f"The clerk notes {truth.starting_gold_gp} gp on the form."
+    result = verify_narration(prose, truth)
+    assert not result.passed
+    assert "equipment_gp_mention" in result.violations
+    assert not any(v.startswith("gold_mismatch") for v in result.violations)
+
+
+def test_verify_equipment_kit_mention_fails():
+    creation = _novice_creation(step="EQUIPMENT_GOLD")
+    ensure_equipment_gold(creation)
+    truth = build_creation_turn_truth(creation)
+    prose = "Registry kit with bedroll and rations awaits on the counter."
+    result = verify_narration(prose, truth)
+    assert not result.passed
+    assert "equipment_kit_mention" in result.violations
+
+
 def test_verify_accepts_clean_banter():
     creation = _novice_creation(step="SPELL_SCHOOLS")
     truth = build_creation_turn_truth(creation)
