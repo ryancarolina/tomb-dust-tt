@@ -224,18 +224,59 @@ When strip removes all flavor and gate was active, return this **code-owned refu
 
 #### APP-077 coordination
 
-[APP-077](backlog/app-077-code-owned-exploration-status-footer.md) adds code-owned exploration footer via `_compose_exploration_narration`. **Order when both land:**
+[APP-077](backlog/app-077-code-owned-exploration-status-footer.md) adds code-owned exploration/combat footer via `_compose_exploration_narration`. **Order when both land:**
 
 1. `sanitize_premature_site_entry_flavor` (APP-024) — interior/entry fiction
-2. `strip_llm_status_tags` + append `format_exploration_status` footer (APP-077) — bracket status lies
+2. `strip_llm_status_tags` + `strip_llm_meta_narration` + append `format_exploration_status` footer (APP-077) — bracket status lies and meta leaks
 
-APP-024 does **not** depend on APP-077; APP-077 must not remove APP-024 strip. Shared compose entry point lives in `orchestrator.py` exploration path.
+APP-024 does **not** depend on APP-077; APP-077 must not remove APP-024 strip. Shared compose entry point lives in `orchestrator.py` exploration path. Full contract: § [Code-owned status footer (exploration & combat) (APP-077)](#code-owned-status-footer-exploration--combat-app-077). Orchestrator cross-link: [`app-llm-orchestrator-spec.md`](app-llm-orchestrator-spec.md) § Code-owned exploration/combat status footer (APP-077).
 
 #### Tests (APP-024)
 
 ```bash
 python -m pytest app/tests/test_exploration_site_entry_gate.py -q
 ```
+
+### Registry hub loop integration test (APP-025)
+
+**Ticket:** [APP-025](backlog/app-025-registry-hub-loop-integration-test.md)
+
+**Problem:** The canonical Registry hub extraction loop (`preparation → ingress → delve → extract`) is wired through `GameBridge` but has **no** end-to-end test in `app/tests/`. Engine and exploration unit tests cover fragments only.
+
+**Policy:** Add a **bridge-direct** integration test — no LLM mocks — that bootstraps an isolated session at **Breley Keep (`32-C`)** and walks the phase FSM via the same APIs the orchestrator dispatches.
+
+#### Canonical loop (v1)
+
+| Step | Bridge call | Party state (assert) |
+|------|-------------|----------------------|
+| Bootstrap | `campaign_new` + `session_start` | `address=32-C`, `mode=surface`, `phase=preparation` |
+| Ingress + delve | `enter_dungeon(site_address)` — `32-C-UG-1` or `undercrypt` | `mode=dungeon`, `site_id=32-C-UG-1`, `phase=delve` |
+| Exit site | `exit_dungeon()` | `mode=surface`, `site_id` cleared; **`phase` stays `delve`** |
+| Extract | `set_phase("extract")` | `phase=extract` |
+
+**Path constraints:**
+
+- Use **`bridge.enter_dungeon`** → `ExplorationService.enter_site` (`mode=dungeon`) + `advance_phase_for_dungeon_entry` — **not** `site_enter` / `mode=site`.
+- Do **not** call `set_phase("delve")` from `preparation` (illegal; see APP-022).
+- Do **not** use `world_travel` to a layered address — APP-023 returns `USE_ENTER_DUNGEON`.
+
+**Ingress observability:** `advance_phase_for_dungeon_entry` runs inside `enter_dungeon`; final status shows `phase=delve`. Assert **`events`** rows `type=phase.set` with `{from: preparation, to: ingress}` and `{from: ingress, to: delve}`.
+
+**Out of scope v1:** registry stamp buy, Holt quest scenario (extend after APP-085), mock-LLM golden path (APP-051), surface travel prep beat (APP-023).
+
+#### Tests (APP-025)
+
+```bash
+python -m pytest app/tests/test_registry_hub_loop.py -q
+python -m pytest app/tests -q
+```
+
+| Case | Setup | Pass |
+|------|-------|------|
+| Full hub loop | Bootstrap `32-C` / `preparation` | S0→S3 sequence; final `phase=extract`, `mode=surface` |
+| Friendly site name | `enter_dungeon("undercrypt")` from `32-C` | Resolves `32-C-UG-1`; `mode=dungeon`, `phase=delve` |
+| Phase audit | After `enter_dungeon` | `events` contains preparation→ingress→delve `phase.set` rows |
+| Exit vs extract | After entry, `exit_dungeon` | Surface mode; phase still `delve` until `set_phase("extract")` |
 
 ### Encounter awareness before combat (APP-089) — draft
 
@@ -295,6 +336,96 @@ python -m pytest app/tests/test_narration_verify.py -q  # encounter_* cases
 | In-dungeon room turn | `mode=dungeon` | Room description, no entry tools | Prose unchanged (gate bypass) |
 | Helper unit | n/a | Marker fixtures | Entry segments stripped; benign surface prose kept |
 
+### Code-owned status footer (exploration & combat) (APP-077)
+
+**Ticket:** [APP-077](backlog/app-077-code-owned-exploration-status-footer.md) · **Run spec:** [spec.md](backlog/runs/app-077-exploration-status-footer/spec.md)
+
+**Problem:** `system_prompt.py` mandates LLM-authored `[Location: … | Phase: … | … | Awaiting: …]` every turn. Exploration/combat paths emit raw model prose — no strip, no code footer (unlike creation's `_compose_creation_narration`). Models invent wrong GP, phase, or awaiting values; meta banners (`**Campaign Memory Updated:**`) leak into player view.
+
+**Policy:** **Strip LLM status + meta from prose; append one authoritative footer from `bridge.status()`.** Prompt instructs GM that the client appends state — do not emit bracket tags in flavor.
+
+#### Footer contract
+
+| Field | Source (`bridge.status()`) | Notes |
+|-------|------------------------------|-------|
+| `Location` | `party.display_address` if set, else `party.address` | `display_address` when `mode=dungeon` (site / room) |
+| `Phase` | `party.phase` | e.g. `preparation`, `delve`, `ingress` |
+| `HP` | Lowest-`slot` roster entry `hp` | `"current/max"` string from engine |
+| `Fortune` | Same roster entry `fortune` | `"current/max"` string |
+| `GP` | Same roster entry `gold` | Sheet `goldGp`; if `party.gold_in_transit > 0`, format `{gold} (+{transit} transit)` |
+| `Turn` | `combat.turn_id` | **Combat only** — when `status.combat` truthy, inserted before `Awaiting` |
+| `Awaiting` | Top-level `status.awaiting` | e.g. `PLAYER_ACTIONS`, `COMBAT_TURN` |
+
+**Roster pin:** footer uses the roster character with the **lowest `slot`** value (typically slot 1). Multi-PC aggregation is out of scope.
+
+**Exploration shape:**
+
+```text
+[Location: {location} | Phase: {phase} | HP: {hp} | Fortune: {fortune} | GP: {gp} | Awaiting: {awaiting}]
+```
+
+**Combat shape** (when `combat.active` / `status.combat` present):
+
+```text
+[Location: {location} | Phase: {phase} | HP: {hp} | Fortune: {fortune} | GP: {gp} | Turn: {turn_id} | Awaiting: {awaiting}]
+```
+
+Shape reference (creation handoff only): `_auto_finalize` explicit footer in `orchestrator.py`.
+
+#### Helpers
+
+| Helper | Module | Role |
+|--------|--------|------|
+| `format_exploration_status(status)` | `creation.py` | Build canonical bracket line from status dict |
+| `strip_llm_status_tags(text)` | `creation.py` | APP-073 + **broad bracket strip** for exploration footer tokens (`Location`, `Phase`, `HP`, `Fortune`, `GP`, `Turn`, `Awaiting` inside `[…]`) |
+| `strip_llm_meta_narration(text)` | `creation.py` | Remove `**Campaign Memory Updated:**` and `---` memory banner leaks |
+| `_compose_exploration_narration(prose, *, gate_active)` | `orchestrator.py` | APP-024 → strip tags → strip meta → append footer from **fresh** `bridge.status()` |
+
+#### Compose order (with APP-024 / APP-022)
+
+1. APP-024 sanitizer (+ refusal line when gate active and body empty)
+2. `strip_llm_status_tags`
+3. `strip_llm_meta_narration`
+4. Append `format_exploration_status(status)`
+
+**Failure prefix paths:** `[Mechanics failed — …]` (APP-028 class) and APP-022 delve hint prepend **before** sanitized content; steps 1–4 still run on assistant content; footer always appended unless entire return is code-only failure with no prose (combat tool-fail early return).
+
+**Empty body:** after strip, if only whitespace remains (and not APP-024 refusal-only), still append footer — never bracket-only player view.
+
+**Idempotency:** strip F4 bracket shape before append so inner `_llm_loop` compose + outer `process_turn` compose yield exactly one footer.
+
+#### Wiring
+
+| Path | Compose before `_emit_narration` |
+|------|----------------------------------|
+| Exploration `process_turn` | Yes — post-`_llm_loop` (existing call site) |
+| `_llm_loop` `all_failed and content` | Yes — helper must be complete (no second compose) |
+| `_combat_turn` LLM narration (`_combat_llm_loop`, `_narrate_text`) | **Yes** — `gate_active=False` |
+| Code-only (`[Mechanics failed]` only, death boilerplate) | No footer required |
+
+**Prompt (`system_prompt.py`):** remove mandatory state-line steps; instruct client appends authoritative status — see orchestrator spec § APP-077.
+
+**Optional telemetry:** `log_exploration_drift` when stripped prose contained bracket values disagreeing with engine (mirror APP-002 creation drift — does not block emit).
+
+**APP-083 / APP-089:** verify pass → compose (024 + 077). Strip remains defense-in-depth after verify ships.
+
+#### Tests (APP-077)
+
+```bash
+python -m pytest app/tests/test_exploration_status_footer.py -q
+```
+
+| Case | Setup | Pass |
+|------|-------|------|
+| Golden footer | Fixture status dicts (surface, delve, combat) | Exact bracket strings |
+| GP transit | `gold` + `gold_in_transit` | `GP: N (+M transit)` |
+| Strip + compose | LLM prose with wrong GP bracket | Engine GP only in footer region; one footer |
+| Meta strip | `Campaign Memory Updated` banner | Not in composed output |
+| Empty body | Strip-all prose | Footer still present |
+| APP-024 + footer | Gate refusal turn | Refusal line + footer |
+| Combat wire | Mock combat LLM return | `Turn:` segment; composed before emit |
+| APP-024 regression | Existing site-entry tests | Unchanged gate behavior |
+
 ### UI
 
 - Map click sends travel intent; blocked during creation/combat as appropriate.
@@ -325,18 +456,20 @@ Canonical types in `validate_content.py` (`SITE_EDGE_TYPES`): `door`, `archway`,
 - [x] Map click → travel string to orchestrator
 - [x] `enter_dungeon` accepts `site_address` and `site_id` alias in bridge
 
-**Open work:** [APP-025](backlog/app-025-registry-hub-loop-integration-test.md), [APP-063](backlog/app-063-map-ux-redesign-useful-navigation.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-089](backlog/app-089-encounter-awareness-before-combat.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-063](backlog/app-063-map-ux-redesign-useful-navigation.md), [APP-089](backlog/app-089-encounter-awareness-before-combat.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 - [x] **APP-022:** Failed `set_phase(delve)` hint — `_delve_entry_tool_hint`, R1–R3 injection in `_llm_loop`, tests in `app/tests/test_exploration_set_phase_delve_hint.py`
 - [x] **APP-023:** Friendly surface travel — `resolve_surface_address` exit-scoped two-pass resolver; `bridge.world_travel` + `process_beat` parity; tests in `play/tomb_gm/tests/test_world.py` + `test_beat.py`
 - [x] **APP-024:** Site-entry fiction gate — `sanitize_premature_site_entry_flavor`, `_llm_loop` + `all_failed` path, tests in `app/tests/test_exploration_site_entry_gate.py`
+- [x] **APP-077:** Code-owned exploration/combat status footer — `format_exploration_status`, `_compose_exploration_narration` strip+footer, combat wire, `test_exploration_status_footer.py`; APP-024 regression footer assert in `test_exploration_site_entry_gate.py`
+- [x] **APP-025:** Registry hub loop integration test — bridge-direct `32-C` → `enter_dungeon` → `exit_dungeon` → `set_phase(extract)` in `app/tests/test_registry_hub_loop.py`
 
 ---
 
 ## Tests
 
 - Travel `32-C` → `33-C` via tool (canonical id or friendly `kings road` per APP-023); status address updates.
-- Enter Breley Undercrypt from `32-C`; mode becomes site.
+- Enter Breley Undercrypt from `32-C`; `mode=dungeon` via `enter_dungeon` (APP-025 hub loop test).
 - Unknown/ambiguous friendly travel → structured error with exit hints, **not** fake arrival (APP-023).
 - **APP-024:** Surface + entry hallucination → stripped; successful `enter_dungeon` / `site_enter` → allowed; in-dungeon turns bypass gate (see § Site-entry fiction gate).
 
@@ -344,6 +477,8 @@ Canonical types in `validate_content.py` (`SITE_EDGE_TYPES`): `door`, `archway`,
 python -m pytest play/tomb_gm/tests/test_extraction_slice.py -q
 python -m pytest app/tests/test_exploration_site_entry_gate.py -q
 python -m pytest app/tests/test_exploration_set_phase_delve_hint.py -q
+python -m pytest app/tests/test_exploration_status_footer.py -q  # APP-077
+python -m pytest app/tests/test_registry_hub_loop.py -q  # APP-025
 python build/tools/validate_content.py
 python -m tomb_gm --workspace play/workspace check
 ```
@@ -361,6 +496,8 @@ python -m tomb_gm --workspace play/workspace check
 | `gm/bridge.py` | World/site/exploration methods |
 | `play/tomb_gm/services/world.py` | `legal_exits`, `can_travel`, **`resolve_surface_address`** (APP-023) |
 | `play/tomb_gm/services/beat.py` | `process_beat` travel → shared surface resolver (APP-023) |
+| `gm/creation.py` | `format_exploration_status`, `strip_llm_meta_narration`, extended `strip_llm_status_tags` (APP-077) |
+| `app/tests/test_registry_hub_loop.py` | Bridge-direct Breley hub loop T1–T5 (APP-025) |
 
 ---
 
@@ -382,3 +519,7 @@ python -m tomb_gm --workspace play/workspace check
 | 2026-05-22 | APP-023 PM r2: apostrophe folding + King's Road scoring proof; layered fallback algorithm; beat `UNKNOWN_ADDRESS`→`NO_DESTINATION` map; T5 pinned to `USE_ENTER_DUNGEON` |
 | 2026-05-22 | APP-023 Dev plan r2: compound `tradeRoute` gate (display tier > 0 required); full `32-C` exit candidate table; T8 `GameBridge.world_travel` bridge test |
 | 2026-05-22 | APP-023 done: `resolve_surface_address` in `world.py`; `bridge.world_travel` + `process_beat` shared resolver; exit-scoped scoring, layered `USE_ENTER_DUNGEON` fallback; 10 tests in `test_world.py`, 2 in `test_beat.py` |
+| 2026-05-22 | APP-077 PM draft: § Code-owned status footer — field mapping, compose order with APP-024/022, combat `Turn:` segment, meta strip, test matrix; orchestrator spec cross-link |
+| 2026-05-22 | APP-077 done: `format_exploration_status`, `strip_llm_meta_narration`, broadened `strip_llm_status_tags`; `_compose_exploration_narration` + `_emit_exploration_narration`; `log_exploration_drift`; `system_prompt.py` client-appends-state; 10 tests in `test_exploration_status_footer.py`; APP-024 in-dungeon bypass asserts code footer |
+| 2026-05-22 | APP-025 PM draft: § Registry hub loop integration test — bridge-direct Breley loop, `test_registry_hub_loop.py`, exit_dungeon vs set_phase(extract) contract |
+| 2026-05-22 | APP-025 done: bridge-direct hub loop integration test — T1–T5 in `test_registry_hub_loop.py`; `events` `phase.set` audit for preparation→ingress→delve; exit_dungeon vs set_phase(extract) contract pinned |
