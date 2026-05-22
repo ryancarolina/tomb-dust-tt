@@ -39,6 +39,7 @@ class NarrationPanel:
         self._font_italic = None
         self._font_small = None
         self._dirty = True
+        self._follow_tail = False
 
     def _ensure_fonts(self):
         if not self._fonts_ready:
@@ -62,6 +63,7 @@ class NarrationPanel:
         self._rendered.clear()
         self._total_height = 0
         self._scroll_offset = 0
+        self._follow_tail = False
         self._dirty = True
 
     def scroll(self, dy: int):
@@ -71,6 +73,10 @@ class NarrationPanel:
 
     def scroll_to_bottom(self):
         self._scroll_offset = max(0, self._total_height - self.rect.height + 40)
+
+    def request_follow_tail(self) -> None:
+        """Pin viewport to bottom after next layout rebuild in draw()."""
+        self._follow_tail = True
 
     def _rebuild(self):
         self._ensure_fonts()
@@ -161,6 +167,9 @@ class NarrationPanel:
     def draw(self, screen: pygame.Surface):
         if self._dirty:
             self._rebuild()
+        if self._follow_tail:
+            self.scroll_to_bottom()
+            self._follow_tail = False
 
         pygame.draw.rect(screen, BG_PANEL, self.rect)
         pygame.draw.rect(screen, BORDER, self.rect, 1)
