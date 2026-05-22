@@ -54,6 +54,11 @@ def log_creation_drift(data: dict):
     log_entry("creation_drift", data)
 
 
+def log_exploration_drift(data: dict):
+    """Structured alert when stripped exploration prose disagreed with engine status."""
+    log_entry("exploration_drift", data)
+
+
 def log_creation_step(data: dict):
     """Per-turn creation FSM snapshot for debugging drift."""
     log_entry("creation_step", data)

@@ -591,6 +591,71 @@ cd app && python -m pytest tests/test_api_error_logging.py -q
 
 **Ticket:** [APP-034](backlog/app-034-log-tool-chain-on-api-errors.md) · **Run spec:** [spec.md](backlog/runs/app-034-log-tool-chain-on-api-errors/spec.md)
 
+### Code-owned exploration/combat status footer (APP-077)
+
+**Ticket:** [APP-077](backlog/app-077-code-owned-exploration-status-footer.md) · **Run spec:** [spec.md](backlog/runs/app-077-exploration-status-footer/spec.md) · **Domain owner:** [`app-exploration-delve-spec.md`](app-exploration-delve-spec.md) § Code-owned status footer (APP-077)
+
+**Problem:** `system_prompt.py` still mandates LLM-authored bracket status lines on exploration/combat turns. Creation uses `_compose_creation_narration` → `strip_llm_status_tags` + `format_creation_status()`; exploration stub `_compose_exploration_narration` runs APP-024 only; combat emits raw LLM text to `_emit_narration`.
+
+**Policy:** Strip LLM status tags and meta narration leaks from flavor; append **one** code-owned footer from fresh `bridge.status()`. Prompt tells GM the **client appends authoritative state** — do not emit `[Location: …]` / `Awaiting:` in prose.
+
+#### Helpers
+
+| Helper | Module | Role |
+|--------|--------|------|
+| `format_exploration_status(status)` | `creation.py` | Bracket line: Location, Phase, HP, Fortune, GP (+ transit), optional combat `Turn`, Awaiting |
+| `strip_llm_status_tags(text)` | `creation.py` | APP-073 + broad exploration bracket strip (HP/Fortune/GP/Turn tokens) |
+| `strip_llm_meta_narration(text)` | `creation.py` | Remove `**Campaign Memory Updated:**`, `---` memory banner leaks |
+| `_compose_exploration_narration(prose, *, gate_active)` | `orchestrator.py` | APP-024 → strip tags → strip meta → append footer |
+
+#### Compose pipeline (exploration + combat)
+
+```text
+LLM prose (or verified prose when APP-083 Phase 2+)
+  → sanitize_premature_site_entry_flavor (APP-024, when gate_active)
+  → strip_llm_status_tags
+  → strip_llm_meta_narration
+  → append format_exploration_status(bridge.status())
+  → _emit_narration
+```
+
+**Ordering with APP-083 / APP-089:** `verify_narration` pass (when wired) → **then** compose above. Strip/footer remain defense-in-depth after verify.
+
+**Prefix paths:** `[Mechanics failed — …]` (APP-028) and APP-022 delve hint prepend before sanitized content; footer still appended on composed tail.
+
+**Combat wire:** `_combat_turn` must compose before `_emit_narration` on `_combat_llm_loop` success and `_narrate_text` paths (`gate_active=False`). Skip code-only failure/death boilerplate returns.
+
+**Idempotency:** broad bracket strip before append — safe if compose runs in both `_llm_loop` `all_failed` path and `process_turn`.
+
+#### `system_prompt.py` changes
+
+| Before | After |
+|--------|-------|
+| Step 6: "Include state line: `[Location: …]`" | Remove — client appends status |
+| Response Format: mandatory bracket end line | Replace with: *"Write narration as prose only. The client appends an authoritative status line from the engine — do not include `[Location: …]`, `Awaiting:`, or bracket state tags in your text."* |
+| Combat `turn_id` / tool rules | Unchanged |
+
+Authoritative state for LLM reasoning remains in `build_state_context` / future `TurnTruth` — separate from player-visible footer.
+
+#### Tests
+
+```bash
+cd app && python -m pytest tests/test_exploration_status_footer.py -q
+```
+
+See domain spec § APP-077 Tests for case matrix (golden footer, wrong GP strip, meta leak, combat `Turn:` wire, APP-024 regression).
+
+#### Related tickets
+
+| Ticket | Relationship |
+|--------|----------------|
+| APP-007 / APP-073 | Creation compose pattern source; shared `strip_llm_status_tags` |
+| APP-024 | Compose order — site-entry sanitizer runs first |
+| APP-041 | TTS may strip bracket footer at speak time — display footer still authoritative |
+| APP-065 | Chips use engine `awaiting`; footer fixes player-visible lies |
+| APP-083 Phase 2 | Verify before compose; universal "no fake status tags" rule |
+| APP-087 | Sanitizer may leave LLM bracket — 077 strip + code footer fixes footer-only turns |
+
 ---
 
 ## Task checklist
@@ -609,7 +674,7 @@ cd app && python -m pytest tests/test_api_error_logging.py -q
 - [ ] Mechanical-truth narration gate — Phase 2 exploration (APP-083 follow-on)
 - [ ] Mechanical-truth narration gate — Phase 3 combat (APP-083 follow-on)
 
-**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 2+ exploration/combat), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-033](backlog/app-033-sqlite-threading-policy.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 2+ exploration/combat), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-033](backlog/app-033-sqlite-threading-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -675,6 +740,7 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 | `system_prompt.py` | GM persona + rules |
 | `openrouter.py` | API client (pass-through; transcript sanitize in orchestrator — APP-031) |
 | `logger.py` | JSONL session log; `redact_secrets`, `log_api_error` (APP-034) |
+| `creation.py` | Creation FSM helpers; **`format_exploration_status`**, **`strip_llm_meta_narration`**, extended **`strip_llm_status_tags`** (APP-077) |
 | `choice_memory.py` | Creation choice recall |
 
 ---
@@ -684,6 +750,8 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 | Date | Change |
 |------|--------|
 | 2026-05-22 | APP-034 done: `redact_secrets`, `summarize_messages_for_log`, `extract_tool_chain`, `log_api_error`, `log_transcript_400_retry` in `logger.py`; `_emit_api_error` + extended `_chat_completion` intercept (context/depth at six call sites); removed duplicate caller `log_error` on API paths; `test_api_error_logging.py` (U1–U5, I1–I9) |
+| 2026-05-22 | APP-077 PM draft: § Code-owned exploration/combat status footer — `format_exploration_status`, `_compose_exploration_narration` pipeline, `system_prompt.py` mandate removal, meta strip; cross-link to exploration domain spec |
+| 2026-05-22 | APP-077 done: `_compose_exploration_narration` compose pipeline (APP-024 → strip → meta → footer); `_emit_exploration_narration` on exploration + combat paths; `log_exploration_drift`; `system_prompt.py` prose-only mandate; helpers in `creation.py`; `test_exploration_status_footer.py` |
 | 2026-05-22 | APP-034 PM spec: § API error logging — `log_api_error` + redaction helpers in `logger.py`; `_chat_completion` canonical failure intercept; optional `transcript_400_retry`; `test_api_error_logging.py` |
 | 2026-05-22 | APP-032 done: `is_malformed_transcript_400` narrow 400 classifier; `_chat_completion` truncate via `_safe_prefix_fallback` + sanitize + retry once; `test_transcript_400_retry.py` (R1–R7); pairs with APP-031 proactive sanitize |
 | 2026-05-22 | APP-032 PM spec: § Reactive 400 retry — narrow 400 detection, truncate via `_safe_prefix_fallback` + sanitize, once per `_chat_completion`; test module `test_transcript_400_retry.py`; pairs with APP-031 |

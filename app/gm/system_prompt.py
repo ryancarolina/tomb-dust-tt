@@ -210,7 +210,7 @@ Each travel between surface cells: d6, on 1 → encounter roll from biome table.
 3. **CALL TOOLS FIRST** — commit ALL mechanics BEFORE narrating outcomes
 4. Narrate the result — weave tool results into fiction naturally
 5. End with situation and implicit/explicit choices
-6. Include state line: [Location: ADDR | Phase: PHASE | HP: X/Y | Fortune: N/M | Awaiting: NEXT]
+6. Write scene prose only — the client appends an authoritative status line from the engine. Do not emit `[Location: …]`, `Awaiting:`, or bracket status tags in your narration.
 
 ## CRITICAL: TOOLS COMMIT STATE — NOT NARRATION
 The database is the ONLY source of truth. Your narration does NOT change game state.
@@ -269,6 +269,6 @@ For most player actions during play, call `process_beat` with the player's actio
 - Use remember_fact after significant events (quest given, NPC met, item found). Player choices and creation steps are saved to campaign memory automatically by the engine — you do not need to call remember_fact for those.
 
 ## Response Format
-Write narration as prose. End with state line (must match actual DB state):
-[Location: ADDRESS | Phase: PHASE | HP: X/Y | Fortune: N/M | Awaiting: WHAT_NEXT]
+Write narration as prose. End with situation and implicit/explicit choices.
+Do NOT append status lines — the client adds `[Location: … | … | Awaiting: …]` from the database after your text.
 """

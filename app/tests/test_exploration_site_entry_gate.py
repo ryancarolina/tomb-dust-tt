@@ -229,4 +229,6 @@ def test_site_entry_gate_bypass_when_in_dungeon(orchestrator, monkeypatch):
 
     narration = orchestrator.process_turn("I search the alcove.")
 
-    assert narration == ENTRY_PROSE
+    assert ENTRY_PROSE in narration
+    assert narration.count("[Location:") == 1
+    assert "Awaiting:" in narration

@@ -113,8 +113,20 @@ def format_creation_step_display(step: str) -> str:
     return CREATION_STEP_DISPLAY.get(step) or step.replace("_", " ").title()
 
 _LLM_STATUS_TAG_RE = re.compile(
-    r"\[Location:[^\]]*\]|\[Phase:[^\]]*\]|Awaiting:\s*[A-Z0-9_]+",
+    r"\[Location:[^\]]*\]"
+    r"|\[Phase:[^\]]*\]"
+    r"|\[[^\]]*(?:\bLocation:|\bPhase:|\bHP:|\bFortune:|\bGP:|\bTurn:|\bAwaiting:)[^\]]*\]"
+    r"|Awaiting:\s*[A-Z0-9_]+",
     re.I | re.MULTILINE,
+)
+
+_MEMORY_BANNER_RE = re.compile(
+    r"^\s*\*\*Campaign Memory Updated:?\*\*\s*$",
+    re.I | re.MULTILINE,
+)
+_TRAILING_MEMORY_BLOCK_RE = re.compile(
+    r"\n---\s*\n\s*\*\*Campaign Memory Updated:?\*\*\s*",
+    re.I,
 )
 
 CLARIFICATION_RE = re.compile(
@@ -576,6 +588,15 @@ def strip_llm_status_tags(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 
+def strip_llm_meta_narration(text: str) -> str:
+    """Remove LLM meta leaks (campaign memory banners) from player-facing prose."""
+    if not (text or "").strip():
+        return ""
+    cleaned = _TRAILING_MEMORY_BLOCK_RE.sub("", text or "")
+    cleaned = _MEMORY_BANNER_RE.sub("", cleaned)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 _RACE_TABLE_HEADER_RE = re.compile(r"^\s*\| Race \|", re.MULTILINE)
 _MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|[-:\s|]+\|\s*$")
 _MD_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|")
@@ -672,6 +693,41 @@ def format_creation_status(state: CreationState) -> str:
     """Code-owned footer line for creation UI and suggestion parsing."""
     label = CREATION_STATUS_LABELS.get(state.step, f"{state.step}_INPUT")
     return f"Awaiting: {label}"
+
+
+def _primary_roster_entry(status: dict) -> dict:
+    roster = status.get("roster") or []
+    if not roster:
+        return {}
+    return min(roster, key=lambda r: r.get("slot", 999))
+
+
+def format_exploration_status(status: dict) -> str:
+    """Code-owned bracket footer for exploration/combat narration."""
+    party = status.get("party") or {}
+    location = party.get("display_address") or party.get("address") or "?"
+    phase = party.get("phase") or "?"
+
+    primary = _primary_roster_entry(status)
+    hp = primary.get("hp") or "?/?"
+    fortune = primary.get("fortune") or "?/1"
+    gold = primary.get("gold", 0) if primary else 0
+    gp = str(gold) if primary else "0"
+    transit = int(party.get("gold_in_transit") or 0)
+    if transit > 0:
+        gp = f"{gold} (+{transit} transit)"
+
+    awaiting = status.get("awaiting") or "?"
+    turn_part = ""
+    combat = status.get("combat")
+    if combat:
+        turn_id = combat.get("turn_id") or "?"
+        turn_part = f" | Turn: {turn_id}"
+
+    return (
+        f"[Location: {location} | Phase: {phase} | HP: {hp} | Fortune: {fortune} | "
+        f"GP: {gp}{turn_part} | Awaiting: {awaiting}]"
+    )
 
 
 def format_races_table() -> str:

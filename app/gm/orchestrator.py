@@ -31,7 +31,10 @@ from gm.creation import (
     format_classes_table,
     format_equipment_summary,
     format_creation_status,
+    format_exploration_status,
+    _primary_roster_entry,
     strip_llm_status_tags,
+    strip_llm_meta_narration,
     strip_flavor_race_table,
     strip_flavor_stats_table,
     race_display_title,
@@ -66,6 +69,7 @@ from gm.logger import (
     log_gm_narration,
     log_creation_advanced,
     log_creation_drift,
+    log_exploration_drift,
     log_creation_finalize,
     log_creation_step,
     parse_narration_status_line,
@@ -94,6 +98,7 @@ _PREMATURE_COMPLETION_COPY_RE = re.compile(
     r"registered\s+delver|you\s+are\s+now\s+a\s+registered",
     re.IGNORECASE,
 )
+_DEATH_MESSAGE_RE = re.compile(r"\*\*.+\*\* is dead\.", re.IGNORECASE)
 _CREATION_FLAVOR_MAX_TOKENS = 120
 NARRATION_LLM_MAX_ATTEMPTS = 6
 NARRATION_VERIFY_MAX_RETRIES = 5
@@ -659,7 +664,74 @@ class Orchestrator:
         text = sanitize_premature_site_entry_flavor(prose or "", gate_active=gate_active)
         if gate_active and not text.strip():
             text = _SITE_ENTRY_REFUSAL_LINE
-        return text
+        self._log_exploration_drift_if_needed(text)
+        text = strip_llm_status_tags(text)
+        text = strip_llm_meta_narration(text)
+        footer = format_exploration_status(self.bridge.status())
+        parts: list[str] = []
+        if text.strip():
+            parts.append(text.strip())
+        parts.append(footer)
+        return "\n\n".join(parts)
+
+    def _log_exploration_drift_if_needed(self, prose: str) -> None:
+        """Telemetry when LLM prose bracket fields disagree with engine (never blocks emit)."""
+        if not (prose or "").strip():
+            return
+        narrated = parse_narration_status_line(prose)
+        gp_m = re.search(r"GP:\s*([^|\]]+)", prose, re.I)
+        narrated_gp = gp_m.group(1).strip() if gp_m else None
+        try:
+            status = self.bridge.status()
+        except Exception:
+            return
+        party = status.get("party") or {}
+        engine_phase = str(party.get("phase") or "").strip().lower()
+        engine_awaiting = str(status.get("awaiting") or "").strip().upper()
+        primary = _primary_roster_entry(status)
+        engine_gold = primary.get("gold", 0) if primary else 0
+        transit = int(party.get("gold_in_transit") or 0)
+        engine_gp = str(engine_gold)
+        if transit > 0:
+            engine_gp = f"{engine_gold} (+{transit} transit)"
+        reasons: list[str] = []
+        narrated_phase = str(narrated.get("phase") or "").strip().lower()
+        narrated_awaiting = str(narrated.get("awaiting") or "").strip().upper()
+        if narrated_phase and engine_phase and narrated_phase != engine_phase:
+            reasons.append("phase_mismatch")
+        if narrated_awaiting and engine_awaiting and narrated_awaiting != engine_awaiting:
+            reasons.append("awaiting_mismatch")
+        if narrated_gp and narrated_gp != engine_gp:
+            reasons.append("gp_mismatch")
+        if not reasons:
+            return
+        log_exploration_drift({
+            "narrated_phase": narrated.get("phase"),
+            "narrated_awaiting": narrated.get("awaiting"),
+            "narrated_gp": narrated_gp,
+            "engine_phase": party.get("phase"),
+            "engine_awaiting": status.get("awaiting"),
+            "engine_gp": engine_gp,
+            "reasons": reasons,
+        })
+
+    def _is_code_only_combat_narration(self, text: str) -> bool:
+        if not (text or "").strip():
+            return False
+        if _DEATH_MESSAGE_RE.search(text):
+            return True
+        stripped = text.strip()
+        if stripped.startswith("[Mechanics failed —"):
+            parts = stripped.split("\n\n", 1)
+            if len(parts) == 1:
+                return True
+            return not parts[1].strip()
+        return False
+
+    def _emit_exploration_narration(self, narration: str, *, gate_active: bool = False) -> None:
+        if not self._is_code_only_combat_narration(narration):
+            narration = self._compose_exploration_narration(narration, gate_active=gate_active)
+        self._emit_narration(narration)
 
     def _build_delve_entry_hint(self) -> str:
         below: list[str] = []
@@ -2299,7 +2371,7 @@ class Orchestrator:
             narration = self._narrate_text(brief + "\n\nNarrate how combat ended.")
             self.combat.active = False
             self.combat.step = "COMBAT_IDLE"
-            self._emit_narration(narration)
+            self._emit_exploration_narration(narration)
             self.history.append({"role": "user", "content": player_input})
             self.history.append({"role": "assistant", "content": narration})
             return narration
@@ -2331,7 +2403,7 @@ class Orchestrator:
                 brief = self._combat_mechanical_brief(mechanical)
                 narration = self._narrate_text(brief + "\n\nMonsters act. Narrate their attacks.")
 
-        self._emit_narration(narration)
+        self._emit_exploration_narration(narration)
         self.history.append({"role": "user", "content": player_input})
         self.history.append({"role": "assistant", "content": narration})
         if len(self.history) > 40:
