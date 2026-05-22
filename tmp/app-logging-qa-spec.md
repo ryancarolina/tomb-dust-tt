@@ -25,6 +25,8 @@
 | `narration_verify_pass` | Creation flavor passed verify (`step`, `attempt`) — APP-083 |
 | `narration_verify_exhausted` | Verify retry budget exhausted (`step`, `attempt`) — APP-083 |
 | `llm_truncation_recovery` | `finish_reason: length` recovery action (`step` or `mode`, `action`, `finish_reason`) — APP-079 |
+| `api_error` | Structured `_chat_completion` failure after retry exhaustion or non-retryable re-raise — redacted `messages_summary`, `tool_chain`, `context`, `attempt` — APP-034 |
+| `transcript_400_retry` | Malformed-transcript 400 before APP-032 second attempt — lengths + `will_retry` — APP-034 |
 
 ### `creation_drift` (APP-002, semantics APP-066)
 
@@ -148,6 +150,7 @@ python -m tomb_gm --workspace play/workspace check
 
 | Date | Change |
 |------|--------|
+| 2026-05-22 | APP-034: JSONL `api_error`, `transcript_400_retry`; `redact_secrets`, `summarize_messages_for_log`, `extract_tool_chain`, `log_api_error` in `gm/logger.py` |
 | 2026-05-21 | APP-083/APP-079: JSONL `narration_verify_fail`, `narration_verify_pass`, `narration_verify_exhausted`, `llm_truncation_recovery` in `gm/logger.py` |
 | 2026-05-20 | **APP-049 implemented:** `app/tests/` package (`helpers`, `conftest`, `test_smoke`); fixtures per § Fixture inventory; gate `python -m pytest app/tests -q` green |
 | 2026-05-20 | **spec draft APP-049:** § App test package, fixture inventory, task checklist APP-049 specified |

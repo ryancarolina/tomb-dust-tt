@@ -491,7 +491,7 @@ Single intercept in `_chat_completion` — all six APP-031 call sites inherit re
 
 #### Observability (optional v1)
 
-On retry path: JSONL `transcript_400_retry` (`attempt`, `prefix_len`, `original_len`) — may defer to APP-034 alongside `transcript_sanitized`.
+On retry path: JSONL `transcript_400_retry` (`attempt`, `prefix_len`, `original_len`) — **shipped APP-034** § API error logging. `transcript_sanitized` still deferred.
 
 #### Tests (APP-032)
 
@@ -511,6 +511,83 @@ cd app && python -m pytest tests/test_transcript_400_retry.py -q
 
 **Ticket:** [APP-032](backlog/app-032-400-retry-on-malformed-transcript.md) · **Run spec:** [spec.md](backlog/runs/app-032-400-retry-malformed-transcript/spec.md)
 
+### API error logging (APP-034)
+
+**Problem:** APP-031/032 reduce transcript 400s but residual API failures (400 after retry, 429, auth, model errors) leave operators with flat `log_error` strings — or **no log at all** in combat (`_combat_llm_loop_inner`). `log_tool_call` only fires post-dispatch; a reject on depth ≥1 often lacks assistant `tool_calls` + `tool` linkage in JSONL.
+
+**Policy:** **`_chat_completion` is the canonical failure log site.** On any exception after retry exhaustion (or immediate re-raise for non-retryable errors), emit structured JSONL **`api_error`** with redacted in-turn tool-chain snapshot. Helpers live in **`logger.py`**; wrapper extended with optional `context` and `depth` kwargs from call sites.
+
+**Boundary:** In-turn `messages` arrays only — not persisted `self.history`. Redact API secrets (`sk-or-`, `Bearer`, `api_key`/`authorization` patterns); truncate content/argument previews (200 / 120 chars). Player prose in tool args may appear truncated — not full PII scrub in v1.
+
+#### Redaction (`logger.py`)
+
+| Helper | Contract |
+|--------|----------|
+| `redact_secrets(value) -> Any` | Recursive str/dict/list walk; replace secret substrings with `[REDACTED]`; never raises |
+| `summarize_messages_for_log(messages) -> list[dict]` | Per-message role, content_len/preview, tool_calls summary, tool_call_id — non-mutating |
+| `extract_tool_chain(messages) -> list[dict]` | Ordered rounds: assistant tool call ids/names + following tool result ids |
+
+Apply `redact_secrets` to full `api_error` payload before `log_entry`.
+
+#### `log_api_error(data: dict)`
+
+JSONL type **`api_error`**. Required fields: `context`, `exc_type`, `error` (redacted), `model`, `tools_present`, `attempt` (1 or 2), `malformed_transcript_400`, `original_len`, `sent_len`, `messages_summary`, `tool_chain`. Optional: `depth`, `retry_truncated`.
+
+| `context` value | Call site |
+|-----------------|-----------|
+| `llm_loop` | Exploration `_llm_loop` |
+| `creation_llm_loop` | Creation tools |
+| `combat_tools` | `_combat_llm_loop_inner` tool pass |
+| `combat_narrate` | Combat narrate-only second pass |
+| `narrate_flavor` | `_call_narration_llm` |
+| `narrate_only` | `_narrate_only` |
+
+Wrapper logging **supersedes** duplicate caller `log_error` for the same exception (player fallbacks unchanged).
+
+#### Wire point (`_chat_completion`)
+
+```text
+clean = sanitize_transcript_messages(messages)
+try: return chat_completion(…, messages=clean)
+except exc:
+  if not is_malformed_transcript_400(exc):
+    log_api_error(…, attempt=1, sent=clean); raise
+  optional log_transcript_400_retry(…)
+  truncated = _safe_prefix_fallback(messages)
+  retry_clean = sanitize_transcript_messages(truncated)
+  try: return chat_completion(…, messages=retry_clean)
+  except exc2:
+    log_api_error(…, attempt=2, sent=retry_clean, retry_truncated=true); raise
+```
+
+Retry **success** → no `api_error`.
+
+#### Observability — APP-031/032/080 deferrals consolidated
+
+| Event | When | Blocking |
+|-------|------|----------|
+| `api_error` | Any `_chat_completion` failure after retry exhaustion | **Yes (APP-034 AC)** |
+| `transcript_400_retry` | Malformed-transcript 400 before second attempt | Optional v1 |
+| `transcript_sanitized` | Sanitize drops/reorders | Deferred — error path may compare lengths only |
+| `tool_arg_coerced` | `normalize_tool_args` changed value | Deferred (APP-080) |
+
+#### Tests (APP-034)
+
+```bash
+cd app && python -m pytest tests/test_api_error_logging.py -q
+```
+
+| Case | Expected |
+|------|----------|
+| Exception string contains `sk-or-…` | Redacted in JSONL |
+| Messages with assistant + tool rows on 400 | `tool_chain` preserves id/name order |
+| Malformed 400 ×2 | `api_error` `attempt: 2`, `retry_truncated: true` |
+| Malformed 400 then success | No `api_error`; optional `transcript_400_retry` |
+| Combat tool pass failure | `api_error` `context: combat_tools` (fixes silent gap) |
+| Logger IOError | Swallowed; API exception still propagates |
+
+**Ticket:** [APP-034](backlog/app-034-log-tool-chain-on-api-errors.md) · **Run spec:** [spec.md](backlog/runs/app-034-log-tool-chain-on-api-errors/spec.md)
+
 ---
 
 ## Task checklist
@@ -525,10 +602,11 @@ cd app && python -m pytest tests/test_transcript_400_retry.py -q
 - [x] `finish_reason: length` recovery policy — creation paths + exploration fallback (APP-079)
 - [x] Transcript sanitize — orphan tool messages before every `chat_completion` (APP-031)
 - [x] Reactive 400 retry on malformed transcript in `_chat_completion` (APP-032)
+- [x] API error logging — tool chain + redaction in `_chat_completion` (APP-034)
 - [ ] Mechanical-truth narration gate — Phase 2 exploration (APP-083 follow-on)
 - [ ] Mechanical-truth narration gate — Phase 3 combat (APP-083 follow-on)
 
-**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 1 creation in batch), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-033](backlog/app-033-sqlite-threading-policy.md)–[APP-034](backlog/app-034-log-tool-chain-on-api-errors.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-079](backlog/app-079-finish-reason-length-recovery-policy.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-083](backlog/app-083-creation-flavor-verification-gate.md) (Phase 2+ exploration/combat), [APP-022](backlog/app-022-hint-enterdungeon-on-failed-setphasedelve.md), [APP-028](backlog/app-028-combat-tool-failure-narration.md) (subsumed Phase 3), [APP-033](backlog/app-033-sqlite-threading-policy.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -547,6 +625,7 @@ cd app && python -m pytest tests/test_narration_verify.py -q   # APP-083 Phase 1
 cd app && python -m pytest tests/test_llm_truncation_recovery.py -q   # APP-079
 cd app && python -m pytest tests/test_transcript_sanitize.py -q   # APP-031
 cd app && python -m pytest tests/test_transcript_400_retry.py -q   # APP-032
+cd app && python -m pytest tests/test_api_error_logging.py -q   # APP-034
 cd app && python -m pytest tests/ -q
 ```
 
@@ -590,6 +669,7 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 | `context.py` | State block for LLM |
 | `system_prompt.py` | GM persona + rules |
 | `openrouter.py` | API client (pass-through; transcript sanitize in orchestrator — APP-031) |
+| `logger.py` | JSONL session log; `redact_secrets`, `log_api_error` (APP-034) |
 | `choice_memory.py` | Creation choice recall |
 
 ---
@@ -598,6 +678,8 @@ Use pytest fixtures for Holt-session `importance` payload — not gitignored ses
 
 | Date | Change |
 |------|--------|
+| 2026-05-22 | APP-034 done: `redact_secrets`, `summarize_messages_for_log`, `extract_tool_chain`, `log_api_error`, `log_transcript_400_retry` in `logger.py`; `_emit_api_error` + extended `_chat_completion` intercept (context/depth at six call sites); removed duplicate caller `log_error` on API paths; `test_api_error_logging.py` (U1–U5, I1–I9) |
+| 2026-05-22 | APP-034 PM spec: § API error logging — `log_api_error` + redaction helpers in `logger.py`; `_chat_completion` canonical failure intercept; optional `transcript_400_retry`; `test_api_error_logging.py` |
 | 2026-05-22 | APP-032 done: `is_malformed_transcript_400` narrow 400 classifier; `_chat_completion` truncate via `_safe_prefix_fallback` + sanitize + retry once; `test_transcript_400_retry.py` (R1–R7); pairs with APP-031 proactive sanitize |
 | 2026-05-22 | APP-032 PM spec: § Reactive 400 retry — narrow 400 detection, truncate via `_safe_prefix_fallback` + sanitize, once per `_chat_completion`; test module `test_transcript_400_retry.py`; pairs with APP-031 |
 | 2026-05-22 | APP-031 done: `sanitize_transcript_messages`, `_safe_prefix_fallback`, `Orchestrator._chat_completion` wired at all six call sites; APP-028 TOOL FAILED reorder at send boundary; `test_transcript_sanitize.py` (T1–T10) |
