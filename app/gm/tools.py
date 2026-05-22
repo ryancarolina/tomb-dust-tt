@@ -44,6 +44,23 @@ COMBAT_ACTION_TOOL = {
     },
 }
 
+FORTUNE_SPEND_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "fortune_spend",
+        "description": "Spend 1 Fortune point to grant advantage on the next d20 roll. Pool = max(1, 1 + LUC mod). Refreshes at session start only.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "character_id": {"type": "string", "description": "Character spending Fortune"},
+            },
+            "required": ["character_id"],
+        },
+    },
+}
+
+COMBAT_PC_TOOLS = [COMBAT_ACTION_TOOL, FORTUNE_SPEND_TOOL]
+
 TOOLS = [
     # SET_CREATION_CHOICE_TOOL is injected separately during creation — not in normal play tools
     {
@@ -153,7 +170,10 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "start_combat",
-            "description": "Begin combat encounter with specified monsters.",
+            "description": (
+                "Begin combat encounter with specified monsters. "
+                "Blocked until encounter phase is engaged or ambush (APP-089)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -266,20 +286,7 @@ TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "fortune_spend",
-            "description": "Spend 1 Fortune point to grant advantage on the next d20 roll. Pool = max(1, 1 + LUC mod). Refreshes at session start only.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "character_id": {"type": "string", "description": "Character spending Fortune"},
-                },
-                "required": ["character_id"],
-            },
-        },
-    },
+    FORTUNE_SPEND_TOOL,
     {
         "type": "function",
         "function": {

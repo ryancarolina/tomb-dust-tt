@@ -240,6 +240,7 @@ def start_combat(
     seed: int | None = None,
     include_party: bool = True,
     campaign_slug: str | None = None,
+    surprised_combatant_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     session = conn.execute("SELECT id FROM sessions WHERE id = ?", (session_id,)).fetchone()
     if not session:
@@ -267,6 +268,13 @@ def start_combat(
             conn, campaign_slug, rng=random.Random(seed), content_root=content_root
         )
         combatants.extend(pcs)
+
+    if surprised_combatant_ids:
+        surprised_set = set(surprised_combatant_ids)
+        for combatant in combatants:
+            cid = combatant.get("id") or combatant.get("character_id")
+            if cid in surprised_set:
+                combatant["surprised"] = True
 
     conn.execute(
         """
@@ -693,6 +701,8 @@ def combat_attack(
         ability_damage_mod=mods["ability_damage_mod"],
         reason=f"{char_id} vs {resolved_target}",
         seed=seed,
+        character_id=char_id,
+        campaign_slug=campaign_slug,
     )
     result["attacker"] = resolved_attacker
     result["target"] = resolved_target
@@ -774,6 +784,13 @@ def execute_combat_action(
             turn_err = _assert_actor_turn(status, actor_id)
             if turn_err:
                 return turn_err
+        if campaign_slug:
+            from tomb_gm.domain.combat_player import clear_pending_fortune_advantage
+            from tomb_gm.domain.combat_sheet import find_combatant
+
+            actor = find_combatant(conn, session_id, actor_id)
+            char_id = (actor or {}).get("characterId") or actor_id
+            clear_pending_fortune_advantage(conn, campaign_slug, char_id)
         return {"ok": True, "action": "end_turn", "actor_id": actor_id}
     return {"ok": False, "error": f"unknown combat action: {action}"}
 

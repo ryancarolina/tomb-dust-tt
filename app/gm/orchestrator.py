@@ -63,7 +63,7 @@ from openai import APIStatusError, BadRequestError
 
 from gm.openrouter import create_client, chat_completion
 from gm.system_prompt import SYSTEM_PROMPT
-from gm.tools import TOOLS, SET_CREATION_CHOICE_TOOL, COMBAT_ACTION_TOOL
+from gm.tools import TOOLS, SET_CREATION_CHOICE_TOOL, COMBAT_PC_TOOLS
 from gm.context import build_state_context, build_messages
 from gm.logger import (
     log_player_input,
@@ -88,7 +88,9 @@ from gm.logger import (
     extract_tool_chain,
 )
 from gm.narration_verify import (
+    TurnTruth,
     build_creation_turn_truth,
+    build_encounter_turn_truth,
     format_turn_truth_for_prompt,
     verify_narration,
 )
@@ -115,6 +117,29 @@ _COMBAT_TOOL_NAMES = frozenset({
     "fortune_spend",
     "combat_action",
 })
+
+# APP-089 encounter FSM
+_HOSTILE_INTENT_RE = re.compile(
+    r"\b(attack|charge|strike|fight|engage|draw (?:my )?(?:weapon|sword|blade)|"
+    r"swing at|stab|shoot at|lunge at)\b",
+    re.I,
+)
+_CONTEST_KEYWORD_MAP: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(perception|listen|spot|notice|detect|search for|look for)\b", re.I), "pc_perceive"),
+    (re.compile(r"\b(stealth|sneak|hide|slip past|avoid detection|move quietly)\b", re.I), "pc_sneak"),
+    (re.compile(r"\b(ambush|surprise|wait in hiding|lurk)\b", re.I), "monster_ambush"),
+]
+_ENCOUNTER_ENTRY_HINT = (
+    "Combat not started — threat present. Offer detect / sneak / fight. "
+    "Do not call start_combat until engaged or ambush."
+)
+_ENCOUNTER_NOT_ENGAGED_HINT = (
+    "Threat present — detect, sneak past, or declare hostile action before start_combat."
+)
+_ENCOUNTER_VERIFY_FALLBACK = (
+    "Something stirs in the shadows — a threat you have not yet resolved. "
+    "You could listen for movement, try to slip past, withdraw, or engage."
+)
 
 _SITE_ENTRY_REFUSAL_LINE = (
     "The entrance holds you at the threshold — the Registry ledger still shows you on the surface. "
@@ -415,6 +440,12 @@ class Orchestrator:
         self.creation = CreationState()
         self.combat = CombatState()
         self._creation_disk_restore_done = False
+        # APP-089 encounter FSM
+        self._encounter_by_room: dict[str, dict[str, Any]] = {}
+        self._tools_ok_this_turn: list[str] = []
+        self._current_encounter_key: str | None = None
+        self._pending_contest_type: str | None = None
+        self._current_player_input: str = ""
 
     def get_status(self) -> dict:
         return self.bridge.status()
@@ -464,6 +495,9 @@ class Orchestrator:
             combat_data = data.get("combat_state")
             if combat_data and combat_data.get("active"):
                 self.combat = CombatState.from_dict(combat_data)
+            encounter_data = data.get("encounter_state")
+            if encounter_data:
+                self.import_encounter_state(encounter_data)
         except Exception:
             pass
 
@@ -484,6 +518,13 @@ class Orchestrator:
         else:
             self.combat.active = False
             self.combat.step = "COMBAT_IDLE"
+            try:
+                st = self.bridge.status()
+                key = self._encounter_room_key(st)
+                if key and self._encounter_by_room.get(key, {}).get("phase") == "in_combat":
+                    self._encounter_by_room.pop(key, None)
+            except Exception:
+                pass
 
     def export_combat_state(self) -> dict | None:
         if not self.combat.active:
@@ -493,6 +534,248 @@ class Orchestrator:
     def import_combat_state(self, data: dict | None) -> None:
         if data and data.get("active"):
             self.combat = CombatState.from_dict(data)
+
+    def export_encounter_state(self) -> dict[str, dict[str, Any]]:
+        return dict(self._encounter_by_room)
+
+    def import_encounter_state(self, data: dict[str, dict[str, Any]] | None) -> None:
+        self._encounter_by_room = dict(data) if data else {}
+
+    def _encounter_room_key(self, status: dict) -> str | None:
+        party = status.get("party") or {}
+        if party.get("mode") != "dungeon":
+            return None
+        site_id = party.get("site_id")
+        room_id = party.get("dungeon_room_id")
+        if not site_id or not room_id:
+            return None
+        return f"{site_id}:{room_id}"
+
+    def _enemy_threats_from_features(self, features: list) -> list[dict[str, Any]]:
+        threats: list[dict[str, Any]] = []
+        for feature in features:
+            if not isinstance(feature, dict):
+                continue
+            if str(feature.get("feature_type") or "").lower() != "enemy":
+                continue
+            raw = feature.get("data_json")
+            data: dict[str, Any] = raw if isinstance(raw, dict) else {}
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                    data = parsed if isinstance(parsed, dict) else {}
+                except json.JSONDecodeError:
+                    data = {}
+            monster_id = str(data.get("monsterId") or data.get("monster_id") or "").strip()
+            if not monster_id:
+                continue
+            threats.append({
+                "monster_id": monster_id,
+                "count": int(data.get("count") or 1),
+                "feature_id": feature.get("id"),
+            })
+        return threats
+
+    def _room_features_from_status(self, status: dict) -> list:
+        dungeon = status.get("dungeon") or {}
+        return list(dungeon.get("features") or status.get("features") or [])
+
+    def _get_encounter_state(self, status: dict) -> dict[str, Any]:
+        key = self._encounter_room_key(status)
+        if not key:
+            return {}
+        if key not in self._encounter_by_room:
+            self._encounter_by_room[key] = {"phase": "", "threats": []}
+        self._current_encounter_key = key
+        return self._encounter_by_room[key]
+
+    def _current_encounter_phase(self, status: dict) -> str:
+        return str(self._get_encounter_state(status).get("phase") or "")
+
+    def _set_encounter_phase(self, status: dict, phase: str) -> None:
+        key = self._encounter_room_key(status)
+        if not key:
+            return
+        blob = self._get_encounter_state(status)
+        blob["phase"] = phase
+        self._encounter_by_room[key] = blob
+
+    def _init_encounter_state_detected(self, status: dict, features: list) -> None:
+        key = self._encounter_room_key(status)
+        if not key:
+            return
+        threats = self._enemy_threats_from_features(features)
+        if not threats:
+            return
+        self._encounter_by_room[key] = {"phase": "detected", "threats": threats}
+        self._current_encounter_key = key
+
+    def _pc_character_ids(self, status: dict) -> list[str]:
+        ids: list[str] = []
+        for entry in status.get("roster") or status.get("characters") or []:
+            cid = entry.get("character_id") or entry.get("id")
+            if cid:
+                ids.append(str(cid))
+        return ids
+
+    def _surprised_combatant_ids_if_ambush(self, status: dict) -> list[str] | None:
+        blob = self._get_encounter_state(status)
+        if blob.get("phase") != "ambush":
+            return None
+        if "surprised_combatant_ids" in blob:
+            return list(blob["surprised_combatant_ids"])
+        pc_ids = self._pc_character_ids(status)
+        return pc_ids or None
+
+    def _disambiguate_contest_type(
+        self,
+        contest_type: str,
+        phase: str,
+        features: list,
+    ) -> str:
+        has_enemy = bool(self._enemy_threats_from_features(features))
+        if contest_type == "pc_sneak":
+            if phase == "unnoticed" and not has_enemy:
+                return "monster_ambush"
+        if contest_type == "pc_perceive" and phase == "unnoticed":
+            return "pc_perceive"
+        return contest_type
+
+    def _infer_contest_type(
+        self,
+        reason: str,
+        player_input: str,
+        phase: str,
+        features: list,
+    ) -> str | None:
+        if self._pending_contest_type:
+            return self._disambiguate_contest_type(self._pending_contest_type, phase, features)
+
+        matched: str | None = None
+        for pattern, contest_type in _CONTEST_KEYWORD_MAP:
+            if pattern.search(reason or ""):
+                matched = contest_type
+                break
+        if matched is None:
+            for pattern, contest_type in _CONTEST_KEYWORD_MAP:
+                if pattern.search(player_input or ""):
+                    matched = contest_type
+                    break
+        if matched is None:
+            return None
+        return self._disambiguate_contest_type(matched, phase, features)
+
+    def _resolve_encounter_contest(self, roll_result: dict, contest_type: str) -> None:
+        status = self.bridge.status()
+        key = self._encounter_room_key(status)
+        if not key:
+            return
+        blob = self._get_encounter_state(status)
+        phase = str(blob.get("phase") or "")
+        success = bool(
+            roll_result.get("ok")
+            and roll_result.get(
+                "success",
+                roll_result.get("total", 0) >= roll_result.get("dc", 99),
+            )
+        )
+
+        if contest_type == "pc_perceive":
+            if success and phase == "unnoticed":
+                blob["phase"] = "detected"
+        elif contest_type == "pc_sneak":
+            if not success:
+                blob["phase"] = "engaged"
+        elif contest_type == "monster_ambush":
+            if not success:
+                blob["phase"] = "ambush"
+                blob["surprised_combatant_ids"] = self._pc_character_ids(status)
+
+        blob["last_contest"] = {
+            "contest_type": contest_type,
+            "success": success,
+            "roll_ref": {
+                k: roll_result.get(k)
+                for k in ("total", "dc", "skill", "reason", "natural")
+            },
+        }
+        blob["last_roll"] = blob["last_contest"]["roll_ref"]
+        self._encounter_by_room[key] = blob
+
+    def _advance_encounter_phase(self, player_input: str) -> None:
+        try:
+            status = self.bridge.status()
+        except Exception:
+            return
+        if status.get("combat") or self.combat.active:
+            return
+        key = self._encounter_room_key(status)
+        if not key:
+            return
+        blob = self._get_encounter_state(status)
+        phase = str(blob.get("phase") or "")
+
+        if phase in ("detected", "unnoticed") and _HOSTILE_INTENT_RE.search(player_input):
+            blob["phase"] = "engaged"
+            self._encounter_by_room[key] = blob
+            return
+
+        for pattern, contest_type in _CONTEST_KEYWORD_MAP:
+            if pattern.search(player_input):
+                self._pending_contest_type = contest_type
+                break
+
+    def _handle_beat_encounter_rows(self, beat_result: dict) -> dict:
+        summary = list(beat_result.get("mechanical_summary") or [])
+        if not summary:
+            return beat_result
+
+        status = self.bridge.status()
+        phase = self._current_encounter_phase(status)
+        new_summary: list[dict[str, Any]] = []
+
+        for item in summary:
+            if item.get("action") == "hostile" and item.get("ok"):
+                if phase in ("detected", "unnoticed"):
+                    self._set_encounter_phase(status, "engaged")
+                    phase = "engaged"
+                    continue
+                if phase in ("engaged", "ambush"):
+                    new_summary.append({
+                        "ok": True,
+                        "action": "combat_trigger",
+                        "monster_specs": item.get("monster_specs") or ["grave-ghoul:1"],
+                        "include_party": True,
+                        "slot": item.get("slot"),
+                    })
+                    continue
+            new_summary.append(item)
+
+        return {**beat_result, "mechanical_summary": new_summary}
+
+    def _scan_beat_roll_contests(self, beat_result: dict) -> None:
+        status = self.bridge.status()
+        if not self._encounter_room_key(status):
+            return
+        for item in beat_result.get("mechanical_summary") or []:
+            if not item.get("ok"):
+                continue
+            action = item.get("action") or ""
+            if action not in ("roll_d20", "roll"):
+                continue
+            contest_type = item.get("contest_type")
+            if not contest_type:
+                features = self._room_features_from_status(status)
+                phase = self._current_encounter_phase(status)
+                reason = str(item.get("reason") or item.get("skill") or "")
+                contest_type = self._infer_contest_type(
+                    reason,
+                    self._current_player_input,
+                    phase,
+                    features,
+                )
+            if contest_type:
+                self._resolve_encounter_contest(item, contest_type)
 
     def _combat_active_in_db(self) -> bool:
         try:
@@ -662,6 +945,15 @@ class Orchestrator:
         if pre_turn_mode in ("dungeon", "site"):
             return False
         return pre_turn_mode == "surface"
+
+    def _encounter_verify_active(self, status: dict) -> bool:
+        """True when encounter TurnTruth verify should run on exploration publish (APP-089 D2)."""
+        if status.get("combat"):
+            return False
+        if self._current_encounter_phase(status):
+            return True
+        features = self._room_features_from_status(status)
+        return any(str(f.get("feature_type") or "").lower() == "enemy" for f in features)
 
     def _compose_exploration_narration(self, prose: str, *, gate_active: bool) -> str:
         """Exploration post-process: APP-024 site-entry strip, then APP-077 footer/tags."""
@@ -1088,6 +1380,24 @@ class Orchestrator:
                 room_info = svc.current_room_info(session_id)
                 if room_info:
                     result["dungeon_info"] = room_info
+                status_stub = {
+                    "party": {
+                        "mode": ps["mode"],
+                        "site_id": ps["site_id"],
+                        "dungeon_room_id": ps["dungeon_room_id"],
+                    }
+                }
+                phase = self._current_encounter_phase(status_stub)
+                features = (room_info or {}).get("features") or []
+                has_enemy = any(
+                    str(f.get("feature_type") or "").lower() == "enemy" for f in features
+                )
+                if phase or has_enemy:
+                    phase_label = phase or "unknown"
+                    result["encounter_context"] = (
+                        f"Encounter: combat NOT active. Phase: {phase_label}. "
+                        "Threats present — player may detect, sneak, or engage."
+                    )
             else:
                 # Surface mode — show scene, features, compass
                 result["scene_info"] = {
@@ -1208,6 +1518,9 @@ class Orchestrator:
         if self.combat.active or self._combat_active_in_db():
             return self._combat_turn(player_input)
 
+        self._current_player_input = player_input
+        self._advance_encounter_phase(player_input)
+
         status = self.bridge.status()
         check = self.bridge.check()
         suggest = self.bridge.suggest()
@@ -1222,6 +1535,8 @@ class Orchestrator:
         state_context = build_state_context(
             status, recap, check, suggest, exploration, inventory_summary=inventory_summary
         )
+        if exploration and exploration.get("encounter_context"):
+            state_context += f"\n\n## Encounter\n{exploration['encounter_context']}"
 
         if SPELL_QUERY_RE.search(player_input):
             roster = status.get("roster") or []
@@ -1245,6 +1560,24 @@ class Orchestrator:
         pre_turn_mode = (status.get("party") or {}).get("mode", "surface")
         narration = self._llm_loop(messages)
         gate_active = self._exploration_gate_active(pre_turn_mode)
+
+        if self._encounter_verify_active(status):
+            status = self.bridge.status()
+            truth = build_encounter_turn_truth(
+                status,
+                self._get_encounter_state(status),
+                self._tools_ok_this_turn,
+                gate_flags={"entry_committed": self._entry_committed_this_turn},
+            )
+            narration = self.narrate_with_verification(
+                "",
+                player_input,
+                truth=truth,
+                initial_prose=narration,
+                mode="exploration",
+                state_context=state_context,
+            ) or _ENCOUNTER_VERIFY_FALLBACK
+
         narration = self._compose_exploration_narration(narration, gate_active=gate_active)
         self._emit_narration(narration)
 
@@ -1346,6 +1679,27 @@ class Orchestrator:
                 ),
             },
             *history_block,
+            {"role": "user", "content": player_input},
+        ]
+
+    def _exploration_narration_messages(
+        self,
+        player_input: str,
+        truth_block: str,
+        state_context: str,
+    ) -> list[dict[str, Any]]:
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": state_context},
+            {
+                "role": "system",
+                "content": (
+                    f"{truth_block}\n\n"
+                    "Write 1-3 sentences of encounter narration only. "
+                    "Offer detect, sneak, withdraw, or hostile engage — do not start combat in prose."
+                ),
+            },
+            *self.history[-4:],
             {"role": "user", "content": player_input},
         ]
 
@@ -1472,6 +1826,10 @@ class Orchestrator:
         instruction: str,
         player_input: str,
         *,
+        truth: TurnTruth | None = None,
+        initial_prose: str | None = None,
+        mode: str = "creation",
+        state_context: str = "",
         body_pending: bool = False,
         flavor_only: bool = False,
         presenting_step: str | None = None,
@@ -1480,6 +1838,14 @@ class Orchestrator:
         """Inject turn truth, verify prose, retry until pass or exhaust (APP-083)."""
         if skip_llm:
             return ""
+
+        if truth is not None and initial_prose is not None and mode == "exploration":
+            return self._narrate_exploration_with_verification(
+                player_input,
+                truth,
+                initial_prose,
+                state_context=state_context,
+            )
 
         truth = build_creation_turn_truth(self.creation)
         truth_block = format_turn_truth_for_prompt(truth, creation=self.creation)
@@ -1563,6 +1929,76 @@ class Orchestrator:
         log_narration_verify_exhausted({"step": step, "attempt": self._narration_llm_max_attempts})
         if flavor_only:
             return _NAME_LENGTH_STATIC_FALLBACK
+        return ""
+
+    def _narrate_exploration_with_verification(
+        self,
+        player_input: str,
+        truth: TurnTruth,
+        initial_prose: str,
+        *,
+        state_context: str = "",
+    ) -> str:
+        """Verify settled _llm_loop prose; retry via tool-free _call_narration_llm only (APP-089 D9)."""
+        truth_block = format_turn_truth_for_prompt(truth, creation=None)
+        verify_step = truth.step or (
+            f"encounter_{truth.encounter_phase}" if truth.encounter_phase else "encounter"
+        )
+        messages = self._exploration_narration_messages(
+            player_input, truth_block, state_context
+        )
+        verify_retries = self._narration_verify_max_retries
+        prose = initial_prose
+
+        for attempt in range(verify_retries + 1):
+            check = verify_narration(prose, truth)
+            if check.passed:
+                if prose.strip():
+                    log_narration_verify_pass(
+                        {
+                            "mode": "exploration",
+                            "step": verify_step,
+                            "attempt": attempt + 1,
+                        }
+                    )
+                return prose
+
+            log_narration_verify_fail(
+                {
+                    "mode": "exploration",
+                    "step": verify_step,
+                    "attempt": attempt + 1,
+                    "violations": list(check.violations),
+                }
+            )
+            if attempt >= verify_retries:
+                log_narration_verify_exhausted(
+                    {
+                        "mode": "exploration",
+                        "step": verify_step,
+                        "attempt": attempt + 1,
+                    }
+                )
+                return ""
+
+            messages = [
+                *messages,
+                {"role": "assistant", "content": prose},
+                {
+                    "role": "user",
+                    "content": (
+                        "Rewrite 1-3 sentences only. "
+                        f"Violations: {', '.join(check.violations)}. "
+                        f"{truth_block}\n"
+                        "Do not contradict authoritative facts."
+                    ),
+                },
+            ]
+            prose = self._call_narration_llm(messages)
+
+        log_narration_verify_exhausted(
+            {"mode": "exploration", "step": verify_step, "attempt": verify_retries + 1}
+        )
         return ""
 
     def _narrate_creation_flavor(
@@ -2329,6 +2765,13 @@ class Orchestrator:
                     f"{action}: {item.get('attacker')} vs {item.get('target')} — "
                     f"hit={hit} damage={dmg} defeated={item.get('target_defeated', False)}"
                 )
+            elif action == "fortune_spend":
+                f = item.get("fortune") or {}
+                lines.append(
+                    f"fortune_spend: {item.get('character_id')} spent={item.get('spent', 1)} "
+                    f"pool={f.get('current')}/{f.get('max')} "
+                    f"pending_advantage={item.get('pending_advantage', False)}"
+                )
             elif action == "combat_end_check":
                 if item.get("ended"):
                     lines.append(f"Combat ended: {item.get('outcome', 'unknown')} ({item.get('reason', '')})")
@@ -2422,6 +2865,13 @@ class Orchestrator:
         suggest = self.bridge.suggest()
         recap = self.bridge.build_recap()
         step_prompt = get_combat_step_prompt(self.combat, status)
+        if is_pc_turn(status):
+            step_prompt += (
+                "\n\nFortune: if the player spends Fortune on this attack, call "
+                "`fortune_spend(character_id=<turn_id>)` THEN `combat_action` (ATTACK or CAST) "
+                "in one batch — **fortune_spend first**. Do not narrate Fortune spent without "
+                "a successful fortune_spend tool result."
+            )
         state_context = build_state_context(status, recap, check, suggest, None)
         if step_prompt:
             state_context += "\n\n## Combat Step\n" + step_prompt
@@ -2432,6 +2882,43 @@ class Orchestrator:
         messages = build_messages(SYSTEM_PROMPT, state_context, self.history, player_input)
         return self._combat_llm_loop_inner(messages, depth=0)
 
+    def _reorder_combat_pc_tool_calls(self, tool_calls: list[dict]) -> list[dict]:
+        """If batch has fortune_spend + combat_action for same actor, run spend first (F11)."""
+        if len(tool_calls) < 2:
+            return tool_calls
+
+        parsed: list[tuple[dict, str, dict]] = []
+        for tc in tool_calls:
+            name = tc["function"]["name"]
+            try:
+                args = json.loads(tc["function"]["arguments"])
+            except json.JSONDecodeError:
+                args = {}
+            parsed.append((tc, name, normalize_tool_args(name, args)))
+
+        if not any(p[1] == "fortune_spend" for p in parsed):
+            return tool_calls
+        if not any(p[1] == "combat_action" for p in parsed):
+            return tool_calls
+
+        status = self.bridge.status()
+        turn_id = (status.get("combat") or {}).get("turn_id")
+        fortune_ids = {p[2].get("character_id") for p in parsed if p[1] == "fortune_spend"}
+        combat_ids = {p[2].get("actor_id") for p in parsed if p[1] == "combat_action"}
+        same_actor = bool(fortune_ids & combat_ids)
+        if not same_actor and turn_id:
+            same_actor = turn_id in fortune_ids and turn_id in combat_ids
+        if not same_actor:
+            return tool_calls
+
+        order = {"fortune_spend": 0, "combat_action": 1}
+
+        def sort_key(item: tuple[dict, str, dict]) -> tuple[int, int]:
+            _, name, _ = item
+            return (order.get(name, 2), tool_calls.index(item[0]))
+
+        return [p[0] for p in sorted(parsed, key=sort_key)]
+
     def _combat_llm_loop_inner(self, messages: list[dict], depth: int = 0) -> str:
         if depth > 3:
             return self._last_content or "Combat stalls — try your action again."
@@ -2440,7 +2927,7 @@ class Orchestrator:
         try:
             response = self._chat_completion(
                 messages=messages,
-                tools=[COMBAT_ACTION_TOOL],
+                tools=COMBAT_PC_TOOLS,
                 tool_choice="auto",
                 context="combat_tools",
                 depth=depth,
@@ -2461,19 +2948,31 @@ class Orchestrator:
         all_failed = True
         mechanical: list[dict] = []
 
-        for tc in tool_calls:
+        for tc in self._reorder_combat_pc_tool_calls(tool_calls):
             fn_name = tc["function"]["name"]
             try:
                 args = json.loads(tc["function"]["arguments"])
             except json.JSONDecodeError:
                 args = {}
             args = normalize_tool_args(fn_name, args)
-            if fn_name != "combat_action":
-                result = {"ok": False, "error": f"During combat only combat_action is available. Got: {fn_name}"}
-            elif err := validate_tool_args(fn_name, args):
-                result = {"ok": False, "error": err}
+            if fn_name == "combat_action":
+                if err := validate_tool_args(fn_name, args):
+                    result = {"ok": False, "error": err}
+                else:
+                    result = self._execute_combat_action(**args)
+            elif fn_name == "fortune_spend":
+                if err := validate_tool_args(fn_name, args):
+                    result = {"ok": False, "error": err}
+                else:
+                    result = self._execute_combat_fortune_spend(**args)
             else:
-                result = self._execute_combat_action(**args)
+                result = {
+                    "ok": False,
+                    "error": (
+                        f"During combat only combat_action and fortune_spend are available. "
+                        f"Got: {fn_name}"
+                    ),
+                }
             log_tool_call(fn_name, args, result)
             self._last_tool_results[fn_name] = result
             if result.get("ok"):
@@ -2556,14 +3055,55 @@ class Orchestrator:
             spell_id=spell_id,
         )
 
+    def _execute_combat_fortune_spend(self, character_id: str) -> dict:
+        status = self.bridge.status()
+        if not status.get("combat"):
+            return {"ok": False, "error": "no active combat"}
+        turn_id = status["combat"].get("turn_id")
+        if character_id != turn_id:
+            return {"ok": False, "error": f"not your turn: expected {turn_id}, got {character_id}"}
+        from tomb_gm.domain.combat_player import spend_fortune
+
+        session_id = self.bridge._active_session_id()
+        campaign_slug = self.bridge._campaign_slug()
+        try:
+            result = spend_fortune(
+                self.bridge.ctx.conn,
+                campaign_slug=campaign_slug,
+                character_id=character_id,
+                session_id=session_id,
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if not result.get("ok"):
+            return {"ok": False, "error": result.get("error", "fortune spend failed")}
+        mechanical_row = {
+            "action": "fortune_spend",
+            "character_id": character_id,
+            "spent": result.get("spent", 1),
+            "fortune": result.get("fortune"),
+            "pending_advantage": result.get("pending_advantage", True),
+        }
+        return {"ok": True, "mechanical": [mechanical_row], **result}
+
     def _handle_combat_trigger(self, beat_result: dict) -> str | None:
+        status = self.bridge.status()
+        encounter_key = self._encounter_room_key(status)
+        phase = self._current_encounter_phase(status) if encounter_key else ""
         for item in beat_result.get("mechanical_summary") or []:
             if item.get("action") != "combat_trigger":
+                continue
+            if encounter_key and phase not in ("engaged", "ambush"):
                 continue
             specs = item.get("monster_specs") or ["grave-ghoul:1"]
             if self._combat_active_in_db():
                 continue
-            start = self.bridge.start_combat_from_trigger(specs)
+            surprised_ids = self._surprised_combatant_ids_if_ambush(status)
+            start = self.bridge.start_combat(
+                monster_specs=specs,
+                include_party=item.get("include_party", True),
+                surprised_combatant_ids=surprised_ids,
+            )
             if not start.get("ok"):
                 self.combat.active = False
                 err = start.get("error", start)
@@ -2574,7 +3114,7 @@ class Orchestrator:
             self.combat.active = True
             self.combat.step = "COMBAT_PC_ACTION"
             self.combat.order_narrated = False
-            self.bridge.run_combat_monster_turns()
+            self._set_encounter_phase(status, "in_combat")
         return None
 
     def _llm_loop(self, messages: list[dict[str, Any]], depth: int = 0, allow_tools: bool = True) -> str:
@@ -2585,6 +3125,8 @@ class Orchestrator:
 
         if depth == 0:
             self._last_tool_results = {}
+            self._tools_ok_this_turn = []
+            self._pending_contest_type = None
             self._beat_combat_start_failure = None
             self._entry_committed_this_turn = False
             self._delve_entry_hint_this_turn = None
@@ -2660,6 +3202,8 @@ class Orchestrator:
                     self._delve_entry_hint_this_turn = hint
             log_tool_call(fn_name, args, result)
             self._last_tool_results[fn_name] = result
+            if result.get("ok"):
+                self._tools_ok_this_turn.append(fn_name)
             if fn_name in ("enter_dungeon", "site_enter") and result.get("ok"):
                 self._entry_committed_this_turn = True
             if result.get("ok", False):
@@ -2727,9 +3271,16 @@ class Orchestrator:
             if self.combat.active or self._combat_active_in_db():
                 if name == "combat_action":
                     return self._execute_combat_action(**args)
+                if name == "fortune_spend":
+                    if err := validate_tool_args(name, args):
+                        return {"ok": False, "error": err}
+                    return self._execute_combat_fortune_spend(**args)
                 return {
                     "ok": False,
-                    "error": f"During combat only combat_action is available. Got: {name}",
+                    "error": (
+                        f"During combat only combat_action and fortune_spend are available. "
+                        f"Got: {name}"
+                    ),
                 }
 
             # During creation, ONLY set_creation_choice is allowed (interactive steps only)
@@ -2743,9 +3294,26 @@ class Orchestrator:
                 return {"ok": False, "error": f"During character creation, only set_creation_choice is available. Got: {name}"}
 
             if name == "roll_d20":
-                return self.bridge.roll_d20(**args)
+                status = self.bridge.status()
+                features = self._room_features_from_status(status)
+                phase = self._current_encounter_phase(status)
+                contest_type = self._infer_contest_type(
+                    str(args.get("reason") or ""),
+                    self._current_player_input,
+                    phase,
+                    features,
+                )
+                if contest_type:
+                    self._pending_contest_type = contest_type
+                result = self.bridge.roll_d20(**args)
+                if result.get("ok") and contest_type and self._encounter_room_key(status):
+                    self._resolve_encounter_contest(result, contest_type)
+                self._pending_contest_type = None
+                return result
             elif name == "process_beat":
                 result = self.bridge.process_beat(**args)
+                self._scan_beat_roll_contests(result)
+                result = self._handle_beat_encounter_rows(result)
                 failure = self._handle_combat_trigger(result)
                 if failure:
                     self._beat_combat_start_failure = failure
@@ -2761,7 +3329,25 @@ class Orchestrator:
             elif name == "site_move":
                 return self.bridge.site_move(**args)
             elif name == "start_combat":
-                return self.bridge.start_combat(**args)
+                status = self.bridge.status()
+                encounter_key = self._encounter_room_key(status)
+                if encounter_key:
+                    phase = self._current_encounter_phase(status)
+                    if phase not in ("engaged", "ambush"):
+                        return {
+                            "ok": False,
+                            "error": "ENCOUNTER_NOT_ENGAGED",
+                            "hint": _ENCOUNTER_NOT_ENGAGED_HINT,
+                            "encounter_phase": phase,
+                        }
+                surprised_ids = self._surprised_combatant_ids_if_ambush(status)
+                result = self.bridge.start_combat(
+                    **args,
+                    surprised_combatant_ids=surprised_ids,
+                )
+                if result.get("ok"):
+                    self._set_encounter_phase(status, "in_combat")
+                return result
             elif name == "combat_attack":
                 if err := self._gate_pc_attack(args.get("attacker_id", "")):
                     return err
@@ -2795,11 +3381,33 @@ class Orchestrator:
             elif name == "compass_exits":
                 return self.bridge.compass_exits()
             elif name == "enter_dungeon":
-                return self.bridge.enter_dungeon(**args)
+                result = self.bridge.enter_dungeon(**args)
+                if result.get("ok"):
+                    status = self.bridge.status()
+                    features = result.get("features") or []
+                    if self._enemy_threats_from_features(features):
+                        self._init_encounter_state_detected(status, features)
+                        result = {**result, "encounter_hint": _ENCOUNTER_ENTRY_HINT}
+                return result
             elif name == "move_room":
-                return self.bridge.move_room(**args)
+                result = self.bridge.move_room(**args)
+                if result.get("ok"):
+                    status = self.bridge.status()
+                    key = self._encounter_room_key(status)
+                    features = result.get("features") or self._room_features_from_status(status)
+                    if key:
+                        threats = self._enemy_threats_from_features(features)
+                        if threats:
+                            self._encounter_by_room[key] = {"phase": "detected", "threats": threats}
+                        else:
+                            self._encounter_by_room.pop(key, None)
+                return result
             elif name == "exit_dungeon":
-                return self.bridge.exit_dungeon()
+                result = self.bridge.exit_dungeon()
+                if result.get("ok"):
+                    self._encounter_by_room.clear()
+                    self._current_encounter_key = None
+                return result
             elif name == "interact_feature":
                 return self.bridge.interact_feature(**args)
             elif name == "list_inventory":

@@ -289,23 +289,69 @@ def spend_fortune(
     campaign_slug: str,
     character_id: str,
     amount: int = 1,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     if amount < 1:
         raise ValueError("amount must be >= 1")
     row = _load_sheet_row(conn, campaign_slug, character_id)
     sheet = json.loads(row["sheet_json"])
-    fortune = sheet.setdefault("fortune", {"current": 0, "max": 1})
+    fortune = sheet.setdefault(
+        "fortune",
+        {"current": 0, "max": 1, "pendingAdvantage": False},
+    )
+    fortune.setdefault("pendingAdvantage", False)
     current = int(fortune.get("current", 0))
     if current < amount:
         raise ValueError(f"Insufficient Fortune: have {current}, need {amount}")
     fortune["current"] = current - amount
+    if session_id:
+        from tomb_gm.services.simulation.combat import combat_status
+
+        st = combat_status(conn, session_id)
+        if st.get("ok"):
+            fortune["pendingAdvantage"] = True
     save_sheet(conn, campaign_slug, character_id, sheet)
     return {
         "ok": True,
         "character_id": character_id,
         "spent": amount,
         "fortune": fortune,
+        "pending_advantage": bool(fortune.get("pendingAdvantage")),
     }
+
+
+def clear_pending_fortune_advantage(
+    conn: sqlite3.Connection,
+    campaign_slug: str,
+    character_id: str,
+) -> None:
+    row = _load_sheet_row(conn, campaign_slug, character_id)
+    sheet = json.loads(row["sheet_json"])
+    fortune = sheet.setdefault(
+        "fortune",
+        {"current": 0, "max": 1, "pendingAdvantage": False},
+    )
+    if fortune.get("pendingAdvantage"):
+        fortune["pendingAdvantage"] = False
+        save_sheet(conn, campaign_slug, character_id, sheet)
+
+
+def consume_pending_fortune_advantage(
+    conn: sqlite3.Connection,
+    campaign_slug: str,
+    character_id: str,
+) -> bool:
+    row = _load_sheet_row(conn, campaign_slug, character_id)
+    sheet = json.loads(row["sheet_json"])
+    fortune = sheet.setdefault(
+        "fortune",
+        {"current": 0, "max": 1, "pendingAdvantage": False},
+    )
+    if not fortune.get("pendingAdvantage"):
+        return False
+    fortune["pendingAdvantage"] = False
+    save_sheet(conn, campaign_slug, character_id, sheet)
+    return True
 
 
 def apply_condition(

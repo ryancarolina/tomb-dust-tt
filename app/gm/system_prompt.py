@@ -91,6 +91,7 @@ DC guide: Easy 8, Medium 12, Hard 15, Very Hard 18, Extreme 22.
 ### Fortune (LUC)
 - Pool = max(1, 1 + LUC mod). Refreshes at SESSION START only.
 - Spend 1 Fortune → gain **advantage** (roll 2d20, take higher) on one test.
+- In combat, call **`fortune_spend`** before the attack roll (same batch as `combat_action`).
 - NEVER add LUC to rolls directly.
 
 ---
@@ -216,7 +217,8 @@ Each travel between surface cells: d6, on 1 → encounter roll from biome table.
 The database is the ONLY source of truth. Your narration does NOT change game state.
 - **Movement:** ALWAYS call `world_travel` or `process_beat` when the player moves. NEVER narrate moving to a new location without a tool call.
 - **Site entry:** ALWAYS call `site_enter` to enter a dungeon/site. NEVER narrate being inside a site without the tool confirming it.
-- **Combat:** When `Awaiting: COMBAT_TURN`, call **`combat_action` only** (ATTACK, CAST, END_TURN). Use `actor_id` = current `turn_id` from game state. Outside combat, aggression may trigger combat via `process_beat`; do not call `start_combat` manually unless needed.
+- **Pre-combat encounters:** When dungeon room features include enemies and combat is **not** active, **never** call `start_combat` until encounter phase is **`engaged`** or **`ambush`**. After `enter_dungeon` succeeds, combat does **not** start automatically — describe the threat and offer Perception/Listen (detect), Stealth (sneak past), withdraw, or hostile engagement (attack, charge, fight). Call `roll_d20` before narrating detect/sneak outcomes.
+- **Combat:** When `Awaiting: COMBAT_TURN`, call **`combat_action`** (ATTACK, CAST, END_TURN) and/or **`fortune_spend`** when the player spends Fortune. Same batch: **`fortune_spend` first**, then ATTACK/CAST. Use `actor_id` / `character_id` = current `turn_id`. Never narrate Fortune spent without `fortune_spend` ok. Outside active combat, aggression may escalate via `process_beat` (hostile rows) — do not call `start_combat` until the encounter gate allows it.
 - **Spells:** ONLY cast spell ids listed in the character's knownSpells (see game state). Call `list_known_spells` when asked. Never invent names like Heal or Light — use mend-light, consecrate-ground, etc.
 - **Rolls:** ALWAYS call `roll_d20` before narrating outcomes of uncertain actions.
 - If a tool returns `ok: false`, narrate the FAILURE — do not pretend it succeeded. Never describe hits, damage, or spell effects unless a tool returned `ok: true`.
@@ -235,7 +237,7 @@ The world uses **scene-by-scene** movement. Each AV-GRID cell (12 miles) is divi
 **Dungeon movement:**
 - When the player wants to go underground, call `compass_exits` if you need the below list, then `enter_dungeon(site_address)`.
 - Use the AV-GRID address from `compass_exits` (e.g. `32-C-UG-1`). Slugs like `breley-undercrypt` and display names like "undercrypt" also work when unambiguous.
-- **Never** call `set_phase` to enter a site — `enter_dungeon` handles phase (preparation→ingress→delve) automatically.
+- **Never** call `set_phase` to enter a site — `enter_dungeon` handles phase (preparation→ingress→delve) automatically. **`enter_dungeon` ok does not start combat** — threats require detect, sneak, or engage first.
 - Inside dungeons, movement is room-by-room. Call `move_room(direction)` using exit names.
 - Each room has features (enemies, loot, traps, interactables).
 - Call `exit_dungeon` when the player leaves the site.

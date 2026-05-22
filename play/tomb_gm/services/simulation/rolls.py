@@ -83,9 +83,34 @@ def perform_attack_roll(
     reason: str | None = None,
     seed: int | None = None,
     natural: int | None = None,
+    character_id: str | None = None,
+    campaign_slug: str | None = None,
 ) -> dict[str, Any]:
+    use_advantage = False
+    natural_high: int | None = None
+    natural_low: int | None = None
+
+    if natural is None and character_id and campaign_slug:
+        from tomb_gm.domain.combat_player import consume_pending_fortune_advantage
+
+        use_advantage = consume_pending_fortune_advantage(
+            conn, campaign_slug, character_id
+        )
+
     rng = _rng(seed)
     skill_bonus_value = skill_bonus(skill_level)
+
+    if natural is not None:
+        chosen_natural = natural
+    elif use_advantage:
+        d1 = roll_d20(rng)
+        d2 = roll_d20(rng)
+        natural_high = max(d1, d2)
+        natural_low = min(d1, d2)
+        chosen_natural = natural_high
+    else:
+        chosen_natural = roll_d20(rng)
+
     result, damage = resolve_attack(
         ability_mod=ability_mod,
         pb=pb,
@@ -94,7 +119,7 @@ def perform_attack_roll(
         weapon_damage=weapon_damage,
         ability_damage_mod=ability_damage_mod,
         rng=rng,
-        natural=natural,
+        natural=chosen_natural,
     )
     modifiers = [
         {"label": "ability", "value": ability_mod},
@@ -114,9 +139,14 @@ def perform_attack_roll(
         "reason": reason or "",
         "seed": seed,
     }
+    if use_advantage and natural_high is not None and natural_low is not None:
+        payload["advantage"] = True
+        payload["natural_high"] = natural_high
+        payload["natural_low"] = natural_low
+
     log_event(conn, session_id, "roll", payload)
     roll_id = _roll_event_id(conn)
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "roll_id": roll_id,
         "natural": result.natural,
@@ -128,3 +158,8 @@ def perform_attack_roll(
         "damage": damage,
         "success": result.hit,
     }
+    if use_advantage and natural_high is not None and natural_low is not None:
+        out["advantage"] = True
+        out["natural_high"] = natural_high
+        out["natural_low"] = natural_low
+    return out
