@@ -58,3 +58,34 @@ def test_beat_requires_session(run_tomb_gm, clear_active_session):
     data = run_tomb_gm("beat", "--actions", actions, expect_ok=False)
     assert data["ok"] is False
     assert data["error"] == "NO_ACTIVE_SESSION"
+
+
+def test_beat_travel_friendly_kings_road(run_tomb_gm, clear_active_session):
+    _seed_session(run_tomb_gm, clear_active_session)
+    actions = json.dumps(
+        {"lines": [{"slot": 1, "raw": "travel to kings road"}]}
+    )
+    beat = run_tomb_gm("beat", "--actions", actions)
+    assert beat["ok"] is True
+    travel = next(
+        m for m in beat["mechanical_summary"] if m.get("action") == "travel"
+    )
+    assert travel.get("ok") is True
+    st = run_tomb_gm("status")
+    assert st["party"]["address"] == "33-C"
+
+
+def test_beat_travel_unknown_maps_no_destination(run_tomb_gm, clear_active_session):
+    _seed_session(run_tomb_gm, clear_active_session)
+    actions = json.dumps(
+        {"lines": [{"slot": 1, "raw": "travel to silversea cove"}]}
+    )
+    beat = run_tomb_gm("beat", "--actions", actions)
+    assert beat["ok"] is True
+    travel = next(
+        m for m in beat["mechanical_summary"] if m.get("action") == "travel"
+    )
+    assert travel.get("ok") is False
+    assert travel.get("error") == "NO_DESTINATION"
+    st = run_tomb_gm("status")
+    assert st["party"]["address"] == "32-C"

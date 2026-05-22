@@ -182,7 +182,7 @@ class GameBridge:
         return process_beat(self.ctx, actions)
 
     def world_travel(self, to_address: str) -> dict:
-        from tomb_gm.services.world import WorldService
+        from tomb_gm.services.world import WorldService, resolve_surface_address
         from tomb_gm.services.content import ContentService
 
         content = ContentService(self.ctx.config.content_root)
@@ -195,6 +195,17 @@ class GameBridge:
         if not row:
             return {"ok": False, "error": "no active party state"}
         from_addr = row["address"]
+        exits = world.legal_exits(from_addr) or []
+        to_stripped = to_address.strip()
+        resolved_from: str | None = None
+        if to_stripped.lower() not in {e.lower() for e in exits}:
+            resolved = resolve_surface_address(
+                content, to_stripped, from_address=from_addr
+            )
+            if not resolved.get("ok"):
+                return {**resolved, "from": from_addr, "to": to_address}
+            to_address = resolved["address"]
+            resolved_from = resolved.get("resolved_from")
         ok, code = world.can_travel(from_addr, to_address)
         if not ok:
             return {"ok": False, "error": code, "from": from_addr, "to": to_address}
@@ -205,7 +216,16 @@ class GameBridge:
         self.ctx.conn.commit()
         log_event(self.ctx.conn, session_id, "world_travel", {"from": from_addr, "to": to_address})
         cell = content.cell_payload(to_address)
-        return {"ok": True, "action": "travel", "from": from_addr, "to": to_address, "cell": cell}
+        out: dict = {
+            "ok": True,
+            "action": "travel",
+            "from": from_addr,
+            "to": to_address,
+            "cell": cell,
+        }
+        if resolved_from:
+            out["resolved_from"] = resolved_from
+        return out
 
     def site_enter(self, site_id: str) -> dict:
         from tomb_gm.services.site import enter_site, SiteError
@@ -222,9 +242,13 @@ class GameBridge:
             return {"ok": False, "error": str(exc)}
 
     def start_combat(self, monster_specs: list[str], include_party: bool = True) -> dict:
-        from tomb_gm.services.simulation.combat import start_combat
+        from tomb_gm.services.simulation.combat import start_combat, validate_monster_specs
+
         session_id = self._active_session_id()
         campaign_slug = self._campaign_slug()
+        err = validate_monster_specs(self.ctx.config.content_root, monster_specs)
+        if err:
+            return {"ok": False, "error": err}
         try:
             result = start_combat(
                 self.ctx.conn,

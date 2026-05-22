@@ -16,7 +16,7 @@ from tomb_gm.services.memory.choice_facts import remember_beat_choices
 from tomb_gm.services.encounters import wilderness_travel_roll
 from tomb_gm.services.site import SiteError, enter_site, move_site, search_site, where_site
 from tomb_gm.services.simulation.combat import combat_status
-from tomb_gm.services.world import WorldService
+from tomb_gm.services.world import WorldService, resolve_surface_address
 
 AV_ADDRESS_RE = re.compile(
     r"\b(\d{1,2}-[A-Z](?:-(?:UG-\d+|EP|BV|SK))*)\b"
@@ -104,6 +104,17 @@ def _intent_travel(text: str, lower: str) -> str | None:
     if re.search(r"\b(east|west|north|south)\b", lower) and "road" in lower:
         return "travel_hint"
     return None
+
+
+def _extract_travel_destination(text: str) -> str:
+    match = re.search(
+        r"\b(?:travel|go|head|walk|move)\s+(?:to\s+)?(.+)$",
+        text.strip(),
+        re.I,
+    )
+    if match:
+        return match.group(1).strip()
+    return text.strip()
 
 
 def _intent_site(lower: str) -> str | None:
@@ -436,6 +447,26 @@ def process_beat(ctx: CommandContext, actions: dict[str, Any]) -> dict[str, Any]
                 exits = world.legal_exits(address) or []
                 if exits:
                     dest = exits[0]
+            if not dest and travel_intent == "travel":
+                query = _extract_travel_destination(text)
+                resolved = resolve_surface_address(content, query, from_address=address)
+                if resolved.get("ok"):
+                    dest = resolved["address"]
+                else:
+                    err = resolved.get("error")
+                    beat_err = "NO_DESTINATION" if err == "UNKNOWN_ADDRESS" else err
+                    mechanical.append(
+                        {
+                            "ok": False,
+                            "action": "travel",
+                            "error": beat_err,
+                            "message": resolved.get("message", ""),
+                            "query": resolved.get("query"),
+                            "options": resolved.get("options"),
+                            "slot": slot,
+                        }
+                    )
+                    continue
             if dest:
                 result = _apply_travel(
                     ctx,

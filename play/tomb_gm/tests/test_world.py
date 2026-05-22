@@ -3,10 +3,22 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+from tomb_gm.services.content import ContentService
+from tomb_gm.services.world import WorldService, resolve_surface_address
+
+REPO = Path(__file__).resolve().parents[3]
+BUILD = REPO / "build"
+
 CAMPAIGN_SLUG = "ws2-test"
+
+
+@pytest.fixture
+def content() -> ContentService:
+    return ContentService(BUILD)
 
 
 def _bootstrap_session(test_config, test_db) -> str:
@@ -122,3 +134,69 @@ def test_world_travel_unknown_address(run_tomb_gm, active_session):
     out = run_tomb_gm("world", "travel", "--to", "99-Z", expect_ok=False)
     assert out["ok"] is False
     assert out["error"] == "UNKNOWN_ADDRESS"
+
+
+def test_resolve_surface_address_kings_road(content: ContentService):
+    out = resolve_surface_address(content, "kings road", from_address="32-C")
+    assert out["ok"] is True
+    assert out["address"] == "33-C"
+    assert out["resolved_from"] == "kings road"
+
+
+def test_resolve_surface_address_kings_road_not_current_cell(content: ContentService):
+    out = resolve_surface_address(content, "kings road", from_address="32-C")
+    assert out["ok"] is True
+    assert out["address"] != "32-C"
+
+
+def test_resolve_surface_address_exit_scope(content: ContentService):
+    out = resolve_surface_address(content, "silversea cove", from_address="32-C")
+    assert out["ok"] is False
+    assert out["error"] == "UNKNOWN_ADDRESS"
+
+
+def test_resolve_surface_address_ambiguous(content: ContentService):
+    out = resolve_surface_address(content, "silversea cove", from_address="1-B")
+    assert out["ok"] is False
+    assert out["error"] == "AMBIGUOUS_ADDRESS"
+    option_addrs = {opt["address"] for opt in out["options"]}
+    assert option_addrs == {"1-A", "2-B"}
+
+
+def test_resolve_surface_address_use_enter_dungeon(content: ContentService):
+    out = resolve_surface_address(content, "undercrypt", from_address="32-C")
+    assert out["ok"] is False
+    assert out["error"] == "USE_ENTER_DUNGEON"
+    assert "enter" in out["message"].lower() or "dungeon" in out["message"].lower()
+
+
+def test_resolve_surface_address_canonical_passthrough(content: ContentService):
+    out = resolve_surface_address(content, "33-C", from_address="32-C")
+    assert out["ok"] is True
+    assert out["address"] == "33-C"
+
+
+def test_resolve_surface_address_then_can_travel(content: ContentService):
+    resolved = resolve_surface_address(content, "kings road", from_address="32-C")
+    assert resolved["ok"] is True
+    world = WorldService(content)
+    ok, code = world.can_travel("32-C", resolved["address"])
+    assert ok is True
+    assert code is None
+
+
+def test_world_travel_friendly_kings_road_bridge(
+    isolated_workspace, run_tomb_gm, test_config, test_db
+):
+    run_tomb_gm("init")
+    _bootstrap_session(test_config, test_db)
+    from gm.bridge import GameBridge
+
+    bridge = GameBridge(workspace=isolated_workspace)
+    try:
+        result = bridge.world_travel(to_address="kings road")
+        assert result["ok"] is True
+        assert result["to"] == "33-C"
+        assert bridge.status()["party"]["address"] == "33-C"
+    finally:
+        bridge.ctx.conn.close()

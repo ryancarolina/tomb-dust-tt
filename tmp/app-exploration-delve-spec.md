@@ -13,8 +13,120 @@
 ### Surface play
 
 - Player describes actions or clicks map → `world_travel(to_address)` or `process_beat`.
-- `compass_exits` / `world_exits` for directions; friendly names should resolve to AV-GRID (engine).
+- `compass_exits` / `world_exits` for directions; **friendly names resolve to AV-GRID via exit-scoped engine lookup** — § [Friendly surface travel resolution (APP-023)](#friendly-surface-travel-resolution-app-023).
 - Wilderness: `wilderness_encounter` when travel flags demand it.
+
+### Friendly surface travel resolution (APP-023)
+
+**Ticket:** [APP-023](backlog/app-023-friendly-travel-name-to-av-grid.md)
+
+**Problem:** Surface travel accepts **only canonical AV-GRID ids** today. `WorldService.can_travel` validates graph edges but does not parse prose. `bridge.world_travel` and `process_beat` travel lines pass destination strings straight through — vague names like “kings road” fail with `UNKNOWN_ADDRESS` / `NO_DESTINATION` even when a **legal exit** has a matching `displayName` (e.g. `32-C` → `33-C` “King's Road (east bend)”). **155** duplicate case-insensitive `displayName` values across surface cells forbid global name lookup.
+
+**Policy:** Add engine **`resolve_surface_address`** (in `play/tomb_gm/services/world.py`) that maps a player/LLM query to a **single legal surface exit** from the party's current cell. Reuse scoring/normalization patterns from `site_resolve.py`. Wire **`bridge.world_travel`** and **`process_beat`** travel intent so both paths share the same resolver. **Site/dungeon entry by name stays on `enter_dungeon` + `resolve_site_address`** — not this resolver.
+
+#### Candidate set (exit-scoped, surface-only)
+
+| Rule | Detail |
+|------|--------|
+| **Scope** | Candidates = addresses in `WorldService.legal_exits(from_address)` **only** — never scan the full grid |
+| **Surface filter** | Keep candidates whose cell has **empty** `layerStack` (surface layer). **Drop** UG/EP/BV/SK child exits from surface-travel resolution |
+| **Passthrough** | If query (normalized) is already a canonical id **and** ∈ `legal_exits(from)`, return it unchanged (score 100) |
+| **Current cell** | Never resolve to `from_address` unless query is an exact address match for the current cell (no “travel to Breley Keep” while already at `32-C`) |
+
+**Rationale:** Global `displayName` lookup mis-resolves duplicate coast names. Exit scoping ties names to compass-adjacent choices. Layered addresses in `legal_exits` (e.g. `32-C-UG-1`) belong to **`enter_dungeon`** / `resolve_site_address`, not surface `world_travel`.
+
+#### Matching (within candidates)
+
+**Normalization (before scoring):**
+
+1. Strip whitespace; lower-case query.
+2. **Apostrophe folding:** remove ASCII `'` and `'` from query and candidate `displayName` before substring checks and before slug generation for scores 60–90. Keeps `kings road` aligned with `King's Road` without JSON edits.
+3. Build `query_slug` via same `_slug` rules as `site_resolve.py` (on folded text).
+
+For each surface candidate, load `displayName` and optional `tradeRoute` from `av-grid.json`. Score (highest wins):
+
+| Score | Match |
+|-------|--------|
+| 100 | Exact AV-GRID id (case-insensitive) or slug-equal to address |
+| 90 | Exact folded `displayName` (case-insensitive) or slug-equal to folded display name |
+| 80 | Slug-equal to candidate's `tradeRoute` enum (e.g. `kings-road` ↔ query `kings road`) — **only when the same candidate also scores > 0 on rows 100–60** (compound gate) |
+| 70 | Query slug substring of display-name slug (or reverse), both from folded text |
+| 60 | Folded query substring of folded display name (case-insensitive) |
+
+**Compound `tradeRoute` gate:** Score **80** for `tradeRoute` is a **boost**, not a standalone match. Apply it only when the candidate's display/address tiers (60–100) are already > 0. Prevents route-metadata-only cells (e.g. `32-D` Heartland mile post on `kings-road`) from beating a neighbor whose **display name** matches the query (e.g. `33-C` King's Road east bend). No JSON edit required.
+
+`tradeRoute` on the **current** cell must **not** alone match a query when the party is already there (e.g. at `32-C` with `tradeRoute: kings-road`, query `kings road` must match exit **`33-C`**, not stay at `32-C`). Score **80** applies to **exit candidates'** `tradeRoute` fields only — not inherited from the current cell; and only when that exit's display name also matches per gate above.
+
+**Scoring proof — King's Road fixture (live JSON, no grid change):**
+
+Pass 1 surface candidates from `32-C` (excludes current cell + layered):
+
+| Exit | displayName | tradeRoute | display tier | route tier (gated) | **Total** |
+|------|-------------|------------|--------------|-------------------|-----------|
+| `31-C` | Crystaline hills | — | 0 | — | 0 |
+| `32-B` | Heartland fields | — | 0 | — | 0 |
+| `32-D` | Heartland mile post | kings-road | 0 | suppressed | **0** |
+| `33-C` | King's Road (east bend) | — | **70** (slug `kings-road` ⊆ `kings-road-east-bend`; also **60** name substring) | — | **70** |
+
+| Step | Value |
+|------|--------|
+| Party at | `32-C` (`displayName`: Breley Keep; `tradeRoute`: kings-road — **not** in candidate set) |
+| Query | `kings road` |
+| Winner | **`33-C`** at best score **70** — T1/T6/T8 pass |
+
+#### Layered fallback (USE_ENTER_DUNGEON)
+
+When **pass 1** (surface candidates only) yields best score **0**, run **pass 2** on **non-surface** addresses still in `legal_exits(from_address)` (UG/EP/BV/SK child exits filtered out of pass 1). Use the same scoring table on each layered candidate's `displayName` / `tradeRoute` / address — **omit** the current-cell `tradeRoute` exclusion (layered cells are never `from_address`).
+
+| Pass 2 result | Outcome |
+|---------------|---------|
+| Exactly one layered candidate at best score > 0 | **`USE_ENTER_DUNGEON`** — player must **`enter_dungeon(site_address)`**, not `world_travel` |
+| Two+ layered candidates tie at best score > 0 | **`AMBIGUOUS_ADDRESS`** with layered `options` |
+| Best layered score still 0 | **`UNKNOWN_ADDRESS`** with legal **surface** exit hint list |
+
+**Proof — undercrypt from `32-C`:** pass 1 surface-only → 0; pass 2 candidate `32-C-UG-1` (`displayName`: Breley undercrypt); query `undercrypt` → slug `undercrypt` ⊆ `breley-undercrypt` → score **70** → **`USE_ENTER_DUNGEON`** (T5).
+
+#### Outcomes
+
+| Result | When | Shape |
+|--------|------|--------|
+| **Resolved** | Exactly one candidate at best score | `{ok: true, address: "<AV-GRID>", resolved_from: "<query>", displayName: "…"}` |
+| **Ambiguous** | Two+ candidates tie at best score > 0 | `{ok: false, error: "AMBIGUOUS_ADDRESS", query, options: [{address, displayName}, …], message: …}` |
+| **Unknown** | No candidate scores > 0 | `{ok: false, error: "UNKNOWN_ADDRESS", query, message: …}` — message lists **legal surface exits** with `displayName` when available |
+| **Layered intent** | Pass 1 surface score 0; pass 2 layered fallback yields exactly one match (see § Layered fallback) | `{ok: false, error: "USE_ENTER_DUNGEON", query, message: …}` — direct player/LLM to **`enter_dungeon(site_address)`** or **`compass_exits`**, not `world_travel` |
+
+After resolution, existing **`can_travel(from, resolved)`** gate unchanged. Resolution failure → **`ok: false`** — **never** travel on ambiguity or unknown.
+
+#### Wiring
+
+| Path | Behavior |
+|------|----------|
+| **`bridge.world_travel(to_address)`** | If `to_address` not an exact grid id in `legal_exits`, call `resolve_surface_address(content, to_address, from_address=party.address)`. On resolve success, replace `to_address` with resolved id before `can_travel`. On resolve failure, return resolver error dict (preserve `from` / `to` fields). |
+| **`process_beat` travel** (`beat.py`) | After `_find_address` (AV-GRID regex) returns nothing and travel intent detected: call same `resolve_surface_address`. On success, `_apply_travel` to resolved id. On failure, map resolver errors to beat shape: **`UNKNOWN_ADDRESS` → `NO_DESTINATION`** (preserve `message` / hints); pass through **`AMBIGUOUS_ADDRESS`** and **`USE_ENTER_DUNGEON`** unchanged — **no** fake arrival. |
+| **`enter_dungeon`** | Unchanged — `resolve_site_address` with child-first then global layered scope. |
+| **Map click** | Unchanged — submits canonical ids. |
+| **LLM tool schema** (`tools.py`) | On ticket close: describe `to_address` as AV-GRID id **or** friendly surface place name visible on current compass exits. |
+
+Optional parity (not ticket AC): `play/tomb_gm/cli/cmd_world.py` `handle_travel` may call the same helper.
+
+#### Tests (APP-023)
+
+```bash
+python -m pytest play/tomb_gm/tests/test_world.py -q
+python -m pytest play/tomb_gm/tests/test_beat.py -q
+python -m pytest play/tomb_gm/tests/test_site_resolve.py -q  # scoring regression
+```
+
+| Case | Setup | Pass |
+|------|-------|------|
+| King's Road | Party at `32-C`; query `kings road` | Resolves to `33-C`; `world_travel` + `process_beat` travel line succeed |
+| Canonical passthrough | `world_travel(to_address="33-C")` from `32-C` | Unchanged success |
+| Exit scope | Query matches global duplicate name **not** in `legal_exits` | `UNKNOWN_ADDRESS`, no travel |
+| Ambiguity | Two legal surface exits tie on score | `AMBIGUOUS_ADDRESS` + `options`; no travel |
+| UG child | From `32-C`, query `undercrypt` | **`USE_ENTER_DUNGEON`** (layered fallback → `32-C-UG-1`); **no** `world_travel` to UG id |
+| Beat error map | Resolver returns `UNKNOWN_ADDRESS` on beat travel line | Beat mechanical `error: NO_DESTINATION` (same message) |
+| Stay put | At `32-C`, query `breley` / `kings road` | Resolves to **`33-C`** for road name, not `32-C` |
+| Invalid edge | Resolved id not in `legal_exits` | `INVALID_TRAVEL` (existing `can_travel`) |
 
 ### Delve play
 
@@ -202,7 +314,7 @@ Canonical types in `validate_content.py` (`SITE_EDGE_TYPES`): `door`, `archway`,
 
 - `enter_dungeon(site_id=…)` — wrong param (bridge accepts alias)
 - `set_phase(delve)` rejected from `preparation`
-- `process_beat` travel → `NO_DESTINATION` for vague names (“kings road”)
+- ~~`process_beat` travel → `NO_DESTINATION` for vague names (“kings road”)~~ — **APP-023** exit-scoped resolution
 - GM narrated entering crypt without tool commit
 
 ---
@@ -216,15 +328,16 @@ Canonical types in `validate_content.py` (`SITE_EDGE_TYPES`): `door`, `archway`,
 **Open work:** [APP-025](backlog/app-025-registry-hub-loop-integration-test.md), [APP-063](backlog/app-063-map-ux-redesign-useful-navigation.md), [APP-077](backlog/app-077-code-owned-exploration-status-footer.md), [APP-089](backlog/app-089-encounter-awareness-before-combat.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 - [x] **APP-022:** Failed `set_phase(delve)` hint — `_delve_entry_tool_hint`, R1–R3 injection in `_llm_loop`, tests in `app/tests/test_exploration_set_phase_delve_hint.py`
+- [x] **APP-023:** Friendly surface travel — `resolve_surface_address` exit-scoped two-pass resolver; `bridge.world_travel` + `process_beat` parity; tests in `play/tomb_gm/tests/test_world.py` + `test_beat.py`
 - [x] **APP-024:** Site-entry fiction gate — `sanitize_premature_site_entry_flavor`, `_llm_loop` + `all_failed` path, tests in `app/tests/test_exploration_site_entry_gate.py`
 
 ---
 
 ## Tests
 
-- Travel `32-C` → `33-C` via tool; status address updates.
+- Travel `32-C` → `33-C` via tool (canonical id or friendly `kings road` per APP-023); status address updates.
 - Enter Breley Undercrypt from `32-C`; mode becomes site.
-- Vague travel → `NO_DESTINATION` with helpful prompt, not fake arrival.
+- Unknown/ambiguous friendly travel → structured error with exit hints, **not** fake arrival (APP-023).
 - **APP-024:** Surface + entry hallucination → stripped; successful `enter_dungeon` / `site_enter` → allowed; in-dungeon turns bypass gate (see § Site-entry fiction gate).
 
 ```bash
@@ -246,6 +359,8 @@ python -m tomb_gm --workspace play/workspace check
 | `gm/system_prompt.py` | Delve entry rules |
 | `ui/panels/map_view.py` | Click travel |
 | `gm/bridge.py` | World/site/exploration methods |
+| `play/tomb_gm/services/world.py` | `legal_exits`, `can_travel`, **`resolve_surface_address`** (APP-023) |
+| `play/tomb_gm/services/beat.py` | `process_beat` travel → shared surface resolver (APP-023) |
 
 ---
 
@@ -263,3 +378,7 @@ python -m tomb_gm --workspace play/workspace check
 | 2026-05-22 | APP-089 draft: § Encounter awareness — FSM, verify→retry via `build_encounter_turn_truth`, combat handoff to APP-090 |
 | 2026-05-22 | APP-022 draft: § Failed set_phase(delve) hint — dual injection (tool/system/player), `_delve_entry_tool_hint`, tests in `test_exploration_set_phase_delve_hint.py` |
 | 2026-05-22 | APP-022 done: `_delve_entry_tool_hint`, `_should_delve_entry_hint`, `_build_delve_entry_hint`; R1–R3 in `_llm_loop`; sticky `_delve_entry_hint_this_turn`; 6 tests in `test_exploration_set_phase_delve_hint.py` |
+| 2026-05-22 | APP-023 PM draft: § Friendly surface travel resolution — exit-scoped surface-only `resolve_surface_address`, `world_travel` + `process_beat` parity, UG vs `enter_dungeon` split, ambiguity/unknown errors |
+| 2026-05-22 | APP-023 PM r2: apostrophe folding + King's Road scoring proof; layered fallback algorithm; beat `UNKNOWN_ADDRESS`→`NO_DESTINATION` map; T5 pinned to `USE_ENTER_DUNGEON` |
+| 2026-05-22 | APP-023 Dev plan r2: compound `tradeRoute` gate (display tier > 0 required); full `32-C` exit candidate table; T8 `GameBridge.world_travel` bridge test |
+| 2026-05-22 | APP-023 done: `resolve_surface_address` in `world.py`; `bridge.world_travel` + `process_beat` shared resolver; exit-scoped scoring, layered `USE_ENTER_DUNGEON` fallback; 10 tests in `test_world.py`, 2 in `test_beat.py` |
