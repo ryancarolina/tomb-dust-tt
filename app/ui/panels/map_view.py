@@ -54,11 +54,19 @@ class MapView:
         self.mode = "surface"
         self.dungeon_room: str | None = None
         self.dungeon_exits: list[str] = []
+        self.travel_blocked = False
+        self.travel_blocked_hint = "Finish Registry intake first"
+        self._hovering = False
         self._addresses: dict[str, dict] = {}
         self._font = None
         self._font_small = None
         if content_root:
             self._load_grid(content_root)
+
+    def set_travel_blocked(self, blocked: bool, hint: str | None = None):
+        self.travel_blocked = blocked
+        if hint is not None:
+            self.travel_blocked_hint = hint
 
     def _load_grid(self, content_root: Path):
         grid_path = content_root / "data" / "av-grid" / "av-grid.json"
@@ -89,9 +97,11 @@ class MapView:
         self.rect = rect
 
     def handle_hover(self, pos: tuple[int, int]):
-        pass
+        self._hovering = self.rect.collidepoint(pos)
 
     def handle_click(self, pos: tuple[int, int]) -> str | None:
+        if self.travel_blocked:
+            return None
         return None
 
     def draw(self, screen: pygame.Surface):
@@ -211,6 +221,10 @@ class MapView:
         scene_surf = self._font_small.render(f"{scene_text}  {dots}  [{self.heading}]", True, TEXT_SECONDARY)
         screen.blit(scene_surf, (x, info_y))
 
+        if self.travel_blocked:
+            grid_rect = pygame.Rect(grid_x, grid_y, grid_w, grid_h)
+            self._draw_travel_block_overlay(screen, grid_rect, x, grid_y + grid_h + 16)
+
     def _draw_dungeon(self, screen: pygame.Surface):
         """Draw dungeon room view with exits."""
         x = self.rect.left + PANEL_PADDING
@@ -251,6 +265,30 @@ class MapView:
         y += 4
         addr_surf = self._font_small.render(f"[{self.current_address}]", True, TEXT_MUTED)
         screen.blit(addr_surf, (x, y))
+
+        if self.travel_blocked:
+            content_rect = pygame.Rect(
+                self.rect.left + PANEL_PADDING,
+                self.rect.top + PANEL_PADDING + 20,
+                self.rect.width - PANEL_PADDING * 2,
+                y - (self.rect.top + PANEL_PADDING + 20),
+            )
+            self._draw_travel_block_overlay(screen, content_rect, x, y + 4)
+
+    def _draw_travel_block_overlay(
+        self,
+        screen: pygame.Surface,
+        overlay_rect: pygame.Rect,
+        hint_x: int,
+        hint_y: int,
+    ):
+        overlay = pygame.Surface((overlay_rect.width, overlay_rect.height), pygame.SRCALPHA)
+        muted = TEXT_MUTED
+        overlay.fill((muted[0], muted[1], muted[2], 102))
+        screen.blit(overlay, overlay_rect.topleft)
+        if self.travel_blocked and self._hovering:
+            hint_surf = self._font_small.render(self.travel_blocked_hint, True, TEXT_MUTED)
+            screen.blit(hint_surf, (hint_x, hint_y))
 
     def _parse_address(self, address: str) -> tuple[int, str]:
         parts = address.split("-")

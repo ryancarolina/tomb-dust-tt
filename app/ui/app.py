@@ -16,6 +16,7 @@ from ui.panels.sidebar import Sidebar
 
 UI_EVENT = pygame.USEREVENT + 1
 SAVE_PATH = Path(__file__).resolve().parents[1] / "session_state.json"
+MAP_TRAVEL_BLOCKED_HINT = "Finish Registry intake first"
 
 
 class App:
@@ -38,6 +39,7 @@ class App:
         self._shutdown = False
         self._last_save_time = 0
         self._autosave_interval = 60.0
+        self._map_travel_blocked_flag = False
 
     def run(self):
         pygame.init()
@@ -67,7 +69,7 @@ class App:
                     self.sidebar.handle_hover(event.pos)
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     map_addr = self.sidebar.handle_map_click(event.pos)
-                    if map_addr and self._can_submit():
+                    if map_addr and self._can_submit() and not self._map_travel_blocked():
                         self._submit(f"travel to {map_addr}")
                     else:
                         result = self.input_box.handle_click(event.pos)
@@ -122,7 +124,7 @@ class App:
             try:
                 from gm.orchestrator import Orchestrator
                 self._orchestrator = Orchestrator(self.config)
-                status = self._orchestrator.get_status()
+                status = self._enrich_status_for_ui(self._orchestrator.get_status())
                 self._ui_queue.put(("status", status))
 
                 has_save = self._orchestrator.bridge.has_save()
@@ -170,6 +172,7 @@ class App:
             elif msg_type == "clear_narration":
                 self.narration.clear()
             elif msg_type == "status":
+                self._map_travel_blocked_flag = bool(data.get("map_travel_blocked"))
                 self.sidebar.update_from_status(data)
             elif msg_type == "map_update":
                 if isinstance(data, dict):
@@ -297,8 +300,6 @@ class App:
             self._ui_queue.put(("narration_text", narration))
 
             status = self._orchestrator.get_status()
-            self._ui_queue.put(("status", status))
-
             party = status.get("party")
             if party and party.get("address"):
                 map_data = {
@@ -318,6 +319,7 @@ class App:
             return
         finally:
             self._queue_turn_suggestions(turn_id)
+            self._queue_turn_status(turn_id)
             if self._orchestrator and narration is not None and turn_id == self._current_turn_id:
                 self._save_session()
 
@@ -332,6 +334,28 @@ class App:
             ).start()
         else:
             self._ui_queue.put(("turn_idle", turn_id))
+
+    def _map_travel_blocked(self) -> bool:
+        return self._map_travel_blocked_flag
+
+    def _enrich_status_for_ui(self, status: dict) -> dict:
+        if not self._orchestrator:
+            return status
+        out = dict(status)
+        blocked = self._orchestrator.is_map_travel_blocked()
+        out["map_travel_blocked"] = blocked
+        if blocked:
+            out["map_travel_blocked_hint"] = MAP_TRAVEL_BLOCKED_HINT
+        return out
+
+    def _queue_turn_status(self, turn_id: int) -> None:
+        if turn_id != self._current_turn_id or not self._orchestrator:
+            return
+        try:
+            status = self._enrich_status_for_ui(self._orchestrator.get_status())
+        except Exception:
+            return
+        self._ui_queue.put(("status", status))
 
     def _queue_turn_suggestions(self, turn_id: int) -> None:
         """Unconditional chip refresh after every turn (success or error)."""

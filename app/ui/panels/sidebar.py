@@ -13,6 +13,8 @@ class Sidebar:
     def __init__(self, rect: pygame.Rect, content_root: Path | None = None):
         self.rect = rect
         self._content_root = content_root
+        self._map_travel_blocked = False
+        self._map_travel_blocked_hint = "Finish Registry intake first"
         self._do_layout(rect)
 
     def _do_layout(self, rect: pygame.Rect):
@@ -26,9 +28,17 @@ class Sidebar:
             pygame.Rect(rect.left, rect.top + npc_h + stats_h, rect.width, map_h),
             content_root=self._content_root,
         )
+        self.map.set_travel_blocked(self._map_travel_blocked, self._map_travel_blocked_hint)
 
     def update_from_status(self, status: dict):
         self.stats.update_from_status(status)
+        if "map_travel_blocked" in status:
+            blocked = bool(status.get("map_travel_blocked"))
+            hint = status.get("map_travel_blocked_hint")
+            self._map_travel_blocked = blocked
+            if hint is not None:
+                self._map_travel_blocked_hint = hint
+            self.map.set_travel_blocked(blocked, hint)
         party = status.get("party")
         if party and party.get("address"):
             self.map.update_position(party["address"])
@@ -42,6 +52,8 @@ class Sidebar:
 
     def handle_map_click(self, pos: tuple[int, int]) -> str | None:
         if self.map.rect.collidepoint(pos):
+            if self.map.travel_blocked:
+                return None
             return self.map.handle_click(pos)
         return None
 
