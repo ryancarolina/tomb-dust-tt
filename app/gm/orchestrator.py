@@ -77,6 +77,10 @@ from gm.logger import (
     log_narration_verify_pass,
     log_narration_verify_exhausted,
     log_llm_truncation_recovery,
+    log_api_error,
+    log_transcript_400_retry,
+    summarize_messages_for_log,
+    extract_tool_chain,
 )
 from gm.narration_verify import (
     build_creation_turn_truth,
@@ -110,6 +114,26 @@ _SITE_ENTRY_REFUSAL_LINE = (
     "The entrance holds you at the threshold — the Registry ledger still shows you on the surface. "
     "Crossing requires a successful **enter_dungeon** or **site_enter** call; the delving clock does not start until then."
 )
+
+
+def _delve_entry_tool_hint(*, below_addresses: list[str] | None = None) -> str:
+    core = (
+        "Do not use set_phase to enter a site. Call compass_exits to list below addresses, "
+        "then enter_dungeon(site_address). enter_dungeon advances preparation→ingress→delve automatically."
+    )
+    if below_addresses:
+        addrs = ", ".join(below_addresses)
+        return f"{core} Below from current cell: {addrs}."
+    return core
+
+
+def _should_delve_entry_hint(fn_name: str, args: dict, result: dict) -> bool:
+    return (
+        fn_name == "set_phase"
+        and str(args.get("phase", "")).strip().lower() == "delve"
+        and not result.get("ok")
+    )
+
 
 _SITE_ENTRY_MARKER_RES = (
     re.compile(r"step\s+(?:into|inside|through)", re.IGNORECASE),
@@ -337,6 +361,18 @@ def is_malformed_transcript_400(exc: BaseException) -> bool:
         return False
 
 
+def _resolve_combatant_id_for_gate(combatants: list[dict], ref: str) -> str | None:
+    ref_lower = ref.lower().strip()
+    for c in combatants:
+        cid = str(c.get("id", ""))
+        if cid == ref or cid.lower() == ref_lower:
+            return cid
+        display = str(c.get("displayName", "")).lower()
+        if display == ref_lower or ref_lower in display:
+            return cid
+    return None
+
+
 class Orchestrator:
     """Manages the GM turn loop."""
 
@@ -365,6 +401,7 @@ class Orchestrator:
         )
         self._beat_combat_start_failure: str | None = None
         self._entry_committed_this_turn = False
+        self._delve_entry_hint_this_turn: str | None = None
         self._exploration_pre_turn_mode = "surface"
         self.creation = CreationState()
         self.combat = CombatState()
@@ -453,6 +490,23 @@ class Orchestrator:
             return bool(self.bridge.status().get("combat"))
         except Exception:
             return False
+
+    def _gate_pc_attack(self, attacker_id: str) -> dict | None:
+        """Return error dict if PC attack context invalid; None if caller may dispatch."""
+        status = self.bridge.status()
+        combat = status.get("combat")
+        if not combat:
+            return {"ok": False, "error": "no active combat for session"}
+
+        combatants = combat.get("combatants") or []
+        initiative = combat.get("initiative") or []
+        resolved = _resolve_combatant_id_for_gate(combatants, attacker_id) or attacker_id
+
+        initiative_ids = {str(row.get("id", "")) for row in initiative}
+        if resolved not in initiative_ids:
+            return {"ok": False, "error": f"attacker not in combat: {attacker_id}"}
+
+        return None
 
     def _sync_creation_from_status(self) -> None:
         """Ensure we do not stay in creation mode when a roster already exists."""
@@ -606,6 +660,19 @@ class Orchestrator:
         if gate_active and not text.strip():
             text = _SITE_ENTRY_REFUSAL_LINE
         return text
+
+    def _build_delve_entry_hint(self) -> str:
+        below: list[str] = []
+        try:
+            compass = self.bridge.compass_exits()
+            if compass.get("ok"):
+                for item in (compass.get("exits") or {}).get("below") or []:
+                    addr = (item.get("address") or "").strip()
+                    if addr:
+                        below.append(addr)
+        except Exception:
+            pass
+        return _delve_entry_tool_hint(below_addresses=below or None)
 
     def _emit_recovery_narration(self, message: str) -> None:
         """Log recovery copy without creation drift checks (resume failure paths)."""
@@ -1205,6 +1272,40 @@ class Orchestrator:
             {"role": "user", "content": player_input},
         ]
 
+    def _emit_api_error(
+        self,
+        *,
+        exc: BaseException,
+        attempt: int,
+        sent_messages: list[dict],
+        original_messages: list[dict],
+        context: str | None,
+        depth: int | None,
+        tools: list | None,
+        retry_truncated: bool = False,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "context": context or "unknown",
+            "exc_type": type(exc).__name__,
+            "error": str(exc),
+            "model": self.model,
+            "tools_present": tools is not None,
+            "attempt": attempt,
+            "malformed_transcript_400": is_malformed_transcript_400(exc),
+            "original_len": len(original_messages),
+            "sent_len": len(sent_messages),
+            "messages_summary": summarize_messages_for_log(sent_messages),
+            "tool_chain": extract_tool_chain(sent_messages),
+        }
+        if depth is not None:
+            payload["depth"] = depth
+        if retry_truncated:
+            payload["retry_truncated"] = True
+        try:
+            log_api_error(payload)
+        except Exception:
+            pass
+
     def _chat_completion(
         self,
         *,
@@ -1213,6 +1314,8 @@ class Orchestrator:
         tool_choice: str | dict | None = "auto",
         max_tokens: int | None = None,
         temperature: float | None = None,
+        context: str | None = None,
+        depth: int | None = None,
     ) -> dict:
         clean = sanitize_transcript_messages(messages)
         cc_kwargs = dict(
@@ -1227,13 +1330,43 @@ class Orchestrator:
             return chat_completion(self.client, **cc_kwargs)
         except Exception as exc:
             if not is_malformed_transcript_400(exc):
+                self._emit_api_error(
+                    exc=exc,
+                    attempt=1,
+                    sent_messages=clean,
+                    original_messages=messages,
+                    context=context,
+                    depth=depth,
+                    tools=tools,
+                )
                 raise
             truncated = _safe_prefix_fallback(messages)
+            log_transcript_400_retry({
+                "context": context or "unknown",
+                "attempt": 1,
+                "original_len": len(messages),
+                "clean_len": len(clean),
+                "prefix_len": len(truncated),
+                "will_retry": True,
+            })
             retry_clean = sanitize_transcript_messages(truncated)
-            return chat_completion(
-                self.client,
-                **{**cc_kwargs, "messages": retry_clean},
-            )
+            try:
+                return chat_completion(
+                    self.client,
+                    **{**cc_kwargs, "messages": retry_clean},
+                )
+            except Exception as exc2:
+                self._emit_api_error(
+                    exc=exc2,
+                    attempt=2,
+                    sent_messages=retry_clean,
+                    original_messages=messages,
+                    context=context,
+                    depth=depth,
+                    tools=tools,
+                    retry_truncated=True,
+                )
+                raise
 
     def _call_narration_llm(self, messages: list[dict[str, Any]]) -> str:
         """Short LLM flavor call (~120 tokens, no tools)."""
@@ -1243,9 +1376,9 @@ class Orchestrator:
                 messages=messages,
                 tools=None,
                 max_tokens=_CREATION_FLAVOR_MAX_TOKENS,
+                context="narrate_flavor",
             )
         except Exception as exc:
-            log_error("narrate_flavor", str(exc))
             self._last_finish_reason = ""
             return _NAME_LENGTH_STATIC_FALLBACK
         content = response.get("content", "") or _NAME_LENGTH_STATIC_FALLBACK
@@ -1863,9 +1996,8 @@ class Orchestrator:
         """Call LLM with NO tools — pure narration."""
         log_llm_request(len(messages), self.model, 0)
         try:
-            response = self._chat_completion(messages=messages, tools=None)
+            response = self._chat_completion(messages=messages, tools=None, context="narrate_only")
         except Exception as exc:
-            log_error("narrate_only", str(exc))
             return "The clerk regards you with a weary sigh."
 
         log_llm_response(response.get("content", ""), [], response.get("finish_reason", ""))
@@ -1887,9 +2019,10 @@ class Orchestrator:
                     messages=messages,
                     tools=tools if depth < 2 else None,
                     tool_choice=tool_choice if depth < 2 else "none",
+                    context="creation_llm_loop",
+                    depth=depth,
                 )
             except Exception as exc:
-                log_error("creation_llm_loop", str(exc))
                 return "The clerk mutters something unintelligible."
 
             tool_calls = response.get("tool_calls", [])
@@ -2230,6 +2363,8 @@ class Orchestrator:
                 messages=messages,
                 tools=[COMBAT_ACTION_TOOL],
                 tool_choice="auto",
+                context="combat_tools",
+                depth=depth,
             )
         except Exception as exc:
             return f"[Mechanics failed — API error: {exc}]"
@@ -2307,7 +2442,11 @@ class Orchestrator:
             {"role": "user", "content": brief + "\n\nNarrate the combat results honestly. Do not call more tools."},
         ]
         try:
-            final = self._chat_completion(messages=narrate_messages, tools=None)
+            final = self._chat_completion(
+                messages=narrate_messages,
+                tools=None,
+                context="combat_narrate",
+            )
             return final.get("content") or brief
         except Exception:
             return brief
@@ -2320,6 +2459,10 @@ class Orchestrator:
         weapon_id: str | None = None,
         spell_id: str | None = None,
     ) -> dict:
+        if action.upper().strip() == "ATTACK":
+            if err := self._gate_pc_attack(actor_id):
+                return err
+
         status = self.bridge.status()
         if not status.get("combat"):
             return {"ok": False, "error": "no active combat"}
@@ -2365,6 +2508,7 @@ class Orchestrator:
             self._last_tool_results = {}
             self._beat_combat_start_failure = None
             self._entry_committed_this_turn = False
+            self._delve_entry_hint_this_turn = None
             try:
                 st = self.bridge.status()
                 self._exploration_pre_turn_mode = (st.get("party") or {}).get("mode", "surface")
@@ -2383,9 +2527,10 @@ class Orchestrator:
             response = self._chat_completion(
                 messages=messages,
                 tools=TOOLS if (allow_tools and depth < 3) else None,
+                context="llm_loop",
+                depth=depth,
             )
         except Exception as exc:
-            log_error("chat_completion", str(exc))
             if self._last_content:
                 return self._last_content
             return f"The GM falters. (API error: {exc})"
@@ -2429,6 +2574,11 @@ class Orchestrator:
                 result = {"ok": False, "error": err}
             else:
                 result = self._execute_tool(fn_name, args)
+            if _should_delve_entry_hint(fn_name, args, result):
+                hint = self._build_delve_entry_hint()
+                result = {**result, "hint": hint}
+                if self._delve_entry_hint_this_turn is None:
+                    self._delve_entry_hint_this_turn = hint
             log_tool_call(fn_name, args, result)
             self._last_tool_results[fn_name] = result
             if fn_name in ("enter_dungeon", "site_enter") and result.get("ok"):
@@ -2440,12 +2590,15 @@ class Orchestrator:
                     if fact:
                         self._remember_player_choice(fact, importance=3)
             else:
+                sys_content = (
+                    f"TOOL FAILED ({fn_name}): {json.dumps(result, default=str)}. "
+                    "You MUST narrate this failure honestly. Do NOT describe success."
+                )
+                if result.get("hint"):
+                    sys_content += f" Hint: {result['hint']}"
                 messages.append({
                     "role": "system",
-                    "content": (
-                        f"TOOL FAILED ({fn_name}): {json.dumps(result, default=str)}. "
-                        "You MUST narrate this failure honestly. Do NOT describe success."
-                    ),
+                    "content": sys_content,
                 })
             messages.append({
                 "role": "tool",
@@ -2475,6 +2628,9 @@ class Orchestrator:
                 return prefix
             gate_active = self._exploration_gate_active(self._exploration_pre_turn_mode)
             safe = self._compose_exploration_narration(content, gate_active=gate_active)
+            hint = self._delve_entry_hint_this_turn
+            if depth == 0 and hint:
+                return f"{prefix}\n\n{hint}\n\n{safe}"
             return f"{prefix}\n\n{safe}"
 
         if all_failed and depth >= 2:
@@ -2528,6 +2684,8 @@ class Orchestrator:
             elif name == "start_combat":
                 return self.bridge.start_combat(**args)
             elif name == "combat_attack":
+                if err := self._gate_pc_attack(args.get("attacker_id", "")):
+                    return err
                 return self.bridge.combat_attack(**args)
             elif name == "combat_end":
                 return self.bridge.combat_end()
