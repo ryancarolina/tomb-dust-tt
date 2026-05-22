@@ -21,6 +21,31 @@ def load_config() -> dict:
         return yaml.safe_load(f) or {}
 
 
+def run_preflight(root: Path) -> None:
+    """Validate engine import and content marker before pygame/UI init (APP-045)."""
+    engine_dir = root / "play" / "tomb_gm"
+    try:
+        import tomb_gm  # noqa: F401
+    except (ModuleNotFoundError, ImportError):
+        print(
+            f"Fatal: Tomb Dust engine (tomb_gm) not importable. "
+            f"Expected engine tree at {engine_dir}. "
+            f"Run from a full repo checkout with play/tomb_gm present.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    av_grid = root / "build" / "data" / "av-grid" / "av-grid.json"
+    if not av_grid.is_file():
+        print(
+            f"Fatal: Tomb Dust content root marker missing. "
+            f"Expected {av_grid}. "
+            f"Ensure build/data/av-grid/av-grid.json exists (full build/ tree).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def _log_startup_health(config: dict) -> None:
     """Emit JSONL startup row before pygame/orchestrator init (APP-044)."""
     from gm.logger import log_entry
@@ -44,6 +69,7 @@ def _log_startup_health(config: dict) -> None:
 
 def main():
     config = load_config()
+    run_preflight(ROOT)
     _log_startup_health(config)
     from ui.app import App
 
