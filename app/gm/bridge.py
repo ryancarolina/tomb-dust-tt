@@ -34,6 +34,7 @@ class GameBridge:
         self._ns = _FakeNamespace(str(ws))
 
     def status(self) -> dict:
+        """Session snapshot; shape documented in tmp/app-gamebridge-spec.md § API appendix."""
         return handle_status(self._ns, None)
 
     def check(self) -> dict:
