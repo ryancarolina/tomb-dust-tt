@@ -136,9 +136,9 @@ Symptom strings below describe player-visible failures; exact substrings may not
 - [x] `session_state.json` schema with narration + creation_state
 - [x] Autosave interval
 
-**Open work:** [APP-014](backlog/app-014-setupnewgame-session-lifecycle.md)–[APP-020](backlog/app-020-document-stuck-creation-recovery.md) in [`tmp/backlog/README.md`](backlog/README.md). _(APP-064, APP-071 closed 2026-05-20.)_
+**Open work:** _(APP-014–APP-020 session lifecycle batch closed 2026-05-22.)_ See [`tmp/backlog/README.md`](backlog/README.md) for new tickets.
 
-- [ ] **APP-014:** `setup_new_game` ends prior session before wipe. See § setup_new_game lifecycle (APP-014).
+- [x] **APP-014:** `setup_new_game` ends prior session before wipe. See § setup_new_game lifecycle (APP-014).
 - [x] **APP-015:** Explicit creation-block clear on **`new game`** (incl. failure autosave). See § New game — creation block clear (APP-015).
 - [x] **APP-016:** Snapshot engine `status()` on app save. See § Engine status snapshot (APP-016).
 - [x] **APP-017:** Reconcile empty roster on load — force `creation.active`. See § Reconcile empty roster on load (APP-017).
@@ -146,6 +146,7 @@ Symptom strings below describe player-visible failures; exact substrings may not
 - [x] **APP-064:** Startup "saved game" prompt only when `has_save_session()` is true (not merely active session + empty roster). See § Startup save-detection (APP-064).
 - [x] **APP-071:** Friendly `load game` failure narration + `gm_narration` when no resumable save. See § Resume failure.
 - [x] **APP-019:** Friendly `setup_new_game` failure copy + dual JSONL; death / `run_ended` callers check `ok`. See § New game failure (APP-019).
+- [x] **APP-020:** Player README documents stuck creation → **`new game`**. See § Stuck creation recovery — player documentation (APP-020).
 
 ---
 
@@ -522,6 +523,80 @@ Manual: mid-creation RACE/SKILLS → Escape → quit → relaunch → `continue`
 
 ---
 
+## Stuck creation recovery — player documentation (APP-020)
+
+**Owner:** [`app/README.md`](../app/README.md) (player-facing only). **Behavior source:** § setup_new_game lifecycle (APP-014), § New game — creation block clear (APP-015), § Startup save-detection (APP-064), § Resume failure (APP-071), § New game failure (APP-019). **No code changes** in APP-020.
+
+### Problem
+
+Partial creation (mid-desk FSM, empty engine roster, optional `app/session_state.json`) can feel "stuck" after quit/relaunch, LLM errors, or failed setup. Engineering recovery exists — player types **`new game`** → `setup_new_game()` — but the README did not document it and Quick Start implied boot auto-resume from app autosave alone (contradicts APP-064).
+
+### Partial vs finished save (player mental model)
+
+| State | Boot prompt (APP-064) | Resume command | Reset command |
+|-------|----------------------|----------------|---------------|
+| **Finished save** — living character on roster | "You have a saved game." + **`load game`** chip | **`load game`** / **`continue`** | **`new game`** (starts fresh; warn data loss) |
+| **Partial creation** — empty roster, mid-desk | **`new game`** chip only; no "saved game" | **`load game`** fails (APP-071 variant A or B) — not a finished save | **`new game`** → clean NAME desk (APP-014/015) |
+| **No session / cold start** | **`new game`** only | N/A | **`new game`** |
+
+Presence of `session_state.json` **alone** does **not** mean the app auto-restores at relaunch. Boot does not read app save; **`load game`** restores when engine save exists.
+
+### Recovery command
+
+- **Canonical:** type **`new game`** in the input box (aliases **`start`**, **`new`** accepted).
+- **Effect:** `setup_new_game()` — ends prior session, wipes workspace campaign tables (corpses persist), resets creation to **NAME**, deletes app save on success (APP-014 L1–L7, APP-015 C1–C2).
+- **Data loss:** in-progress creation fields (`name`, race, rolls, table choices) and current campaign session data are **lost**. State plainly in README.
+- **Setup failure:** if reset fails, in-app copy (APP-019) tells player to retry **`new game`** — README may mention retry without duplicating cause-line table.
+
+### Symptoms (when to use **`new game`**)
+
+Document non-exhaustive player-reported cases:
+
+- Relaunch after mid-creation quit shows only **`new game`** but player expected autosave resume.
+- Repeated clerk prompts, blank GM panel, or footer stuck on wrong creation step.
+- **`Could not start game`** or APP-019 failure footer `[Awaiting: new game]` after attempting reset.
+- **`load game`** after partial creation shows no finished save (APP-071) — README should steer to **`new game`**, not hand-editing files.
+
+**When to retry first:** transient LLM glitch on a single desk input — retry that input once before **`new game`**. Persistent wrong-step / setup errors → **`new game`**.
+
+### Not recovery (forbidden in README)
+
+- Editing `session_state.json`, `play/workspace/`, or SQLite by hand.
+- `python -m tomb_gm` CLI or Cursor `@tomb-gm` chat — developer tools only ([`AGENTS.md`](../AGENTS.md)).
+- Expecting **`load game`** to restore partial creation without a living slotted engine save.
+
+### Player README content (checklist)
+
+Dev closes APP-020 when **`app/README.md`** satisfies:
+
+| ID | Requirement |
+|----|-------------|
+| **R-020a** | Dedicated subsection (e.g. "Stuck during character creation?") with **`new game`** as the recovery action |
+| **R-020b** | At least two recognizable stuck symptoms (see § Symptoms) |
+| **R-020c** | Plain wipe warning — in-progress creation and current campaign session reset |
+| **R-020d** | **Quick Start** corrected — no claim that `session_state.json` alone triggers auto-resume at boot |
+| **R-020e** | **Features** persistence bullet qualified — autosave on interval/quit; **finished** saves resume via **`load game`**, not implicit boot restore |
+| **R-020f** | **`load game`** described only for finished saves (living character on roster) |
+| **R-020g** | No hand-edit or CLI recovery instructions |
+
+Run spec detail: [`tmp/backlog/runs/app-020-document-stuck-creation-recovery/spec.md`](backlog/runs/app-020-document-stuck-creation-recovery/spec.md).
+
+### Tests APP-020
+
+| ID | Case | Expected |
+|----|------|----------|
+| **T-020a** | Checklist review of `app/README.md` vs R-020a–g | All rows pass |
+| **T-020b** | Manual: partial creation → quit → relaunch; player follows README only | Types **`new game`** → NAME desk (cross-check APP-014 TC-1) |
+
+No pytest for README prose. QA spec/plan gates use R-020 checklist.
+
+### Non-regression
+
+- Documented behavior must match existing `setup_new_game()` and APP-064 startup branches — no implied code change.
+- Post-finalize **`load game`** path unchanged in README after edit.
+
+---
+
 ## Tests
 
 - Save mid-creation → relaunch → same `creation.step`.
@@ -638,3 +713,6 @@ Manual: mid-creation → autosave or Escape → inspect `app/session_state.json`
 | 2026-05-21 | APP-017 done: `_read_saved_engine_status`, `_effective_awaiting_for_reconcile`, `_force_creation_active_if_reconcile_needed`; sync prelude (APP-018 restore → force-active); roster-only gates; `test_reconcile_empty_roster_on_load.py` T-017a–f, T-017c2 |
 | 2026-05-21 | APP-019 done: `_setup_new_game_failure_message`, `_map_setup_new_game_cause`, `PlayerDeathResult.already_emitted`; contexts A/B/C dual JSONL via `_emit_recovery_narration`; combat callers skip `_emit_narration` on failure; `test_setup_new_game_failure.py` T-019a–f |
 | 2026-05-21 | APP-018 done: `_restore_creation_from_session_state()` + G1 gate + G3a–c in `orchestrator.py`; NAME clobber removed on resume success; creation import removed from `_restore_history`; `test_creation_restore.py` T-018a–f |
+| 2026-05-22 | APP-020 PM draft: § Stuck creation recovery — player documentation (R-020a–g, T-020a–b); task checklist sync (APP-014 done, APP-020 open); run spec in `tmp/backlog/runs/app-020-document-stuck-creation-recovery/spec.md` |
+| 2026-05-22 | APP-020 done: `app/README.md` — Quick Start/Features persistence corrected (APP-064); § Stuck during character creation? with **`new game`** recovery, wipe warning, partial vs finished save, command table (R-020a–g) |
+| 2026-05-22 | APP-020 drift check PASS — README ↔ domain § APP-020 ↔ APP-014/015/064/071/019 behavior; open-work line cleared for lifecycle batch |
