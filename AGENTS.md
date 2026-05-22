@@ -69,6 +69,8 @@ Read this before changing game content, world data, or rules docs. **If anything
 
 **Only `tmp/app-*-spec.md` files are development specs.** Canon mechanics: `build/systems/` + `build/docs/engine-integration.md`.
 
+**Git:** The entire `tmp/` tree is **local-only** (`.gitignore`) — specs, backlog, and run artifacts are never committed or pushed. Keep them on disk for agent workflow; sync behavior into `app/**` code in git.
+
 ---
 
 ## AV-GRID (world coordinates)
