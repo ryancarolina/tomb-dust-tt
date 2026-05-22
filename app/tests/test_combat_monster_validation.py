@@ -88,12 +88,6 @@ def test_bridge_empty_monster_specs(bridge_with_session):
     assert "monster_specs required" in str(result.get("error", ""))
 
 
-@pytest.mark.skip(reason="APP-030 golden-path combat start with roster")
-def test_bridge_valid_grave_ghoul(bridge_with_session):
-    result = bridge_with_session.start_combat(monster_specs=["grave-ghoul:1"])
-    assert result.get("ok") is True
-
-
 # --- V5: tool args gate before bridge ---
 
 

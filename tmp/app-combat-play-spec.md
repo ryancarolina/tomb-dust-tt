@@ -217,8 +217,9 @@ On beat-trigger failure or `all_failed` content strip, log tool names and errors
 - [x] **APP-029** — monster auto-chain after PC `combat_action` (`_combat_auto_chain`)
 - [x] **APP-026** — orchestrator `_gate_pc_attack` before `combat_attack` / `combat_action` ATTACK
 - [x] **APP-027** — monster id validation at combat start (`validate_monster_specs`, bridge/tool_args gates, tests V1–V9)
+- [x] **APP-030** — combat integration golden path (`test_combat_integration.py` I1; APP-027 V4 absorbed)
 
-**Open work:** [APP-030](backlog/app-030-combat-integration-test.md), [APP-090](backlog/app-090-combat-phased-narration-and-death-beat.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-090](backlog/app-090-combat-phased-narration-and-death-beat.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -228,6 +229,7 @@ On beat-trigger failure or `all_failed` content strip, log tool names and errors
 python -m pytest play/tomb_gm/tests/test_combat*.py -q
 python -m pytest play/tomb_gm/tests/test_combat_beat_trigger.py -q
 python -m pytest app/tests/test_combat_attack_gating.py -q
+python -m pytest app/tests/test_combat_integration.py -q
 ```
 
 ### APP-028 — combat failure narration (app layer)
@@ -376,7 +378,7 @@ Use real `content_root` from test fixture (repo `build/` or tomb_gm test root). 
 | **V1** | `bridge.start_combat(monster_specs=["hollow-knight:1"])` | ✓ |
 | **V2** | `bridge.start_combat(monster_specs=["not a spec"])` | ✓ |
 | **V3** | `bridge.start_combat(monster_specs=[])` | ✓ |
-| **V4** | `bridge.start_combat(monster_specs=["grave-ghoul:1"])` with valid session | skip (APP-030) |
+| **V4** | Happy `start_combat(grave-ghoul:1)` with roster | absorbed → [APP-030](#combat-integration-golden-path-app-030) **I1** |
 | **V5** | `_dispatch_like_llm_loop(orch, "start_combat", {"monster_specs": []})` — helper from `app/tests/test_tool_args.py` (APP-080) | ✓ |
 | **V6** | `_execute_tool("start_combat", {monster_specs: ["hollow-knight:1"]})` | ✓ |
 | **V7** | `_handle_combat_trigger` with mocked beat `monster_specs: ["hollow-knight:1"]` | ✓ |
@@ -400,7 +402,81 @@ python -m pytest app/tests/test_combat_failure_narration.py -k start_combat -q
 python -m pytest play/tomb_gm/tests/test_validate_monster_specs.py -q
 ```
 
-End-to-end golden path may extend [APP-030](backlog/app-030-combat-integration-test.md).
+End-to-end golden path: [APP-030](#combat-integration-golden-path-app-030) **I1**.
+
+---
+
+## Combat integration golden path (APP-030)
+
+**Ticket:** [APP-030](backlog/app-030-combat-integration-test.md) · **Run spec:** [`runs/app-030-combat-integration-test/spec.md`](backlog/runs/app-030-combat-integration-test/spec.md)
+
+The app suite must prove a **real bridge happy path** through combat mechanics — not mocked status, not failure-only validation. This closes the gap left when APP-027 **V4** was deferred: session-only fixtures can start combat with **monsters only**; a roster PC in slot 1 is required for `combat_attack`.
+
+### Scope
+
+| In scope | Out of scope |
+|----------|--------------|
+| Real `GameBridge` + `make_isolated_workspace` + repo `build/` content | Live LLM / narration verify |
+| `start_combat` → PC turn → `combat_attack` → `combat_end` | `_combat_turn`, `combat_action`, APP-029 auto-chain |
+| Shared fixture helpers for future combat integration tests | Duplicating engine-only `play/tomb_gm/tests/test_combat_attack.py` |
+
+### Fixture contract
+
+**Module:** `app/tests/test_combat_integration.py` _(new)_
+
+| Helper | Behavior |
+|--------|----------|
+| `_ensure_combat_roster_session(bridge)` | `campaign_new("salt-road")` → `session_start` → `character_create(...)` (auto roster slot 1 via bridge); assert `status.combat is None` |
+| `_advance_to_pc_turn(bridge, max_rounds=5)` | Poll `bridge.status()`; while combat active and not `is_pc_turn(status)` (`gm.combat_fsm`), call `run_combat_monster_turns()`; fail if cap exceeded without PC turn |
+
+Initiative is seed-driven; bridge does not expose `seed` on `start_combat` today — tests **must** advance monster turns in code rather than assume PC acts first.
+
+**Monster id:** `grave-ghoul:1` (canon JSON under `build/data/monsters/`).
+
+**Attack tool:** Use `bridge.combat_attack(attacker_id, target_id)` to match exploration tool name and APP-026 gate path — not `combat_action` (APP-029/090).
+
+### I1 — bridge golden path (required)
+
+**Test:** `test_bridge_combat_start_attack_end`
+
+| Step | Action | Assert |
+|------|--------|--------|
+| 1 | `_ensure_combat_roster_session(bridge)` | Session + roster ready |
+| 2 | `bridge.start_combat(monster_specs=["grave-ghoul:1"])` | `ok is True`; `action == "combat_start"`; `status.combat` set; PC + ghoul in combatants |
+| 3 | `_advance_to_pc_turn(bridge)` | `is_pc_turn(status)` |
+| 4 | Resolve `attacker_id` (PC) + monster `target_id` from combatants | ids present |
+| 5 | `bridge.combat_attack(attacker_id, target_id)` | `ok is True` (hit or miss) |
+| 6 | `bridge.combat_end()` | `ok is True`; `status.combat is None` |
+
+### APP-027 V4 absorption
+
+Remove `test_bridge_valid_grave_ghoul` (skipped for APP-030) from `app/tests/test_combat_monster_validation.py`. Happy `start_combat` with valid canon id is **step 2 of I1**, not a separate validation-only test.
+
+### Optional stretch (not ticket AC)
+
+| ID | Test | Layer |
+|----|------|-------|
+| **I2** | `test_execute_tool_combat_start_attack_end` | Three **separate** `orchestrator._execute_tool` calls — exploration guard blocks start+attack in one batch when DB combat active |
+| **I3** | `test_dispatch_llm_loop_start_combat_happy` | `_dispatch_like_llm_loop` start-only; attack/end remain separate dispatches |
+
+### Tests (APP-030)
+
+**New module:** `app/tests/test_combat_integration.py`
+
+| ID | Test | Pass |
+|----|------|------|
+| **I1** | `test_bridge_combat_start_attack_end` | ✓ |
+
+**Commands:**
+
+```bash
+python -m pytest app/tests/test_combat_integration.py -q
+python -m pytest app/tests/test_combat_monster_validation.py -q
+python -m pytest app/tests/test_combat_attack_gating.py -q
+python -m pytest app/tests/test_combat_failure_narration.py -q
+```
+
+**Regression:** APP-027 V1–V3, V5–V8; APP-026 G1–G8; APP-028 T1–T11 must stay green after V4 removal.
 
 ---
 
@@ -414,7 +490,8 @@ End-to-end golden path may extend [APP-030](backlog/app-030-combat-integration-t
 | `gm/tools.py` | Combat tool schemas |
 | `app/tests/test_combat_failure_narration.py` | APP-028 orchestration tests |
 | `app/tests/test_combat_attack_gating.py` | APP-026 attack pre-gate tests |
-| `app/tests/test_combat_monster_validation.py` | APP-027 monster spec validation (V1–V8) |
+| `app/tests/test_combat_monster_validation.py` | APP-027 monster spec validation (V1–V3, V5–V8; V4 → APP-030 I1) |
+| `app/tests/test_combat_integration.py` | APP-030 bridge golden path (I1) |
 | `play/tomb_gm/tests/test_validate_monster_specs.py` | APP-027 V9 engine unit tests |
 | `play/tomb_gm/services/simulation/combat.py` | `parse_monster_specs`, `load_monster_json`, `validate_monster_specs` |
 
@@ -436,3 +513,5 @@ End-to-end golden path may extend [APP-030](backlog/app-030-combat-integration-t
 | 2026-05-22 | **APP-027 PM r2:** Engine-only R1; R3/R4 `_llm_loop` validate-before-execute (not `_execute_tool`); V5 `_dispatch_like_llm_loop`; V8 unmocked `_llm_loop` integration; V9 `test_validate_monster_specs.py`; ticket Expected files + test module |
 | 2026-05-22 | **APP-027 done:** `validate_monster_specs` (engine R1); bridge pre-check (R2); `validate_tool_args("start_combat")` (R3); `tools.py` canon examples (R6); `test_combat_monster_validation.py` V1–V8 + `test_validate_monster_specs.py` V9 green; V4 skipped for APP-030 |
 | 2026-05-22 | **APP-092:** R3 `tool_args.py` implementation landed (`normalize`/`validate` for `start_combat`); closes spec/code drift from APP-027 close |
+| 2026-05-22 | **APP-030 PM draft:** § Combat integration golden path — I1 bridge start→attack→end, roster fixture contract, V4 absorption into `test_combat_integration.py` |
+| 2026-05-22 | **APP-030 done:** `test_combat_integration.py` I1 bridge golden path `start_combat → PC turn → combat_attack → combat_end`; roster fixture helpers `_ensure_combat_roster_session` / `_advance_to_pc_turn`; APP-027 V4 skip removed from `test_combat_monster_validation.py`; regression modules green |
