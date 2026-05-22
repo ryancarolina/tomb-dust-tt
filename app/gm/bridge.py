@@ -242,7 +242,12 @@ class GameBridge:
         except SiteError as exc:
             return {"ok": False, "error": str(exc)}
 
-    def start_combat(self, monster_specs: list[str], include_party: bool = True) -> dict:
+    def start_combat(
+        self,
+        monster_specs: list[str],
+        include_party: bool = True,
+        surprised_combatant_ids: list[str] | None = None,
+    ) -> dict:
         from tomb_gm.services.simulation.combat import start_combat, validate_monster_specs
 
         session_id = self._active_session_id()
@@ -258,8 +263,12 @@ class GameBridge:
                 monster_specs=monster_specs,
                 include_party=include_party,
                 campaign_slug=campaign_slug,
+                surprised_combatant_ids=surprised_combatant_ids,
             )
-            return {**result, "action": "combat_start"}
+            payload = {**result, "action": "combat_start"}
+            if surprised_combatant_ids:
+                payload["surprised_combatant_ids"] = surprised_combatant_ids
+            return payload
         except (ValueError, FileNotFoundError) as exc:
             return {"ok": False, "error": str(exc)}
 

@@ -361,15 +361,25 @@ def process_beat(ctx: CommandContext, actions: dict[str, Any]) -> dict[str, Any]
             COMBAT_RE.search(lower) and mode != "site" and actions.get("auto_combat")
         ):
             specs = monster_specs or ["grave-ghoul:1"]
-            mechanical.append(
-                {
-                    "ok": True,
-                    "action": "combat_trigger",
-                    "monster_specs": specs,
-                    "include_party": actions.get("include_party", True),
-                    "slot": slot,
-                }
-            )
+            if mode == "dungeon" and not combat_status(ctx.conn, session_id).get("ok"):
+                mechanical.append(
+                    {
+                        "ok": True,
+                        "action": "hostile",
+                        "monster_specs": specs,
+                        "slot": slot,
+                    }
+                )
+            else:
+                mechanical.append(
+                    {
+                        "ok": True,
+                        "action": "combat_trigger",
+                        "monster_specs": specs,
+                        "include_party": actions.get("include_party", True),
+                        "slot": slot,
+                    }
+                )
             continue
 
         if COMBAT_RE.search(lower) and mode != "site":

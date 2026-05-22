@@ -6,6 +6,7 @@ from gm.creation import CreationState, ensure_equipment_gold
 from gm.narration_verify import (
     TurnTruth,
     build_creation_turn_truth,
+    build_encounter_turn_truth,
     format_turn_truth_for_prompt,
     verify_narration,
 )
@@ -148,3 +149,56 @@ def test_handle_finish_reason_length_fallback_when_exhausted():
         length_retries_left=0,
     )
     assert recovery.action == "fallback"
+
+
+def _encounter_truth(*, phase: str = "detected", tools: list[str] | None = None, **kwargs) -> TurnTruth:
+    status = {"combat": kwargs.pop("combat", None), "dungeon": {"features": []}}
+    encounter_state = {
+        "phase": phase,
+        "threats": kwargs.pop("threats", [{"monster_id": "grave-ghoul", "count": 1}]),
+        **({k: v for k, v in kwargs.items() if k in ("last_contest", "last_roll")}),
+    }
+    gate_flags = {"entry_committed": kwargs.pop("entry_committed", True)}
+    return build_encounter_turn_truth(
+        status,
+        encounter_state,
+        tools or [],
+        gate_flags,
+    )
+
+
+class TestEncounterNarrationVerify:
+    def test_premature_combat_start_fails(self):
+        truth = _encounter_truth(phase="detected", tools=["enter_dungeon"])
+        result = verify_narration("Combat begins as the ghoul lunges.", truth)
+        assert not result.passed
+        assert "premature_combat_start" in result.violations
+
+    def test_outcome_without_roll_fails(self):
+        truth = _encounter_truth(phase="detected", tools=["enter_dungeon"])
+        result = verify_narration("You sneak past unnoticed into the next hall.", truth)
+        assert not result.passed
+        assert "outcome_without_roll" in result.violations
+
+    def test_detected_threat_tease_passes(self):
+        truth = _encounter_truth(phase="detected", tools=["enter_dungeon"])
+        prose = (
+            "A grave ghoul lurks in the chapel shadows, gnawing on old bones. "
+            "You could listen, slip past, or engage."
+        )
+        result = verify_narration(prose, truth)
+        assert result.passed
+
+    def test_surprise_without_ambush_fails(self):
+        truth = _encounter_truth(phase="detected", tools=["enter_dungeon"])
+        result = verify_narration("You are surprised by the attack from the dark.", truth)
+        assert not result.passed
+        assert "surprise_without_ambush" in result.violations
+
+    def test_format_turn_truth_encounter_no_creation(self):
+        truth = _encounter_truth(phase="detected", tools=["enter_dungeon"])
+        block = format_turn_truth_for_prompt(truth, creation=None)
+        assert "Encounter phase: detected" in block
+        assert "grave-ghoul" in block
+        assert "Do not describe combat started" in block
+        assert "Step:" not in block

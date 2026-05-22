@@ -110,16 +110,23 @@ def log_error(context: str, error: str):
     log_entry("error", {"context": context, "error": error})
 
 
+def _narration_verify_payload(data: dict) -> dict:
+    """Normalize narration verify JSONL fields (APP-089 E10)."""
+    payload = dict(data)
+    payload.setdefault("mode", "creation")
+    return payload
+
+
 def log_narration_verify_fail(data: dict):
-    log_entry("narration_verify_fail", data)
+    log_entry("narration_verify_fail", _narration_verify_payload(data))
 
 
 def log_narration_verify_pass(data: dict):
-    log_entry("narration_verify_pass", data)
+    log_entry("narration_verify_pass", _narration_verify_payload(data))
 
 
 def log_narration_verify_exhausted(data: dict):
-    log_entry("narration_verify_exhausted", data)
+    log_entry("narration_verify_exhausted", _narration_verify_payload(data))
 
 
 def log_llm_truncation_recovery(data: dict):

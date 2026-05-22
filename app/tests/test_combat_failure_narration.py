@@ -80,7 +80,7 @@ def test_handle_combat_trigger_returns_failure_string(orchestrator, monkeypatch)
     }
     monkeypatch.setattr(
         orchestrator.bridge,
-        "start_combat_from_trigger",
+        "start_combat",
         MagicMock(return_value={"ok": False, "error": "monster JSON not found: grave-ghoul"}),
     )
     monkeypatch.setattr(orchestrator, "_combat_active_in_db", lambda: False)
@@ -91,7 +91,7 @@ def test_handle_combat_trigger_returns_failure_string(orchestrator, monkeypatch)
 
     assert result == BEAT_FAILURE
     assert orchestrator.combat.active is False
-    orchestrator.bridge.start_combat_from_trigger.assert_called_once()
+    orchestrator.bridge.start_combat.assert_called_once()
     run_turns.assert_not_called()
 
 
@@ -118,7 +118,7 @@ def test_beat_trigger_e2e_llm_loop_short_circuits(exploration_ready, monkeypatch
     )
     monkeypatch.setattr(
         exploration_ready.bridge,
-        "start_combat_from_trigger",
+        "start_combat",
         MagicMock(return_value={"ok": False, "error": "monster JSON not found: grave-ghoul"}),
     )
     monkeypatch.setattr(exploration_ready, "_combat_active_in_db", lambda: False)
@@ -343,7 +343,7 @@ def test_all_failed_or_beat_failure_logs(exploration_ready, monkeypatch):
     )
     monkeypatch.setattr(
         exploration_ready.bridge,
-        "start_combat_from_trigger",
+        "start_combat",
         MagicMock(return_value={"ok": False, "error": "monster JSON not found: grave-ghoul"}),
     )
     monkeypatch.setattr(exploration_ready, "_combat_active_in_db", lambda: False)

@@ -895,6 +895,9 @@ class App:
             "combat_state": (
                 self._orchestrator.export_combat_state() if self._orchestrator else None
             ),
+            "encounter_state": (
+                self._orchestrator.export_encounter_state() if self._orchestrator else None
+            ),
         }
         if engine_status is not None:
             data["engine_status"] = engine_status
@@ -924,6 +927,7 @@ class App:
                 # Creation state from UI file is only valid when DB has no roster yet.
                 self._orchestrator.import_creation_state(data.get("creation_state"))
                 self._orchestrator.import_combat_state(data.get("combat_state"))
+                self._orchestrator.import_encounter_state(data.get("encounter_state"))
                 self._orchestrator._sync_creation_from_status()
                 self._orchestrator._sync_combat_from_status()
         except Exception:
