@@ -7,9 +7,9 @@
 
 | ID | Priority | Run folder | Pipeline stage | Blocked by |
 |----|----------|------------|----------------|------------|
-| APP-069 | P0 | `tmp/backlog/runs/app-069-creation-narration-match-fsm/` | Dev plan ✅ · QA plan ✅ | — |
-| APP-070 | P0 | `tmp/backlog/runs/app-070-block-premature-pre-delve/` | Dev plan | — |
-| APP-072 | P1 | `tmp/backlog/runs/app-072-llm-truncation-race-tables/` | Dev plan | — |
+| APP-069 | P0 | `tmp/backlog/runs/app-069-creation-narration-match-fsm/` | **done** · commit `8937aae` | — |
+| APP-070 | P0 | `tmp/backlog/runs/app-070-block-premature-pre-delve/` | **done** · commit `8937aae` | — |
+| APP-072 | P1 | `tmp/backlog/runs/app-072-llm-truncation-race-tables/` | **done** · commit `8937aae` | — |
 
 ## Implementation waves (from schedule)
 

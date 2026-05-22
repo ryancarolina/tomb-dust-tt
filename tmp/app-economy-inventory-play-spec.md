@@ -47,7 +47,8 @@ App exposes engine inventory v3 + hub economy through tools and narration.
 
 ### UI (future)
 
-- Pack summary in sidebar; equip state reflected in stats.
+- Left **character panel** with Backpack / Spells tabs — [APP-062](../../tmp/backlog/app-062-left-character-panel-inventory-spells-tabs.md).
+- Equip state reflected in stats / panel.
 
 ---
 
@@ -56,9 +57,8 @@ App exposes engine inventory v3 + hub economy through tools and narration.
 - [x] Bridge: list/equip/unequip/grant_loot/buy/sell/stash/vendor
 - [x] Tools + system_prompt stash/grant_loot rules
 - [x] Creation kit cost deducted in `_auto_finalize`
-- [ ] UI inventory strip (pygame-ui spec)
-- [ ] GM tool for `use_item` / consumable use
-- [ ] Playtest: buy → equip → delve → die → stash persists on new character
+
+**Open work:** [APP-039](backlog/app-039-gm-tool-for-useitem-and-consumables.md), [APP-040](backlog/app-040-economy-playtest-loop-test.md), [APP-062](backlog/app-062-left-character-panel-inventory-spells-tabs.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 

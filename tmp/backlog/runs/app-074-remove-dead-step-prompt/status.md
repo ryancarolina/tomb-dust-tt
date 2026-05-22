@@ -5,7 +5,7 @@
 **Domain spec:** [app-character-creation-spec.md](../../../app-character-creation-spec.md)
 **Run folder:** tmp/backlog/runs/app-074-remove-dead-step-prompt/
 **Started:** 2026-05-20
-**Current stage:** drift (awaiting release)
+**Current stage:** done
 
 ## Checklist
 
@@ -17,8 +17,8 @@
 - [x] QA plan PASS + reflection-qa-plan.md
 - [x] workstreams + parallel impl
 - [x] QA implementation PASS + reflection-qa-impl.md
-- [x] Stage 6 — drift check (`drift-check.md` PASS); release deferred
-- [ ] Stage 7 — git commit + human-test-plan.md
+- [x] Stage 6 — drift check (`drift-check.md` PASS); release
+- [x] Stage 7 — human-test-plan.md (N/A — grep-only cleanup)
 
 ## Blockers
 

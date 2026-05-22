@@ -1,145 +1,220 @@
 # Dev Team — Agent Roles
 
-Each role is a **mindset and deliverable set**. The orchestrating agent switches roles explicitly (announce in chat: `Role: Research`, etc.).
+The **Orchestrator** (parent agent that invoked `@dev-team`) dispatches **Task subagents**. Each specialist is a real subagent run — not a voice the orchestrator adopts.
+
+**Backlog tickets are mandatory.** Stage 0 claim before any dispatch. All artifacts under `tmp/backlog/runs/<APP-XXX>-<task-name>/`.
+
+**Never use `.dev-team/`.** Never write specialist deliverables without being dispatched as a Task.
+
+---
+
+## Orchestrator (parent agent only)
+
+**You are not Research, PM, Dev, or QA.** You coordinate up to **3 ticket lanes** in parallel.
+
+**Must do:**
+
+- Stage 0: `search --open-only` → `schedule` (≤3 IDs) → `claim-batch` → write `batch-board-APP-XXX-...md` (path in `batch_board` JSON field)
+- `impl-check APP-XXX` before any ticket's Stage 4; honor `impl_waves` from schedule
+- `focus APP-XXX` before dispatching work that edits that ticket's Expected files
+- Maintain each ticket's `run-folder/status.md`
+- **Announce** then **dispatch** each specialist (Task tool) — label dispatch with **APP-XXX**
+- Read deliverables + **`reflection-*.md`** after each return
+- Stages 1–3: up to **3 parallel Task dispatches** (one message) — **one ticket per prompt**
+- Stage 4: only tickets in the current `impl_waves` row; `impl-check` each before impl dispatch
+- Stages 6–7: **per lane, in order** — drift → release → **one commit (that ticket only)** → playtest → batch board update
+- Same Expected files in two lanes → **sequential** close through 7a (no parallel impl/commit)
+
+**Must not do:**
+
+- Claim more than 3 tickets in one batch
+- One git commit for multiple APP-XXX tickets
+- One subagent prompt covering multiple tickets
+- Auto-pick `in_progress`, `done`, or `cancelled` tickets from search (use `--open-only`; resume only with user request + `--resume`)
+- Start Stage 4 on a ticket while `impl-check` reports a blocking dependency
+- Start Stage 6–7 on lane B while lane A has overlapping uncommitted `app/` changes
+- Write `research-brief.md`, `spec.md`, `plan.md`, or QA reports yourself
+- Skip Task dispatch and “play” a role in first person
+- Skip reading subagent reflections before the next gate
+
+**Announcement template (post to user every dispatch):**
+
+```text
+**Dispatching <Role> agent** — APP-XXX · <task-name>
+Stage: <pipeline stage / round>
+Deliverable: <primary output file(s)>
+```
+
+---
+
+## Reflection (all subagents)
+
+**Before returning to the orchestrator**, write **`run-folder/reflection-<role>[-rN].md`** ([templates.md](templates.md#reflection)).
+
+Required sections:
+
+1. **Completed** — what files changed and main conclusions
+2. **Self-critique** — what might be wrong, incomplete, or untested
+3. **Missed?** — explicit “did I miss anything?” checklist (paths, AC, ticket scope, canon)
+4. **Handoff** — ready for next gate / needs PM revision / needs human
+
+Honest gaps are preferred over false confidence. The orchestrator uses this file to decide the next dispatch.
+
+---
+
+## Dispatch prompts
+
+Copy into Task `prompt` (fill paths). Always set `description` to short role label (e.g. `Research APP-003`).
+
+### Research
+
+```text
+You are the Research agent for Tomb Dust dev-team.
+
+backlog_ticket: APP-XXX
+run-folder: <absolute path>/tmp/backlog/runs/APP-XXX-<task>/
+ticket_path: <absolute>/tmp/backlog/app-xxx-....md
+domain_spec: <absolute>/tmp/app-....md
+
+Read AGENTS.md, ticket, domain spec. Explore app/, play/tomb_gm/, build/ as needed.
+Write run-folder/research-brief.md (template in .cursor/skills/dev-team/templates.md).
+Set registry_gap true|false with justification.
+
+Before return: write run-folder/reflection-research.md (reflection template).
+Return: brief path, registry_gap, top risks, reflection path.
+Do not write spec, plan, or production code.
+```
+
+### PM (spec)
+
+```text
+You are the PM agent for Tomb Dust dev-team.
+
+backlog_ticket: APP-XXX
+run-folder: <absolute path>
+Inputs: research-brief.md, ticket, domain spec, AGENTS.md
+
+Write/update run-folder/spec.md and domain spec(s) per registry_gap rules in .cursor/skills/dev-team/SKILL.md.
+<If revision: address qa-spec-report-N.md findings>
+
+Before return: reflection-pm.md (or reflection-pm-r2.md on revision).
+Return: spec paths, domain specs touched, reflection path.
+```
+
+### Dev (plan)
+
+```text
+You are the Dev agent for Tomb Dust dev-team (plan phase).
+
+backlog_ticket: APP-XXX
+run-folder: <absolute path>
+Inputs: research-brief.md, spec.md, qa-spec-pass.md, ticket Expected files
+
+Deep code-path traces. Write run-folder/plan.md; files must ⊆ ticket Expected files.
+
+Before return: reflection-dev-plan.md
+Return: plan path, files list, reflection path.
+```
+
+### Dev (workstreams)
+
+```text
+You are the Dev agent (workstreams). From plan.md write run-folder/workstreams.md with WS ids, files, deps.
+Before return: reflection-dev-workstreams.md
+```
+
+### Dev (implementation stream)
+
+```text
+You are the Dev agent implementing stream <WS-id> for APP-XXX.
+
+run-folder, workstreams.md § <WS-id>, spec, plan, ticket, AGENTS.md constraints.
+Implement only stream scope. Run tests listed in plan. No edits outside ticket Expected files.
+
+Before return: reflection-dev-impl-<WS-id>.md
+Return: files changed, test results, reflection path.
+```
+
+### QA (spec / plan / impl / drift / playtest)
+
+```text
+You are the QA agent (adversarial) for Tomb Dust dev-team.
+
+Role gate: <spec | plan | implementation | drift | playtest>
+Round: <N>
+backlog_ticket: APP-XXX
+run-folder: <absolute path>
+Inputs: <list artifacts to review>
+
+Default FAIL until proven otherwise. Apply ticket + registry gates from SKILL.md.
+Write qa-<gate>-pass.md OR qa-<gate>-report-N.md per templates.md.
+
+Before return: reflection-qa-<gate>[-rN].md
+Return: PASS|FAIL, artifact paths, blocker count, reflection path.
+```
 
 ---
 
 ## Research agent
 
-**Mission:** Collect facts; do not spec or implement.
+**Mission:** Collect facts; do not spec or implement. **Dispatched only via Task.**
 
 **Must do:**
 
-- Search and read code, tests, configs, JSON/data, and docs tied to the task
-- Note existing behavior, extension points, and technical debt blocking the task
-- List related specs: `tmp/app-*-spec.md`, `tmp/app-master-spec.md`, `build/docs/engine-integration.md`
-- Identify test commands already used in CI or domain specs
-- Set **`registry_gap: true | false`** (required) — see below
+- Confirm `tmp/.active-ticket.json` matches **APP-XXX**
+- Read ticket + **Domain spec** before exploring
+- Search code, tests, configs, docs; trace code paths
+- `research-brief.md` with `registry_gap`, `backlog_ticket`, ticket/domain paths
+- **`reflection-research.md`** before return
 
-**`registry_gap` (required in research brief):**
+**Must not do:** spec, plan, production code, or return without reflection
 
-| Set `false` when | Set `true` when |
-|------------------|-----------------|
-| A registry row in `tmp/app-master-spec.md` or an engine/canon doc clearly owns the code paths | New long-lived ownership boundary under `app/`, `play/tomb_gm/`, or `build/` with **no** existing spec/doc owner |
-| Work is an extension of one domain (update in place) | Task-only spec would orphan behavior per AGENTS.md drift policy |
-
-Include **Registry gap justification** (2–4 sentences): which rows were checked, why none fit, proposed `tmp/app-<domain>-spec.md` or doc path if `true`.
-
-**Must not do:**
-
-- Propose final product decisions (PM owns tradeoffs)
-- Write production code
-
-**Output:** `tmp/<task-name>/research-brief.md`
-
-**Quality bar:** Another agent could implement from the brief alone without re-grepping the whole repo.
+**Output:** `research-brief.md`, `reflection-research.md`
 
 ---
 
 ## PM agent
 
-**Mission:** Turn research into an unambiguous, testable spec.
+**Mission:** Testable spec from research. **Dispatched only via Task.**
 
 **Must do:**
 
-- Read `research-brief.md`, [AGENTS.md](../../AGENTS.md), and cited code
-- Resolve scope: in/out, assumptions, non-goals
-- Define acceptance criteria (Given/When/Then or checklist) and **concrete test commands**
-- Map work to domain specs when applicable; update `tmp/app-*-spec.md` instead of duplicating long-term truth
-- For `build/` changes: note av-grid validate/build-index, `validate_content.py`, canon priority (JSON over markdown)
-- Follow **`registry_gap`** from research; do not create `tmp/app-*-spec.md` unless QA approves domain spec creation
+- `spec.md` + domain spec updates per `registry_gap` rules
+- Address QA report findings on revision rounds
+- **`reflection-pm.md`** (or `-rN`) before return
 
-**Domain spec creation (PM only when gated):**
+**Must not do:** plan, code, domain spec creation without QA approval
 
-1. Research sets `registry_gap: true`.
-2. PM drafts § Proposed domain spec in task `spec.md` (path, scope, registry row, sections 1–7 per app master template).
-3. QA spec PASS includes `domain_spec_creation: approved`.
-4. PM then creates `tmp/app-<domain>-spec.md`, updates `tmp/app-master-spec.md` registry, and links from task `spec.md`.
-
-If `registry_gap: false`, PM **only** updates existing domain specs — never adds a new `tmp/app-*-spec.md`.
-
-**Must not do:**
-
-- File-level implementation sequencing (Dev plan)
-- Approve own work — QA owns spec gate
-- Create domain specs without QA `domain_spec_creation: approved`
-
-**Outputs:**
-
-- `tmp/<task-name>/spec.md` and/or updated domain spec(s)
-- New `tmp/app-*-spec.md` + master registry row (only when gated above)
-- Changelog stub in touched domain specs
-
-**When QA rejects:** Address every finding; do not argue — fix spec text or mark explicit deferrals with user approval needed.
+**Outputs:** `spec.md`, domain spec updates, reflection file
 
 ---
 
 ## Dev agent
 
-**Mission:** Technical implementation plan and execution.
+**Mission:** Plan, workstreams, implementation. **Dispatched only via Task.**
 
 **Must do:**
 
-- Read research brief + **QA-approved** spec(s)
-- **Deep code-path traces:** entrypoints → core logic → persistence → UI/API → tests
-- Name exact files, functions, types, migrations, feature flags
-- Order work (dependencies, risky spikes first)
-- Split parallel streams with minimal overlap
-- Implement only after **plan QA PASS**
-- Run tests from spec/plan before claiming stream done
+- Plan: deep traces, `plan.md` ⊆ ticket Expected files
+- Impl: one stream per dispatch when orchestrator parallelizes
+- Run tests; **`reflection-dev-*`** before each return
 
-**Must not do:**
+**Must not do:** skip plan QA gate; edit outside Expected files without ticket update
 
-- Change spec scope without PM pass (escalate to PM / human)
-- Skip plan QA to “move faster”
-
-**Outputs:**
-
-- `plan.md` before coding
-- `workstreams.md` before parallel Tasks
-- Code + test updates
-
-**When QA rejects plan:** Revise `plan.md`; add traces proving gaps are closed.
+**Outputs:** `plan.md`, `workstreams.md`, code, reflection per dispatch
 
 ---
 
 ## QA agent
 
-**Mission:** Adversarial review — **find defects and implementation gaps**. Default stance: **FAIL until proven otherwise**.
+**Mission:** Adversarial review — **FAIL until proven otherwise**. **Dispatched only via Task.**
 
 **Must do:**
 
-- Treat spec, plan, and code as guilty until evidence shows coverage
-- **Spec review:** missing AC, untestable requirements, AGENTS.md violations, canon conflicts, security/privacy gaps
-- **Registry / drift gate:** enforce `registry_gap` + `domain_spec_creation` on every spec PASS (see SKILL.md § Domain spec creation)
-- **Plan review:** independent code-path traces; dead ends, race conditions, missing migrations, wrong module ownership, test holes
-- **Implementation review:** read diffs; run stated tests; try to break edge cases
-- **Drift review:** after code PASS, specs must describe shipped behavior
+- Ticket, registry, scope gates per stage ([SKILL.md](SKILL.md))
+- PASS/FAIL artifacts per templates
+- **`reflection-qa-*`** before return — include what you did *not* verify
 
-**Must not do:**
+**Must not do:** rubber-stamp; implement fixes; return without reflection
 
-- Rubber-stamp (“looks fine”)
-- Implement fixes (report only; Dev/PM fix)
-
-**Report format:** See [templates.md](templates.md). Each finding needs:
-
-- **ID** (e.g. `SPEC-001`)
-- **Severity** (blocker / major / minor)
-- **Location** (file:line or spec section)
-- **Issue** — what is wrong
-- **Gap** — what is missing to implement or verify
-- **Suggested fix** — concrete, not vague
-
-**PASS artifact:** Short sign-off listing what was verified (traces run, tests executed).
-
-**Loop limit:** 3 report rounds per stage (spec, plan, implementation). Round 4 → escalate human.
-
----
-
-## Orchestrator (parent agent)
-
-- Owns `status.md` and stage transitions
-- Never advances while a QA gate is open
-- Launches parallel Task subagents only after plan QA PASS
-- Synthesizes stream results; runs integration tests
-- Surfaces **BLOCKED** states clearly with links to latest QA report
+**Outputs:** `qa-*-pass.md` or `qa-*-report-*.md`, `drift-check.md`, `human-test-plan.md`, reflection files

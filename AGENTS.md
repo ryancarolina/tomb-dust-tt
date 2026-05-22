@@ -31,16 +31,25 @@ Read this before changing game content, world data, or rules docs. **If anything
 | Priority | Location | Holds |
 |----------|----------|--------|
 | **A1** | [`tmp/app-master-spec.md`](tmp/app-master-spec.md) | Registry of all app domain specs, drift policy, agent workflow |
-| **A2** | `tmp/app-*-spec.md` (domain specs) | Behavior, task checklist, tests, changelog for each app area |
-| **A3** | `app/**` code | Must match the domain spec — update spec in the same change |
+| **A2** | `tmp/app-*-spec.md` (domain specs) | Behavior, tests, changelog for each app area |
+| **A3** | [`tmp/backlog/`](tmp/backlog/README.md) | **Tickets** — one markdown file per task; ties to exactly one domain spec |
+| **A4** | `app/**` code | Must match the domain spec — update spec in the same change |
 
 ### Rules
 
-1. **Every change under `app/`** must update the **respective domain spec** (see registry in app master spec) before or alongside code.
-2. **Specs define tests** — acceptance criteria and pytest/smoke commands live in the spec; passing them is done.
-3. **Changelog required** — mark checklist items and append a dated changelog entry when work lands.
-4. **No orphan behavior** — if it is not in a spec, add it to a spec first.
-5. **No stale specs** — spec and code update together; never leave drift.
+1. **No ticket, no change** — claim before editing `app/`:
+
+   ```bash
+   python tmp/backlog/claim_ticket.py APP-XXX --task <kebab-name>
+   ```
+
+   Session file: `tmp/.active-ticket.json` (gitignored). Hooks enforce this — see [`tomb-dust-backlog.mdc`](.cursor/rules/tomb-dust-backlog.mdc).
+2. **Every change under `app/`** must update the **respective domain spec** when the ticket closes.
+3. **Specs define behavior; tickets define work** — acceptance criteria live in the ticket; behavior bullets and tests live in the spec.
+4. **Changelog required** — `release APP-XXX --done`, append a dated changelog entry in the domain spec.
+5. **No orphan behavior** — if it is not in a spec, add it to a spec (and a ticket) first.
+6. **No stale specs** — spec and code update together; never leave drift.
+7. **@dev-team** — search/schedule/claim-batch (≤3 tickets, dependency order); orchestrator dispatches Task subagents; artifacts in `tmp/backlog/runs/APP-XXX-<task>/` ([`.cursor/skills/dev-team/SKILL.md`](.cursor/skills/dev-team/SKILL.md)).
 
 ### Domain spec index (quick)
 

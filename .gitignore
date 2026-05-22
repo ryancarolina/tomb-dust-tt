@@ -2,6 +2,8 @@
 play/workspace/.local/*
 !play/workspace/.local/.gitkeep
 play/workspace/config.yaml
+play/workspace/*.db
+play/play/
 
 # App secrets
 app/.env
@@ -17,3 +19,8 @@ app/session_state.json
 test-scene.txt
 
 # tmp/ — app development specs (app-*-spec.md); do not add unrelated scratch here
+tmp/.active-ticket.json
+tmp/.active-batch.json
+
+# Agent mistake — dev-team artifacts belong in tmp/backlog/runs/
+.dev-team/

@@ -38,3 +38,5 @@ Six schools cover common delver magic. **Spell Focus** (Spellcasting 3+) applies
 | Others | None unless GM grants a spell scroll or deed |
 
 Full spell list: [spells.md](spells.md).
+
+**Backlog:** expand schools + spells — [APP-061](../../tmp/backlog/app-061-expand-magic-schools-and-spell-catalog.md).

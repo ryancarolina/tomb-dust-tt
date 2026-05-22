@@ -1,15 +1,16 @@
 # Batch board
 
-**Updated:** 2026-05-20
+**Updated:** 2026-05-21
+**Commit:** `5135958`
 **Max parallel:** 3
 
 ## Tickets
 
 | ID | Priority | Run folder | Pipeline stage | Blocked by |
 |----|----------|------------|----------------|------------|
-| APP-017 | P1 | tmp/backlog/runs/app-017-reconcile-empty-roster | research | — |
-| APP-018 | P1 | tmp/backlog/runs/app-018-continue-creation-state | research | — |
-| APP-019 | P1 | tmp/backlog/runs/app-019-surface-new-game-errors | research | — |
+| APP-017 | P1 | tmp/backlog/runs/app-017-reconcile-empty-roster | **complete** | — |
+| APP-018 | P1 | tmp/backlog/runs/app-018-continue-creation-state | **complete** | — |
+| APP-019 | P1 | tmp/backlog/runs/app-019-surface-new-game-errors | **complete** | — |
 
 ## Implementation waves (from schedule)
 

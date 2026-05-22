@@ -6,7 +6,7 @@
 **Run folder:** tmp/backlog/runs/app-020-document-stuck-creation-recovery/
 **Batch board:** [batch-board-APP-020-APP-031-APP-037.md](../batch-board-APP-020-APP-031-APP-037.md)
 **Started:** 2026-05-22
-**Current stage:** claim
+**Current stage:** complete
 
 ## Checklist
 
@@ -19,9 +19,9 @@
 - [ ] workstreams + parallel impl (each stream: reflection-dev-impl-*)
 - [ ] QA implementation PASS + reflection-qa-impl.md (dispatched)
 - [x] Stage 6 — drift check + ticket release (`claim_ticket.py release APP-020 --done`)
-- [ ] Stage 7 — git commit **APP-020 only** (hash: ______)
-- [ ] Stage 7 — human-test-plan.md (this run folder only)
-- [ ] Batch board row updated (if multi-ticket)
+- [x] Stage 7 — git commit **APP-020 only** (hash: `1b45332`)
+- [x] Stage 7 — human-test-plan.md (this run folder only)
+- [x] Batch board row updated (if multi-ticket)
 
 ## Blockers
 

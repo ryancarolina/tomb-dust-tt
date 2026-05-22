@@ -18,7 +18,7 @@
 - [x] workstreams.md + implementation (single stream WS1)
 - [x] QA implementation PASS
 - [x] Stage 6 — drift check + ticket release (`release APP-001 --done`)
-- [x] Stage 7 — git commit + human-test-plan.md
+- [x] Stage 7 — git commit `0245a90` + human-test-plan.md
 
 ## Blockers
 

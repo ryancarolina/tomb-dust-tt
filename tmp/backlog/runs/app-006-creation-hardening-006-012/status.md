@@ -9,16 +9,14 @@
 
 ## Checklist
 
-- [x] Stage 0 — APP-006 claimed (`tmp/.active-ticket.json`)
-- [x] Research → research-brief.md (registry_gap: false)
-- [x] PM spec draft (domain specs updated)
-- [x] QA spec PASS (round 1)
-- [x] Dev plan draft (files ⊆ ticket Expected files)
-- [x] QA plan PASS (round 1)
-- [x] workstreams.md + implementation (single stream WS1)
+- [x] Stage 0 — APP-006 claimed
+- [x] Research → research-brief.md
+- [x] PM spec + QA spec PASS
+- [x] Dev plan + QA plan PASS
+- [x] Implementation (WS1)
 - [x] QA implementation PASS
-- [x] Stage 6 — drift check + ticket release (APP-006–012)
-- [ ] Stage 7 — git commit + human-test-plan.md
+- [x] Stage 6 — drift check + tickets APP-006–012 closed
+- [x] Stage 7 — commit `dd28447` + human-test-plan.md
 
 ## Blockers
 

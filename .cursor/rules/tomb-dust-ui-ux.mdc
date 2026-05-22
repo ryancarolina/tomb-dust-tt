@@ -1,0 +1,202 @@
+---
+description: Tomb Dust PyGame UI/UX — component library, theme, layout, data flow, and pygame patterns
+alwaysApply: true
+---
+
+# Tomb Dust UI/UX (PyGame client)
+
+**Behavior spec (source of truth):** [`tmp/app-pygame-ui-spec.md`](../../tmp/app-pygame-ui-spec.md)  
+**Theme tokens:** [`app/ui/theme.py`](../../app/ui/theme.py)  
+**Entry:** [`app/ui/app.py`](../../app/ui/app.py) — window, event loop, layout, thread-safe `_ui_queue`
+
+All `app/ui/**` changes require a backlog ticket ([`tomb-dust-backlog.mdc`](tomb-dust-backlog.mdc)). Update the domain spec changelog when closing.
+
+---
+
+## Architecture
+
+| Principle | Tomb Dust choice |
+|-----------|------------------|
+| Toolkit | **Custom retained-mode panels** — not `pygame_gui` |
+| Frame loop | `clock.tick(60)` → events → `_process_ui_queue()` → scroll momentum → `draw()` → **one** `flip()` |
+| Threading | Orchestrator/TTS on worker threads; **only** `_ui_queue.put(...)` from background — main thread drains queue |
+| Layout vs render | Rects/anchors in `resize()` / `_layout()`; text → cached surfaces in `_rebuild()` on `_dirty` |
+
+```
+┌─────────────────────────────────────────────┬──────────┐
+│  NarrationPanel (scroll, rich text)         │ NpcCard  │
+│                                             ├──────────┤
+│                                             │StatsPanel│
+│                                             ├──────────┤
+│                                             │ MapView  │
+├─────────────────────────────────────────────┤          │
+│  InputBox (text + ≤4 suggestion chips)      │ Sidebar  │
+└─────────────────────────────────────────────┴──────────┘
+```
+
+**Planned (APP-062):** left **character panel** (Backpack | Spells tabs) — spec in domain spec; not in `app.py` layout yet.
+
+**Config** (`app/config.yaml` → `ui`): `window_width`, `window_height`, `narration_width_ratio` (default **0.7** center / **0.3** sidebar).
+
+---
+
+## Component library
+
+| Module | Class | Role |
+|--------|-------|------|
+| `ui/app.py` | `App` | Layout, events, queue drain, `_enrich_status_for_ui`, turn state, status strip |
+| `ui/theme.py` | constants | **All** RGB tokens, voice map, font sizes — import here; no stray literals |
+| `ui/rich_text.py` | helpers | Markdown spans, wrap, `render_table` for creation tables |
+| `ui/suggestions.py` | `build_player_suggestions` | Code-owned chips; blocklist for `Awaiting:` / enum tokens |
+| `ui/panels/narration.py` | `NarrationPanel` | Log, per-voice color, tables, wheel scroll, **tail-follow** |
+| `ui/panels/input_box.py` | `InputBox` | `> ` prompt, history, focus ring, suggestion buttons |
+| `ui/panels/sidebar.py` | `Sidebar` | Composes NPC + stats + map; resize cache for gate/badge |
+| `ui/panels/stats.py` | `StatsPanel` | HP, Fortune, gold, phase pill, **Registry:** badge |
+| `ui/panels/map_view.py` | `MapView` | 3×3 AV-GRID, terrain/danger colors, travel block overlay |
+| `ui/panels/npc_card.py` | `NpcCard` | Current speaker + TTS pulse |
+
+### Panel contracts
+
+- **`resize(rect)`** — set `self.rect`, mark `_dirty` or re-run child layout.
+- **`draw(screen)`** — fill panel bg, 1px `BORDER`, clip children; narration rebuilds when `_dirty`.
+- **Engine data** — `StatsPanel.update_from_status`, `Sidebar.update_from_status`, map `update_position` from enriched `status` / `map_update` queue messages.
+- **Never** parse `[Phase:…]`, `[Location:…]`, or `Awaiting:` from narration for HUD (APP-035/036/065).
+
+---
+
+## Look and feel
+
+### Palette (`theme.py`)
+
+| Token | RGB | Use |
+|-------|-----|-----|
+| `BG_DARK` | 18,18,24 | Window fill |
+| `BG_PANEL` | 24,26,32 | Narration, NPC card |
+| `BG_SIDEBAR` | 20,22,28 | Stats column |
+| `BG_INPUT` | 32,34,42 | Input bar |
+| `BG_BUTTON` / `BG_BUTTON_HOVER` | 44,46,56 / 58,62,74 | Suggestion chips |
+| `TEXT_PRIMARY` | 220,218,210 | Body, input text |
+| `TEXT_SECONDARY` | 160,158,150 | Labels, chip text |
+| `TEXT_MUTED` | 100,98,94 | Hints, placeholders, voice labels |
+| `TEXT_ACCENT` | 140,180,220 | Status strip (thinking) |
+| `BORDER` / `BORDER_FOCUS` | 48,50,58 / 100,140,190 | Panels / focused input |
+
+**Voice colors** (`get_voice_color`): narrator/gm muted gray; Holt amber; Clerk teal; Sergeant violet; **player** green `(120,200,160)`. Add new canon voices in `VOICE_COLORS` + `VOICE_LABELS` / `VOICE_DISPLAY_NAMES`.
+
+**Mechanical colors:** `HP_GREEN`/`HP_RED`, `FORTUNE_GOLD`, `PHASE_COLORS` (preparation/delve/combat/extraction/surface). **Map-only:** `TERRAIN_COLORS`, `DANGER_BORDER_COLORS` in `map_view.py` — keep terrain local to map.
+
+**Registry badge:** clerk-teal pill `COLOR_CLERK` bg, dark text — prefix **`Registry:`** + `creation_step_display` (APP-036).
+
+### Typography
+
+| Constant | px | Usage |
+|----------|-----|--------|
+| `FONT_SIZE` | 16 | Body, input, narration |
+| `FONT_SIZE_SMALL` | 13 | Labels, map, chips, table cells |
+| `FONT_SIZE_HEADING` | 20 | Reserved |
+| `FONT_SIZE_STAT` | 24 | HP number |
+
+**Font family:** `pygame.font.SysFont("Consolas", …)` everywhere — monospace TTRPG terminal feel. Create fonts in `_ensure_fonts()` once per panel; **never** per frame.
+
+**Spacing:** `PANEL_PADDING` 12; narration scrollbar `SCROLLBAR_WIDTH` 8; input bar height **50** in `App._layout`.
+
+### Tone
+
+Dark fantasy extraction RPG: restrained chrome, readable prose center-stage, sidebar for **at-a-glance** state. No bright arcade UI; no decorative animation until layout and readability pass playtest.
+
+---
+
+## Layout zones (UX)
+
+| Zone | Content | Priority |
+|------|---------|----------|
+| Center (wide) | Narration + input | Primary — player reads and acts here |
+| Right sidebar top | NPC speaker | Contextual |
+| Right sidebar mid | Stats + Registry badge | Important persistent |
+| Right sidebar bottom | Map | Secondary; **display always**, travel gated |
+| Bottom-left of input | Status strip (`thinking` / `speaking` / idle) | Feedback |
+
+**Progressive disclosure:** block map travel during creation (grey overlay + hint); disable submit while `_turn_state == "thinking"`; max **4** suggestion chips.
+
+---
+
+## Data flow (required)
+
+```
+Orchestrator / bridge  →  App._enrich_status_for_ui()  →  ("status", dict)  →  Sidebar.update_from_status
+Orchestrator           →  ("narration"|"player"|…)     →  NarrationPanel
+Orchestrator           →  ("suggestions", list)        →  InputBox (via suggestions.py)
+```
+
+**Enriched status keys** (orchestrator helpers, not LLM):
+
+| Key | Source |
+|-----|--------|
+| `map_travel_blocked`, `map_travel_blocked_hint` | `is_map_travel_blocked()` |
+| `creation_step`, `creation_step_display` | `get_creation_step_badge()` / `CREATION_STEP_DISPLAY` |
+
+Refresh on init and **every** turn `finally` (success **and** exception) so UI survives errors.
+
+---
+
+## Interaction patterns
+
+| Input | Handler | Notes |
+|-------|---------|-------|
+| `MOUSEBUTTONDOWN` (btn 1) | `rect.collidepoint(event.pos)` | Map → `travel to {addr}` if allowed; else suggestion chip |
+| `MOUSEWHEEL` | Only if over `narration.rect` | Momentum via `_scroll_velocity` |
+| `KEYDOWN` Enter | `InputBox` → `_submit` | Blocked while thinking |
+| `KEYDOWN` Escape | Save + quit | |
+| Focus | Input uses `BORDER_FOCUS`; map hover in `MapView` | |
+
+**Do not** use `pygame.mouse.get_pressed()` as an event type.
+
+---
+
+## Narration scroll (APP-060)
+
+After player/GM/error lines: call `request_follow_tail()` (via `_smooth_scroll_to_bottom`) — **not** immediate `scroll_to_bottom()`.
+
+In `NarrationPanel.draw()`: `_rebuild()` if `_dirty`, **then** apply `_follow_tail` → `scroll_to_bottom()`.
+
+Manual wheel history is allowed between turns; v1 **always** re-pins on new content.
+
+---
+
+## Performance
+
+- **Render-on-change:** `_dirty` + `_rebuild()`; wrap/table work only when lines change.
+- **Blit cached surfaces** each frame; do not `font.render()` static labels every tick.
+- **Clip** narration to panel rect when blitting scrolled content.
+- Queue coalescing: multiple narration messages per frame → one tail pin after final rebuild.
+
+---
+
+## Accessibility targets
+
+- Body text ≥ **16px** (`FONT_SIZE`); aim for **4.5:1** contrast (`TEXT_PRIMARY` on `BG_PANEL`).
+- Do not rely on color alone — pair voice color with **labels** (`GM`, `You`, speaker name).
+- Chips: human phrases only — `is_blocked_chip_token()` in `suggestions.py`.
+- Future: UI scale factor in config (fonts + padding together); near-bottom-only scroll — document in spec if added.
+
+---
+
+## Anti-patterns
+
+- Hardcoded RGB in panels — use `theme.py`
+- Scraping narration footers for stats, map, chips, or Registry step
+- `scroll_to_bottom()` before `_total_height` is updated
+- Creating `SysFont` or rendering unchanged strings every frame
+- Silent no-op on blocked map click without overlay/hint
+- Raw `SKILLS_INPUT`-style footer tokens in badge or chips
+- Adding `pygame_gui` without ticket + spec migration
+
+---
+
+## Before finishing UI work
+
+- [ ] Ticket claimed; [`tmp/app-pygame-ui-spec.md`](../../tmp/app-pygame-ui-spec.md) updated (behavior + changelog)
+- [ ] New colors/fonts in `theme.py` (or documented map-local palette)
+- [ ] Engine-sourced HUD fields use orchestrator/bridge, not LLM prose
+- [ ] Scroll/status paths tested: `test_narration_scroll.py`, `test_ui_*` as applicable
+- [ ] Resize: sidebar re-applies cached map block + creation badge (`_do_layout`)

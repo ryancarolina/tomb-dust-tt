@@ -17,4 +17,4 @@
 - [x] Implementation (logger + orchestrator)
 - [x] QA implementation PASS
 - [x] Stage 6 — release APP-004 --done
-- [x] Stage 7 — commit + human-test-plan.md
+- [x] Stage 7 — commit `b15125f` + human-test-plan.md

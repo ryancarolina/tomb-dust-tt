@@ -7,9 +7,9 @@
 
 | ID | Priority | Run folder | Pipeline stage | Blocked by (impl) | Commit |
 |----|----------|------------|----------------|-------------------|--------|
-| APP-023 | P1 | tmp/backlog/runs/app-023-friendly-travel-av-grid | spec | — | — |
-| APP-027 | P1 | tmp/backlog/runs/app-027-validate-monster-id-combat | spec | — | — |
-| APP-091 | P1 | tmp/backlog/runs/app-091-map-hint-overlap-fix | spec | — | — |
+| APP-023 | P1 | tmp/backlog/runs/app-023-friendly-travel-av-grid | **complete** | — | 792c663 |
+| APP-027 | P1 | tmp/backlog/runs/app-027-validate-monster-id-combat | **complete** | — | 1636a3e |
+| APP-091 | P1 | tmp/backlog/runs/app-091-map-hint-overlap-fix | **complete** | — | d4e28a3 |
 
 ## Implementation waves (from schedule)
 

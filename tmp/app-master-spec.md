@@ -131,3 +131,4 @@ Every domain spec MUST include:
 | 2026-05-20 | Removed `play/docs/*-spec.md` and `build/backlog/`; `tmp/` is the only spec tree (tracked in git) |
 | 2026-05-20 | Added `tmp/backlog/` ticket system (APP-001–057); no-ticket-no-change cursor rule |
 | 2026-05-20 | APP-056: `validate_content.py` clean (site edge remap via APP-001) |
+| 2026-05-20 | APP-054: `app/tests` pytest green (47 passed) |

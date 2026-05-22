@@ -7,9 +7,9 @@
 
 | ID | Priority | Run folder | Pipeline stage | Blocked by |
 |----|----------|------------|----------------|------------|
-| APP-014 | P1 | tmp/backlog/runs/app-014-setupnewgame-session-lifecycle | research | — |
-| APP-015 | P1 | tmp/backlog/runs/app-015-clear-creation-block-on-new-game | research | — |
-| APP-016 | P1 | tmp/backlog/runs/app-016-snapshot-engine-status-on-save | research | — |
+| APP-014 | P1 | tmp/backlog/runs/app-014-setupnewgame-session-lifecycle | complete | — |
+| APP-015 | P1 | tmp/backlog/runs/app-015-clear-creation-block-on-new-game | complete | — |
+| APP-016 | P1 | tmp/backlog/runs/app-016-snapshot-engine-status-on-save | complete | — |
 
 ## Implementation waves (from schedule)
 

@@ -1,6 +1,31 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "python .cursor/hooks/backlog_ticket_gate.py sessionStart",
+        "failClosed": false
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "python .cursor/hooks/backlog_ticket_gate.py preToolUse",
+        "matcher": "Write|StrReplace|ApplyPatch|EditNotebook",
+        "failClosed": false
+      }
+    ],
+    "subagentStart": [
+      {
+        "command": "python .cursor/hooks/backlog_ticket_gate.py subagentStart",
+        "failClosed": false
+      }
+    ],
+    "stop": [
+      {
+        "command": "python .cursor/hooks/backlog_ticket_gate.py stop",
+        "failClosed": false
+      }
+    ],
     "beforeSubmitPrompt": [
       {
         "command": "python .cursor/hooks/tomb_gm_user_prompt.py",

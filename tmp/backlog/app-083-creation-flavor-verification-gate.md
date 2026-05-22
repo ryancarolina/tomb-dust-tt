@@ -5,7 +5,8 @@
 | **ID** | APP-083 |
 | **Type** | feature |
 | **Priority** | P0 |
-| **Status** | in_progress |
+| **Status** | done |
+| **Closed** | 2026-05-21 (Phase 1 only) |
 | **Domain spec** | [`app-llm-orchestrator-spec.md`](../app-llm-orchestrator-spec.md) (primary); cross-domain updates in creation, exploration, combat specs |
 | **Created** | 2026-05-21 |
 
@@ -14,6 +15,8 @@
 Tomb Dust has **rules enforced in code** (engine, bridge, FSM, catalogs). The LLM adds **flavor and fiction** but routinely **invents mechanics** — wrong schools, spells, kit, gold, site entry, combat outcomes. Today enforcement is **fragmented**: creation strippers (APP-072/073/082), exploration site-entry gate (APP-024), combat failure prefixes (APP-028), tool-arg coercion (APP-080). There is **no unified policy** that bad prose is **withheld, regenerated, and only published after verification passes**.
 
 Introduce a **game-wide narration gate**: build **TurnTruth** before the LLM call, **inject truth into the prompt** so the model writes fitting prose, then **verify → retry until pass → publish**. Code owns mechanical truth; the LLM colors inside those bounds — it does not invent parallel facts.
+
+**Phase status (2026-05-22):** **Phase 1 (creation)** shipped. **Phase 2 (exploration)** partial → [APP-084](app-084-key-npc-canon-registry.md) key-NPC verify + [APP-077](app-077-code-owned-exploration-status-footer.md) footer. **Phase 2 encounter slice:** [APP-089](app-089-encounter-awareness-before-combat.md) — `build_encounter_turn_truth`, pre-combat verify, combat handoff. **Phase 3 (combat):** [APP-090](app-090-combat-phased-narration-and-death-beat.md) — per-phase `build_combat_turn_truth`. **Phase 4 (economy)** open. This ticket is **closed for Phase 1** only; later phases ship via linked tickets.
 
 ## Problem (observed)
 
@@ -247,7 +250,7 @@ JSONL events (all modes):
 
 ## Spec sync (required on close)
 
-1. Mark **Status** → `done` + **Closed** date when **all phases** complete (or split sub-tickets if phased release — document chosen approach).
+1. Mark **Status** → `done` + **Closed** date when **Phase 1** complete _(Phases 2–4 tracked in APP-084, APP-077, combat/economy follow-ons)_.
 2. Add **§ Mechanical-truth narration gate** to orchestrator spec — architecture diagram, TurnTruth, verify, retry, compose order.
 3. Update creation / exploration / combat specs with per-mode rule matrices.
 4. Changelog entries in each touched spec.
@@ -258,8 +261,9 @@ JSONL events (all modes):
 |--------|--------------|
 | APP-012 | thin creation flavor — preserved inside verified gate |
 | APP-069 | code-owned creation bodies — unchanged |
-| APP-073/072/082/078/059 | creation flavor — **subsumed** Phase 1 |
+| APP-073/072/082/078/059 | creation flavor strippers — **Phase 1 verify replaces need for new strip work**; APP-078/082 **cancelled** |
 | APP-024/028/070 | exploration/combat strips — **subsumed** Phases 2–3 |
+| APP-084 | Phase 2 partial — key NPC TurnTruth + verify on exploration prose |
 | APP-080 | orthogonal — tool args before dispatch |
 
 ## Notes

@@ -1,0 +1,68 @@
+---
+description: Require backlog ticket before app or ticket-scoped changes
+alwaysApply: true
+---
+
+# Tomb Dust backlog gate
+
+**Full index:** [`tmp/backlog/README.md`](../../tmp/backlog/README.md) · **Template:** [`tmp/backlog/TEMPLATE.md`](../../tmp/backlog/TEMPLATE.md)
+
+## No ticket, no change
+
+Do **not** edit code or canon content unless an **open or in_progress** ticket in `tmp/backlog/` authorizes the work.
+
+| Scope | Rule |
+|-------|------|
+| **`app/**`** | Must claim ticket first; see **Active session** below |
+| **Paths in a ticket's Expected files** | May edit while ticket is active (`open`/`in_progress`) |
+| **New behavior** | Create a ticket from [`TEMPLATE.md`](../../tmp/backlog/TEMPLATE.md) first; link a domain spec under `tmp/app-*-spec.md` |
+| **Specs only** | Updating `tmp/app-*-spec.md` without code is allowed when syncing after a closed ticket or drafting a new ticket |
+| **Dev-team runs** | Artifacts only under `tmp/backlog/runs/APP-XXX-<task>/` per [dev-team SKILL](../../.cursor/skills/dev-team/SKILL.md) |
+
+## Active session (required for `app/` edits)
+
+```bash
+python tmp/backlog/claim_ticket.py search --open-only   # new work: open only, not in_progress/done
+python tmp/backlog/claim_ticket.py schedule APP-XXX APP-YYY APP-ZZZ   # ≤3, deps
+python tmp/backlog/claim_ticket.py claim-batch APP-XXX APP-YYY APP-ZZZ
+python tmp/backlog/claim_ticket.py focus APP-XXX
+python tmp/backlog/claim_ticket.py impl-check APP-XXX                 # before impl
+python tmp/backlog/claim_ticket.py batch-status
+python tmp/backlog/claim_ticket.py release APP-XXX --done
+```
+
+Writes **`tmp/.active-batch.json`** (≤3 tickets) and **`tmp/.active-ticket.json`** (focus). Session-local, gitignored. Hooks allow `app/` edits when any batch ticket is active.
+
+## Before implementing
+
+1. Run **claim** (sets ticket `in_progress` + optional run folder).
+2. Read the ticket's **Domain spec** (`tmp/app-*-spec.md`) — specs remain source of truth for behavior.
+3. Stay within **Expected files**; add paths to the ticket before touching others.
+
+## After implementing
+
+1. Check ticket acceptance criteria; mark **Status** → `done` + **Closed** date (or use `release --done`).
+2. Update domain spec changelog.
+3. Run **`release --done`** to clear `tmp/.active-ticket.json`.
+
+## Automated enforcement (Cursor hooks)
+
+See [`.cursor/hooks.json`](../../.cursor/hooks.json):
+
+| Hook | Behavior |
+|------|----------|
+| `sessionStart` | Injects active ticket + in-progress list |
+| `preToolUse` | Denies `Write`/`StrReplace`/… to gated paths without valid claim |
+| `subagentStart` | Denies Task subagents unless prompt includes `APP-XXX` or session is claimed |
+| `stop` | Warns if `app/` changed in git diff without active ticket |
+
+## Exceptions (no ticket required)
+
+- Edits under `tmp/backlog/`, `tmp/app-*-spec.md`, `.cursor/` (tickets, specs, hooks)
+- Typo/format fixes with **zero** behavior change outside `app/` (note in commit message)
+- Emergency revert of a broken commit (follow with a ticket for the real fix)
+- Reading/exploring code, running tests, or answering questions without edits
+
+## Drift policy (unchanged)
+
+Spec ↔ code drift is never allowed. Tickets track **work**; domain specs track **behavior**. Both update when work lands. See [AGENTS.md](../../AGENTS.md) and [`tmp/app-master-spec.md`](../../tmp/app-master-spec.md).

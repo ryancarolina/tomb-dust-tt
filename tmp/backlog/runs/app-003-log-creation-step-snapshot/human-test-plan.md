@@ -1,7 +1,7 @@
 # Human Playtest Plan: APP-003-log-creation-step-snapshot
 
 **backlog_ticket:** APP-003
-**Commit:** pending
+**Commit:** `27dce12`
 **Play entry:** `cd app && python main.py` — see [app/README.md](../../../app/README.md)
 
 ## Prerequisites

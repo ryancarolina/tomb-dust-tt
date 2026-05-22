@@ -5,7 +5,7 @@
 **Domain spec:** [app-character-creation-spec.md](../../../app-character-creation-spec.md)
 **Run folder:** tmp/backlog/runs/app-066-sync-engine-awaiting-with-creation-step/
 **Started:** 2026-05-20
-**Current stage:** drift
+**Current stage:** complete
 
 ## Checklist
 
@@ -18,9 +18,9 @@
 - [x] workstreams + parallel impl (WS1 + WS2 complete)
 - [x] QA implementation PASS (round 2) + reflection-qa-impl-r2.md
 - [x] Stage 6 — drift check (`drift-check.md`, spec changelogs, ticket AC)
-- [ ] Stage 6 — ticket release (`claim_ticket.py release APP-066 --done`)
-- [ ] Stage 7 — git commit (APP-066 in message; `app/` clean in diff)
-- [ ] Stage 7 — human-test-plan.md (manual PyGame playtest cases)
+- [x] Stage 6 — ticket release (`claim_ticket.py release APP-066 --done`)
+- [x] Stage 7 — git commit `453ad23` (APP-066 in message; `app/` clean in diff)
+- [x] Stage 7 — [human-test-plan.md](human-test-plan.md) (manual PyGame playtest cases)
 
 ## Blockers
 

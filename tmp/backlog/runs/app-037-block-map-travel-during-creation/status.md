@@ -19,9 +19,9 @@
 - [x] workstreams + parallel impl (each stream: reflection-dev-impl-*)
 - [x] QA implementation PASS + reflection-qa-impl.md (dispatched)
 - [x] Stage 6 — drift check PASS (`drift-check.md`, `reflection-qa-drift.md`); ticket AC + close; `release APP-037 --done` pending orchestrator
-- [ ] Stage 7 — git commit **APP-037 only** (hash: ______)
-- [ ] Stage 7 — human-test-plan.md (this run folder only)
-- [ ] Batch board row updated (if multi-ticket)
+- [x] Stage 7 — git commit **APP-037 only** (hash: `70599c3`)
+- [x] Stage 7 — human-test-plan.md (this run folder only)
+- [x] Batch board row updated (if multi-ticket)
 
 ## Blockers
 

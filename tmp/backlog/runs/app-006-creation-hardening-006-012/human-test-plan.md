@@ -1,7 +1,7 @@
 # Human Playtest Plan: APP-006-creation-hardening-006-012
 
 **backlog_ticket:** APP-006 … APP-012
-**Commit:** pending
+**Commit:** `dd28447`
 **Play entry:** `cd app && python main.py` — see [app/README.md](../../../app/README.md)
 
 ## Prerequisites

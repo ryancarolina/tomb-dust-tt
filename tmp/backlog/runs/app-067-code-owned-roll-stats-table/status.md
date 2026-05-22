@@ -17,7 +17,7 @@
 - [x] workstreams WS1 + WS2 (impl retry required — first pass did not persist)
 - [x] QA implementation PASS (retry verified on disk)
 - [x] Stage 6 — drift check + release APP-067 --done
-- [x] Stage 7 — git commit (see below)
+- [x] Stage 7 — git commit `e9326f1` + human-test-plan.md
 - [x] Stage 7 — human-test-plan.md
 
 ## Blockers

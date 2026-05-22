@@ -7,9 +7,9 @@
 
 | ID | Priority | Run folder | Pipeline stage | Blocked by (impl) | Commit |
 |----|----------|------------|----------------|-------------------|--------|
-| APP-025 | P1 | tmp/backlog/runs/app-025-registry-hub-loop-test | research | — | — |
-| APP-030 | P1 | tmp/backlog/runs/app-030-combat-integration-test | research | — | — |
-| APP-077 | P1 | tmp/backlog/runs/app-077-exploration-status-footer | research | — | — |
+| APP-025 | P1 | tmp/backlog/runs/app-025-registry-hub-loop-test | **complete** | — | a6d0043 |
+| APP-030 | P1 | tmp/backlog/runs/app-030-combat-integration-test | **complete** | — | 34aa4ac |
+| APP-077 | P1 | tmp/backlog/runs/app-077-exploration-status-footer | **complete** | — | 3fd5d6a |
 
 ## Implementation waves (from schedule)
 

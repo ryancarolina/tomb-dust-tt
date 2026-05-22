@@ -12,7 +12,7 @@
 - `text_only` skips audio; narration panel still updates.
 - NPC voices from `config.yaml` → `tts.npc_voices`; narrator default voice.
 - Narration lines tagged with `voice` key for panel coloring + TTS voice selection.
-- Speak queue serial; interrupt/stop on new turn (if implemented).
+- Speak queue serial; **stop on player interrupt** — when `_turn_state == "speaking"`, `_submit()` calls `request_stop()` before the next turn (APP-042).
 
 ### Creation + combat
 
@@ -55,11 +55,11 @@ After `_strip_ui`, `parse_scene` runs a status-tag pass (`_strip_status_tags`) t
 - [x] Narration panel per-voice colors
 - [x] NPC card voice animation hook
 - [x] APP-041 — status tag strip in `parse_scene` (speak only; panel unchanged)
-- [ ] APP-042 — TTS stop on player interrupt
+- [x] APP-042 — TTS stop on player interrupt (`app/ui/app.py` `_submit`)
 - [ ] APP-043 — document TTS voice keys in spec
 - [ ] APP-058 — UI toggle narration TTS on/off
 
-**Open work:** [APP-041](backlog/app-041-strip-status-tags-before-tts.md)–[APP-043](backlog/app-043-document-tts-voice-keys-in-spec.md), [APP-058](backlog/app-058-ui-toggle-narration-tts-on-off.md) in [`tmp/backlog/README.md`](backlog/README.md).
+**Open work:** [APP-043](backlog/app-043-document-tts-voice-keys-in-spec.md) (cancelled → APP-084), [APP-058](backlog/app-058-ui-toggle-narration-tts-on-off.md) in [`tmp/backlog/README.md`](backlog/README.md).
 
 ---
 
@@ -98,3 +98,4 @@ PYTHONPATH=play python -m pytest play/tomb_gm/tests/test_tts_scene.py play/tomb_
 | 2026-05-21 | APP-041 done: `_strip_status_tags` in `parse_scene` after `_strip_ui`, before `_strip_brackets`; inline Location/Phase/Awaiting removed from TTS only; `test_tts_scene.py` regression |
 | 2026-05-21 | APP-041 PM: § Status tag strip before TTS; file map + tests; display/speak split |
 | 2026-05-21 | APP-041 PM r2: panel AC on ticket; CLI `--text`/`--lines` dev-only non-goal |
+| 2026-05-22 | **APP-042 done:** player submit during TTS calls `request_stop()` in `app/ui/app.py` before next turn starts |

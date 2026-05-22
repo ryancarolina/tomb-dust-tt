@@ -8,6 +8,7 @@
 | **Status** | done |
 | **Domain spec** | [`app-character-creation-spec.md`](../app-character-creation-spec.md) |
 | **Created** | 2026-05-20 |
+| **Closed** | 2026-05-20 |
 
 ## Summary
 

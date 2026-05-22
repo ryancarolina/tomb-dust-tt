@@ -33,3 +33,9 @@ Successful creation transitions are not logged consistently.
 **Run folder:** `C:/Users/PC/Desktop/development/ttTomb-Dust/tmp/backlog/runs/app-004-log-advancedto-creation-choice`
 
 _Add implementation notes, blockers, or PR links here._
+
+## Dependencies
+
+| Ticket | Relationship |
+|--------|--------------|
+| APP-002 | blocks this ticket |

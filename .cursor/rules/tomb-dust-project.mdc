@@ -37,10 +37,15 @@ alwaysApply: true
 | Setting | `build/systems/world/README.md` |
 | Play the game | [`app/README.md`](../../app/README.md) |
 | App dev specs | [`tmp/app-master-spec.md`](../../tmp/app-master-spec.md) |
+| App backlog | [`tmp/backlog/README.md`](../../tmp/backlog/README.md) |
 
 ## App changes
 
-Any edit under **`app/`** must update the matching spec in **`tmp/`** per [AGENTS.md](../../AGENTS.md). **Spec ↔ code drift is never allowed.**
+**No ticket, no change** — pick or create a ticket in [`tmp/backlog/`](../../tmp/backlog/README.md) before editing `app/` or ticket-scoped paths. Any edit under **`app/`** must update the matching domain spec in **`tmp/`** when the ticket closes. **Spec ↔ code drift is never allowed.** See also [`tomb-dust-backlog.mdc`](tomb-dust-backlog.mdc).
+
+**LLM narration:** [`tomb-dust-turn-truth-verify.mdc`](tomb-dust-turn-truth-verify.mdc) — TurnTruth + verify→retry before publish; reflect on every `app/gm` narration change.
+
+**PyGame UI/UX:** [`tomb-dust-ui-ux.mdc`](tomb-dust-ui-ux.mdc) — component library, `theme.py`, layout zones, queue/data flow, scroll and accessibility conventions.
 
 ## After grid changes
 

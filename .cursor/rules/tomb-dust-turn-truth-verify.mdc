@@ -1,0 +1,55 @@
+---
+description: TurnTruth + verify→retry→publish — reflect before any app/gm narration change
+alwaysApply: true
+---
+
+# TurnTruth narration gate (APP-083)
+
+**Spec:** [`tmp/app-llm-orchestrator-spec.md`](../../tmp/app-llm-orchestrator-spec.md) § Mechanical-truth narration gate.
+
+**Policy:** Code owns mechanics. LLM prose is **draft → verify → retry → publish**. Players never see unverified narration. Tool/FSM gates are a **sibling layer** — both stay.
+
+```text
+TurnTruth built → truth in prompt → LLM prose → verify_narration → pass? publish : retry
+```
+
+## Before you finish any change
+
+If the diff touches **`app/gm/`** narration, LLM loops, prompts, compose/sanitize, or player-visible GM text — **stop and answer:**
+
+| # | Question |
+|---|----------|
+| 1 | Does this path emit **LLM-authored** player-facing prose? |
+| 2 | If yes: is there a **`TurnTruth` builder** for this mode/step? |
+| 3 | Is prose run through **`verify_narration` + retry** before `_emit_narration` / return? |
+| 4 | Is truth injected via **`format_turn_truth_for_prompt`** before generation (not verify-only)? |
+| 5 | Do new claims need **verify rules** (not only strip/prefix)? Strip (APP-024/028) is defense-in-depth **after** pass. |
+| 6 | If adding outcomes (combat, entry, loot, catalogs): do rules require matching **`tool ok` this turn**? |
+
+If any answer is “no” but should be “yes” → **extend the gate** (ticket + spec) or document explicit bypass below.
+
+## Builders (extend the right one)
+
+| Mode | Builder | Ticket / phase |
+|------|---------|----------------|
+| creation | `build_creation_turn_truth` | APP-083 Phase 1 (**done**) |
+| exploration | `build_exploration_turn_truth` | APP-083 Phase 2 |
+| encounter (pre-combat) | `build_encounter_turn_truth` | APP-089 |
+| combat (per phase) | `build_combat_turn_truth` + slice | APP-090 / Phase 3 |
+
+**Wire in:** `narrate_with_verification` / `_narrate_with_verification` — see orchestrator spec § Where it wires in.
+
+## Legitimate bypass (rare)
+
+Code-only messages (errors, resume system lines, code-owned refusal/fallback/death boilerplate) — **no LLM verify**. Document in ticket/spec if adding a new bypass path.
+
+## Anti-patterns
+
+- Strip or `[Mechanics failed — …]` **instead of** verify+retry on flavor paths
+- New `gm_narration` from raw `_llm_loop` return without verify
+- Prompt-only “don’t invent X” without `TurnTruth` allowed/forbidden fields
+- One verify pass over a **batched** mechanical list (combat) — use per-phase truth (APP-090)
+
+## Logging
+
+Failed attempts: `narration_verify_fail` · pass: `narration_verify_pass` · exhausted: `narration_verify_exhausted` — add tests in `app/tests/test_narration_verify.py` or mode-specific test module.

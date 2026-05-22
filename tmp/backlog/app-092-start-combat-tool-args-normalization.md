@@ -7,7 +7,7 @@
 | **Priority** | P1 |
 | **Status** | done |
 | **Domain spec** | [`app-llm-orchestrator-spec.md`](../app-llm-orchestrator-spec.md) |
-| **Closed** | — |
+| **Closed** | 2026-05-22 |
 | **Created** | 2026-05-22 |
 
 ## Summary

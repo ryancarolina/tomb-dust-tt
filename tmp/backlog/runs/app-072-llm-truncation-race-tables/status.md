@@ -6,7 +6,7 @@
 **Domain spec:** `tmp/app-character-creation-spec.md`  
 **Run folder:** `tmp/backlog/runs/app-072-llm-truncation-race-tables/`  
 **Claimed:** 2026-05-20  
-**Batch:** [batch-board-2026-05-20.md](../batch-board-2026-05-20.md)
+**Batch:** [batch-board-APP-069-APP-070-APP-072.md](../batch-board-APP-069-APP-070-APP-072.md)
 
 ## Stages
 

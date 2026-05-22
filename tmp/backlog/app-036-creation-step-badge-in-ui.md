@@ -5,7 +5,7 @@
 | **ID** | APP-036 |
 | **Type** | feature |
 | **Priority** | P1 |
-| **Status** | done |
+| **Status** | in_progress |
 | **Closed** | 2026-05-22 |
 | **Domain spec** | [`app-pygame-ui-spec.md`](../app-pygame-ui-spec.md) |
 | **Created** | 2026-05-20 |
@@ -16,10 +16,10 @@ During `creation.active`, the player cannot see the current FSM step in the UI e
 
 ## Acceptance criteria
 
-- [x] Visible badge (or sidebar label) while `creation.active` showing current step (e.g. `RACE`, `SKILLS`) using human label from `CREATION_STATUS_LABELS` or equivalent.
+- [x] Visible badge (or sidebar label) while `creation.active` showing current step (e.g. `RACE`, `SKILLS`) using human label from `CREATION_STEP_DISPLAY` (not footer tokens).
 - [x] Badge hidden after creation completes / roster live.
 - [x] Data from orchestrator session / `engine_status` — never scraped from narration (APP-065 chip policy).
-- [x] Placement works with [APP-062](app-062-left-character-panel-inventory-spells-tabs.md) three-column layout (suggest: right sidebar above stats, or narration header strip).
+- [x] Placement works with [APP-062](app-062-left-character-panel-inventory-spells-tabs.md) three-column layout (stats panel top in right sidebar).
 
 ## Expected files
 
