@@ -14,6 +14,7 @@ from tomb_gm.services.content import ContentService
 from ui.theme import BG_DARK, TEXT_MUTED, TEXT_ACCENT, FONT_SIZE_SMALL, FONT_SIZE
 from gm.image_resolver import ImageResolver
 from gm.image_service import ImageService
+from gm.logger import log_entry
 from ui.panels.illustration import IllustrationPanel
 from ui.panels.narration import NarrationPanel
 from ui.panels.input_box import InputBox
@@ -63,6 +64,9 @@ class App:
         self._selected_character_catalog_item_id: str | None = None
         self._selected_npc_id: str | None = None
         self._prev_engine_status: dict | None = None
+        self._last_illustration_entity_type: str | None = None
+        self._last_illustration_entity_id: str | None = None
+        self._illustration_trigger_source: str | None = None
 
     def run(self):
         pygame.init()
@@ -198,6 +202,7 @@ class App:
                 self._orchestrator = Orchestrator(self.config)
                 raw_status = self._orchestrator.get_status()
                 self._prev_engine_status = deepcopy(raw_status)
+                self._log_image_bootstrap("init_orchestrator", raw_status)
                 status = self._enrich_status_for_ui(raw_status)
                 self._ui_queue.put(("status", status))
 
@@ -286,12 +291,14 @@ class App:
                 self._status_text = "GM is speaking (Enter to interrupt)"
             elif msg_type == "illustration":
                 if isinstance(data, dict):
+                    self._log_image_ui_queue_illustration(data)
                     self.illustration.set_illustration(
                         path=data.get("path"),
                         title=data.get("title", ""),
                         loading=bool(data.get("loading", False)),
                     )
             elif msg_type == "illustration_clear":
+                self._log_image_ui_queue_clear()
                 self.illustration.clear_to_default()
             elif msg_type == "character_item_selected":
                 if isinstance(data, dict):
@@ -303,12 +310,14 @@ class App:
 
                 if self._selected_character_catalog_item_id:
                     catalog_item_id = self._selected_character_catalog_item_id
+                    self._illustration_trigger_source = "character_panel"
                     self._request_illustration(
                         "item",
                         catalog_item_id,
                         self._item_display_name(catalog_item_id),
                     )
                 elif self._selected_npc_id:
+                    self._illustration_trigger_source = "character_panel"
                     self._request_illustration(
                         "npc",
                         self._selected_npc_id,
@@ -352,10 +361,19 @@ class App:
     def _toggle_images_enabled(self) -> None:
         self._images_enabled = not self._images_enabled
         self.illustration.set_images_enabled(self._images_enabled)
+        cancelled_in_flight = False
         if not self._images_enabled:
             service = self._image_service
             if service:
                 service.cancel_generation()
+                cancelled_in_flight = True
+        log_entry(
+            "image_toggle",
+            {
+                "enabled": self._images_enabled,
+                "cancelled_in_flight": cancelled_in_flight,
+            },
+        )
 
     def _draw_status(self, screen: pygame.Surface):
         font = pygame.font.SysFont("Consolas", FONT_SIZE_SMALL)
@@ -424,6 +442,7 @@ class App:
                 npc_id = self._image_resolver.primary_key_npc_from_lines(lines)
                 if npc_id:
                     self._selected_npc_id = npc_id
+                    self._illustration_trigger_source = "narration_npc"
                     self._request_illustration("npc", npc_id, self._entity_display_name(npc_id))
 
             self._ui_queue.put(("narration_text", narration))
@@ -498,15 +517,41 @@ class App:
         status = self._enrich_status_for_ui(raw_status)
         self._ui_queue.put(("status", status))
 
+        entities = self._image_resolver.detect_entities(self._prev_engine_status, raw_status)
         winner = self._image_resolver.pick_winner(
-            self._image_resolver.detect_entities(self._prev_engine_status, raw_status),
+            entities,
             item_selected=bool(self._selected_character_catalog_item_id),
             npc_id=None,
+        )
+        candidates = [
+            {
+                "entity_type": str(entry.get("entity_type") or ""),
+                "entity_id": str(entry.get("entity_id") or ""),
+                "priority": int(entry.get("priority", 99)),
+            }
+            for entry in entities
+        ]
+        winner_payload = None
+        if winner:
+            winner_payload = {
+                "entity_type": str(winner.get("entity_type") or ""),
+                "entity_id": str(winner.get("entity_id") or ""),
+                "priority": int(winner.get("priority", 99)),
+            }
+        log_entry(
+            "image_trigger_detect",
+            {
+                "candidates": candidates,
+                "winner": winner_payload,
+                "item_selected": bool(self._selected_character_catalog_item_id),
+                "turn_id": turn_id,
+            },
         )
         if winner:
             entity_type = str(winner.get("entity_type") or "").strip()
             entity_id = str(winner.get("entity_id") or "").strip()
             if entity_type and entity_id:
+                self._illustration_trigger_source = "status_delta"
                 self._request_illustration(
                     entity_type,
                     entity_id,
@@ -563,6 +608,102 @@ class App:
             item = {}
         return str(item.get("displayName") or self._entity_display_name(item_id))
 
+    def _campaign_slug_from_status(self, status: dict) -> str:
+        active = status.get("active") if isinstance(status, dict) else None
+        if isinstance(active, dict):
+            slug = active.get("campaign_slug")
+            if slug:
+                return str(slug)
+        return "default"
+
+    def _image_status_hint(self, status: dict | None) -> dict:
+        status = status or {}
+        hint: dict = {}
+        party = status.get("party") if isinstance(status.get("party"), dict) else {}
+        phase = party.get("phase") or status.get("phase")
+        if phase:
+            hint["phase"] = phase
+        combat = status.get("combat") if isinstance(status.get("combat"), dict) else None
+        if combat:
+            monster_id = self._image_resolver._monster_id_for_active_turn(combat)
+            if not monster_id:
+                monster_ids = self._image_resolver._monster_ids_from_combatants(combat)
+                monster_id = monster_ids[0] if monster_ids else None
+            if monster_id:
+                hint["monster_id"] = monster_id
+        address = str(party.get("address") or "").strip()
+        mode = str(party.get("mode") or "").lower()
+        if mode == "surface" and address:
+            hint["location_id"] = address
+        site_id = str(party.get("site_id") or "").strip()
+        if site_id:
+            hint["site_id"] = site_id
+        return hint
+
+    def _log_image_bootstrap(self, source: str, status: dict) -> None:
+        log_entry(
+            "image_bootstrap",
+            {
+                "source": source,
+                "retroactive_request": False,
+                "campaign_slug": self._campaign_slug_from_status(status),
+                "status_hint": self._image_status_hint(status),
+            },
+        )
+
+    def _track_illustration_entity(self, entity_type: str | None, entity_id: str | None) -> None:
+        if entity_type and entity_id:
+            self._last_illustration_entity_type = entity_type
+            self._last_illustration_entity_id = entity_id
+
+    def _log_image_ui_queue_illustration(self, data: dict) -> None:
+        entity_type = data.get("entity_type")
+        entity_id = data.get("entity_id")
+        loading = bool(data.get("loading", False))
+        path = data.get("path")
+        if loading:
+            self._track_illustration_entity(
+                str(entity_type) if entity_type else None,
+                str(entity_id) if entity_id else None,
+            )
+            log_entry(
+                "image_ui_queue",
+                {
+                    "action": "loading",
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "path": None,
+                    "loading": True,
+                },
+            )
+        elif path:
+            self._track_illustration_entity(
+                str(entity_type) if entity_type else None,
+                str(entity_id) if entity_id else None,
+            )
+            log_entry(
+                "image_ui_queue",
+                {
+                    "action": "set",
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "path": path,
+                    "loading": False,
+                },
+            )
+
+    def _log_image_ui_queue_clear(self) -> None:
+        log_entry(
+            "image_ui_queue",
+            {
+                "action": "clear",
+                "entity_type": self._last_illustration_entity_type,
+                "entity_id": self._last_illustration_entity_id,
+                "path": None,
+                "loading": False,
+            },
+        )
+
     def _get_image_service(self) -> ImageService:
         if self._image_service is None:
             repo_root = Path(__file__).resolve().parents[2]
@@ -579,7 +720,22 @@ class App:
         campaign_slug = self._resolve_campaign_slug()
         service = self._get_image_service()
         images_cfg = self._images_config
-        should_show_loading = bool(images_cfg.get("enabled", False) and self._images_enabled)
+        config_enabled = bool(images_cfg.get("enabled", False))
+        trigger_source = self._illustration_trigger_source
+        self._illustration_trigger_source = None
+        payload: dict = {
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "title": title,
+            "campaign_slug": campaign_slug,
+            "config_enabled": config_enabled,
+            "runtime_enabled": self._images_enabled,
+            "async": True,
+        }
+        if trigger_source:
+            payload["trigger_source"] = trigger_source
+        log_entry("image_request", payload)
+        should_show_loading = bool(config_enabled and self._images_enabled)
         if should_show_loading:
             self._ui_queue.put(
                 (
@@ -788,6 +944,7 @@ class App:
             if synced_status is not None:
                 try:
                     self._prev_engine_status = deepcopy(synced_status)
+                    self._log_image_bootstrap("load_session", synced_status)
                     self._ui_queue.put(("status", self._enrich_status_for_ui(synced_status)))
                 except Exception:
                     pass

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+import time
 from typing import Any
+
+from gm.logger import log_entry, redact_secrets
 
 
 class ImageModerationError(RuntimeError):
@@ -47,6 +50,26 @@ def _decode_image_data_url(data_url: str) -> bytes:
         raise RuntimeError("Unable to decode image payload from provider") from exc
 
 
+def _log_provider_request(
+    *,
+    model: str,
+    aspect_ratio: str,
+    latency_ms: int,
+    bytes_count: int | None = None,
+    error: str | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "model": model,
+        "aspect_ratio": aspect_ratio,
+        "latency_ms": latency_ms,
+    }
+    if bytes_count is not None:
+        payload["bytes"] = bytes_count
+    if error is not None:
+        payload["error"] = error
+    log_entry("image_provider_request", payload)
+
+
 def generate_image(
     client: Any,
     *,
@@ -55,6 +78,7 @@ def generate_image(
     aspect_ratio: str,
 ) -> bytes:
     """Call OpenRouter image API and return PNG bytes."""
+    started = time.perf_counter()
     try:
         response = client.chat.completions.create(
             model=model,
@@ -65,10 +89,36 @@ def generate_image(
             },
         )
     except Exception as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        _log_provider_request(
+            model=model,
+            aspect_ratio=aspect_ratio,
+            latency_ms=latency_ms,
+            error=redact_secrets(str(exc)),
+        )
         if is_moderation_error(exc):
             raise ImageModerationError(str(exc)) from exc
         raise
 
     message = response.choices[0].message
-    data_url = _extract_image_data_url(message)
-    return _decode_image_data_url(data_url)
+    try:
+        data_url = _extract_image_data_url(message)
+        decoded = _decode_image_data_url(data_url)
+    except Exception as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        _log_provider_request(
+            model=model,
+            aspect_ratio=aspect_ratio,
+            latency_ms=latency_ms,
+            error=redact_secrets(str(exc)),
+        )
+        raise
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    _log_provider_request(
+        model=model,
+        aspect_ratio=aspect_ratio,
+        latency_ms=latency_ms,
+        bytes_count=len(decoded),
+    )
+    return decoded

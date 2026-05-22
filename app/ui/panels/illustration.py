@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pygame
 
+from gm.logger import log_entry
 from ui.theme import (
     BG_DARK,
     BG_PANEL,
@@ -139,12 +140,23 @@ class IllustrationPanel:
         self._illustration_path = next_path
         self._illustration_title = title or ""
         self._image_surface = None
+        load_error: str | None = None
         try:
             self._image_surface = pygame.image.load(str(Path(next_path)))
-        except Exception:
+        except Exception as exc:
+            load_error = str(exc)
             self._illustration_path = None
             self._image_surface = None
             self.clear_to_default()
+        log_entry(
+            "image_panel_load",
+            {
+                "path": next_path,
+                "ok": self._image_surface is not None,
+                "error": load_error,
+                "showing_default": self._showing_default,
+            },
+        )
 
     def _display_surface(self) -> pygame.Surface | None:
         if self._loading:

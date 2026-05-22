@@ -10,11 +10,43 @@ from typing import Any, Callable
 
 from gm.image_cache import ImageCache
 from gm.image_prompt_builder import ENTITY_TYPES, ImagePromptBuilder
-from gm.logger import log_entry
+from gm.logger import log_entry, redact_secrets
 from gm.openrouter import create_client
 from gm.openrouter_images import ImageModerationError, generate_image
 
 DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-klein-4b"
+
+
+def _skip_reason(config_enabled: bool, runtime_enabled: bool) -> str:
+    if not config_enabled and not runtime_enabled:
+        return "both_off"
+    if not config_enabled:
+        return "config_off"
+    return "runtime_off"
+
+
+def _emit_resolve_result(
+    *,
+    campaign_slug: str,
+    entity_type: str,
+    entity_id: str,
+    path: str | None,
+    source: str,
+    skip_reason: str | None = None,
+    prompt_hash: str | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "campaign_slug": campaign_slug,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "path": path,
+        "source": source,
+    }
+    if skip_reason is not None:
+        payload["skip_reason"] = skip_reason
+    if prompt_hash is not None:
+        payload["prompt_hash"] = prompt_hash
+    log_entry("image_resolve_result", payload)
 
 
 class ImageService:
@@ -67,6 +99,14 @@ class ImageService:
                     "path": str(cached_path),
                 },
             )
+            _emit_resolve_result(
+                campaign_slug=campaign_slug,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                path=str(cached_path),
+                source="cache",
+                prompt_hash=prompt_hash,
+            )
             return str(cached_path)
 
         bundled = self._lookup_bundled_image(entity_type, entity_id)
@@ -95,17 +135,36 @@ class ImageService:
                     "path": str(seeded),
                 },
             )
+            _emit_resolve_result(
+                campaign_slug=campaign_slug,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                path=str(seeded),
+                source="bundled",
+                prompt_hash=prompt_hash,
+            )
             return str(seeded)
 
-        if not (bool(images_cfg.get("enabled", False)) and images_enabled):
+        config_enabled = bool(images_cfg.get("enabled", False))
+        if not (config_enabled and images_enabled):
+            skip_reason = _skip_reason(config_enabled, images_enabled)
             log_entry(
                 "image_gen_skipped",
                 {
                     "campaign_slug": campaign_slug,
                     "entity_type": entity_type,
                     "entity_id": entity_id,
-                    "reason": "disabled",
+                    "reason": skip_reason,
                 },
+            )
+            _emit_resolve_result(
+                campaign_slug=campaign_slug,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                path=None,
+                source="skipped",
+                skip_reason=skip_reason,
+                prompt_hash=prompt_hash,
             )
             if on_complete:
                 on_complete(None)
@@ -122,6 +181,15 @@ class ImageService:
                     "reason": "session_cap",
                     "max": max_per_session,
                 },
+            )
+            _emit_resolve_result(
+                campaign_slug=campaign_slug,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                path=None,
+                source="skipped",
+                skip_reason="session_cap",
+                prompt_hash=prompt_hash,
             )
             if on_complete:
                 on_complete(None)
@@ -162,6 +230,7 @@ class ImageService:
     def cancel_generation(self) -> None:
         """Invalidate async callbacks for generations started before now."""
         self._generation_epoch += 1
+        log_entry("image_gen_cancel", {"generation_epoch": self._generation_epoch})
 
     def _generate_and_cache(
         self,
@@ -185,11 +254,18 @@ class ImageService:
                 "entity_id": entity_id,
                 "model": model,
                 "aspect_ratio": aspect_ratio,
+                "prompt_hash": prompt_hash,
             },
         )
 
         try:
-            image_bytes = self._call_provider(model=model, prompt=prompt, aspect_ratio=aspect_ratio)
+            image_bytes = self._call_provider(
+                model=model,
+                prompt=prompt,
+                aspect_ratio=aspect_ratio,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
         except Exception as exc:
             log_entry(
                 "image_gen_fail",
@@ -197,11 +273,25 @@ class ImageService:
                     "campaign_slug": campaign_slug,
                     "entity_type": entity_type,
                     "entity_id": entity_id,
-                    "error": str(exc),
+                    "error": redact_secrets(str(exc)),
                 },
             )
-            if on_complete and self._should_run_callback(generation_epoch):
-                on_complete(None)
+            if self._should_run_callback(
+                generation_epoch,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            ):
+                _emit_resolve_result(
+                    campaign_slug=campaign_slug,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    path=None,
+                    source="skipped",
+                    skip_reason="api_fail",
+                    prompt_hash=prompt_hash,
+                )
+                if on_complete:
+                    on_complete(None)
             return None
 
         path = self._cache.save(
@@ -228,16 +318,54 @@ class ImageService:
             },
         )
         resolved = str(path)
-        if on_complete and self._should_run_callback(generation_epoch):
-            on_complete(resolved)
+        if self._should_run_callback(
+            generation_epoch,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        ):
+            _emit_resolve_result(
+                campaign_slug=campaign_slug,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                path=resolved,
+                source="api",
+                prompt_hash=prompt_hash,
+            )
+            if on_complete:
+                on_complete(resolved)
         return resolved
 
-    def _should_run_callback(self, generation_epoch: int | None) -> bool:
+    def _should_run_callback(
+        self,
+        generation_epoch: int | None,
+        *,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+    ) -> bool:
         if generation_epoch is None:
             return True
-        return generation_epoch == self._generation_epoch
+        if generation_epoch == self._generation_epoch:
+            return True
+        payload: dict[str, Any] = {
+            "generation_epoch": self._generation_epoch,
+            "expected_epoch": generation_epoch,
+        }
+        if entity_type is not None:
+            payload["entity_type"] = entity_type
+        if entity_id is not None:
+            payload["entity_id"] = entity_id
+        log_entry("image_gen_stale_callback", payload)
+        return False
 
-    def _call_provider(self, *, model: str, prompt: str, aspect_ratio: str) -> bytes:
+    def _call_provider(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        aspect_ratio: str,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+    ) -> bytes:
         client = self._client
         if client is None:
             client = self._client_factory()
@@ -251,13 +379,15 @@ class ImageService:
             )
         except ImageModerationError:
             sanitized = self._builder.sanitize_prompt(prompt)
-            log_entry(
-                "image_gen_moderated",
-                {
-                    "retry": True,
-                    "sanitized_changed": sanitized != prompt,
-                },
-            )
+            moderated_payload: dict[str, Any] = {
+                "retry": True,
+                "sanitized_changed": sanitized != prompt,
+            }
+            if entity_type is not None:
+                moderated_payload["entity_type"] = entity_type
+            if entity_id is not None:
+                moderated_payload["entity_id"] = entity_id
+            log_entry("image_gen_moderated", moderated_payload)
             return self._image_generator(
                 client,
                 model=model,
