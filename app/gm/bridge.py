@@ -247,9 +247,19 @@ class GameBridge:
         return out
 
     def site_enter(self, site_id: str) -> dict:
-        from tomb_gm.services.site import enter_site, SiteError
+        from tomb_gm.services.site import enter_site, load_site, SiteError
         try:
-            return {**enter_site(self.ctx, site_id), "action": "site_enter"}
+            result = {**enter_site(self.ctx, site_id), "action": "site_enter"}
+            if result.get("ok"):
+                site_addr = result.get("address") or site_id
+                try:
+                    graph = load_site(self.ctx.config.content_root, site_id)
+                    if graph.primary_address:
+                        site_addr = graph.primary_address
+                except Exception:
+                    pass
+                self._refresh_quest_objectives_after(site_address=site_addr)
+            return result
         except SiteError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -715,6 +725,7 @@ class GameBridge:
         result["phase"] = phase_result.get("phase")
         if resolved.get("resolved_from") and resolved["resolved_from"] != address:
             result["resolved_from"] = resolved["resolved_from"]
+        self._refresh_quest_objectives_after(site_address=address)
         return result
 
     def move_room(self, direction: str) -> dict:
@@ -1056,7 +1067,10 @@ class GameBridge:
             (json.dumps(sheet), char_id, campaign_slug),
         )
         self.ctx.conn.commit()
-        return {"ok": True, "character_id": char_id, "removed": result.get("removed")}
+        payload = {"ok": True, "character_id": char_id, "removed": result.get("removed")}
+        if payload["ok"]:
+            self._refresh_quest_objectives_after(character_id=char_id)
+        return payload
 
     def grant_loot(self, tier: str | None = None, character_id: str | None = None) -> dict:
         from tomb_gm.services.content import ContentService
@@ -1075,7 +1089,10 @@ class GameBridge:
             loot_result=rolled,
             character_id=character_id,
         )
-        return {"ok": True, "loot": rolled, "granted": granted}
+        result = {"ok": True, "loot": rolled, "granted": granted}
+        if result.get("ok"):
+            self._refresh_quest_objectives_after(character_id=character_id)
+        return result
 
     def buy_item(
         self,
@@ -1376,6 +1393,37 @@ class GameBridge:
         enc_id = se.encounter_id(npc_id, quest_id)
         return se.leave_encounter(self.ctx.conn, self._campaign_slug(), enc_id)
 
+    def _active_character_id(self, character_id: str | None = None) -> str | None:
+        if character_id:
+            return character_id
+        row = self.ctx.conn.execute(
+            "SELECT id FROM characters WHERE campaign_slug = ? AND slot IS NOT NULL AND alive = 1 "
+            "ORDER BY slot ASC LIMIT 1",
+            (self._campaign_slug(),),
+        ).fetchone()
+        return row["id"] if row else None
+
+    def _refresh_quest_objectives_after(
+        self,
+        *,
+        site_address: str | None = None,
+        character_id: str | None = None,
+    ) -> dict:
+        from tomb_gm.services import quests
+
+        char_id = self._active_character_id(character_id)
+        has_fn = None
+        if char_id:
+            has_fn = lambda iid: self.has_pack_item(iid, character_id=char_id).get("found", False)
+        return quests.refresh_quest_objectives(
+            self.ctx.conn,
+            self._campaign_slug(),
+            content_root=self.ctx.config.content_root,
+            character_id=char_id,
+            site_address=site_address,
+            has_pack_item_fn=has_fn,
+        )
+
     def list_quests(self) -> dict:
         from tomb_gm.services import quests
 
@@ -1399,6 +1447,36 @@ class GameBridge:
             self._campaign_slug(),
             quest_id,
             content_root=self.ctx.config.content_root,
+        )
+
+    def decline_quest(self, quest_id: str) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.decline_quest(
+            self.ctx.conn,
+            self._campaign_slug(),
+            quest_id,
+            content_root=self.ctx.config.content_root,
+        )
+
+    def abandon_quest(self, quest_id: str) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.abandon_quest(
+            self.ctx.conn,
+            self._campaign_slug(),
+            quest_id,
+            content_root=self.ctx.config.content_root,
+        )
+
+    def list_quests_for_ui(self, *, active_only: bool = True) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.list_quests_for_ui(
+            self.ctx.conn,
+            self._campaign_slug(),
+            content_root=self.ctx.config.content_root,
+            active_only=active_only,
         )
 
     def grant_quest_advance(

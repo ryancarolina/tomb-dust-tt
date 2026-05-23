@@ -54,6 +54,18 @@ def test_status_refresh_populates_inventory_and_spells(app_config):
             "ok": True,
             "spells": [{"id": "spark", "displayName": "Spark", "tier": 1, "mpCost": 1, "school": "evocation"}],
         }
+        bridge.list_quests_for_ui.return_value = {
+            "ok": True,
+            "quests": [
+                {
+                    "quest_id": "holt-brothers-signet",
+                    "displayName": "Brother's Signet",
+                    "giverDisplayName": "Marshal Garrick Holt",
+                    "state": "accepted",
+                    "activeObjectiveLabel": "Recover the signet ring",
+                }
+            ],
+        }
         app._orchestrator = MagicMock(bridge=bridge)
 
         app._ui_queue.put(("status", {"roster": [{"character_id": "pc-1"}], "party": {"address": "32-C"}}))
@@ -61,8 +73,10 @@ def test_status_refresh_populates_inventory_and_spells(app_config):
 
         bridge.list_inventory.assert_called_once_with(character_id="pc-1")
         bridge.list_known_spells.assert_called_once_with("pc-1")
+        bridge.list_quests_for_ui.assert_called_once_with(active_only=True)
         assert app.character_panel._backpack_rows[0]["label"].endswith("[E]")
         assert "Spark" in app.character_panel._spell_rows[0]["label"]
+        assert app.character_panel._quest_rows[0]["title"] == "Brother's Signet"
     finally:
         pygame.quit()
 
@@ -147,8 +161,40 @@ def test_empty_states_during_creation(app_config):
         app._layout(900, 600)
         app.character_panel.update_inventory({"ok": False, "error": "no living character found"})
         app.character_panel.update_spells(None)
+        app.character_panel.update_quests(None)
 
         assert app.character_panel._backpack_empty_message == "No delver yet"
         assert app.character_panel._spells_empty_message == "No spells known"
+        assert app.character_panel._quests_empty_message == "No active quests."
+    finally:
+        pygame.quit()
+
+
+def test_quests_tab_switch_and_empty_state(app_config):
+    _init_pygame()
+    try:
+        from ui.panels.character_panel import CharacterPanel
+
+        panel = CharacterPanel(pygame.Rect(0, 0, 280, 260))
+        panel.update_quests({"ok": True, "quests": []})
+        quests_tab = panel._tab_rects[CharacterPanel.TAB_QUESTS]
+        panel.handle_click((quests_tab.centerx, quests_tab.centery))
+
+        assert panel.active_tab == CharacterPanel.TAB_QUESTS
+        assert panel._quest_rows == []
+        assert panel._active_empty_message() == "No active quests."
+    finally:
+        pygame.quit()
+
+
+def test_three_tab_layout_widths(app_config):
+    _init_pygame()
+    try:
+        from ui.panels.character_panel import CharacterPanel
+
+        panel = CharacterPanel(pygame.Rect(0, 0, 300, 240))
+        tabs = list(panel._tab_rects.values())
+        assert len(tabs) == 3
+        assert tabs[0].width == tabs[1].width == tabs[2].width
     finally:
         pygame.quit()

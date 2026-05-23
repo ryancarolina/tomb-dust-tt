@@ -727,6 +727,52 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "decline_quest",
+            "description": "Player refuses an offered quest. Does not add to quest log.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                },
+                "required": ["quest_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "abandon_quest",
+            "description": "Player abandons an active quest (accepted or ready to turn in).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                },
+                "required": ["quest_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_quest",
+            "description": (
+                "Complete a quest after all objectives are done and apply remaining gold payout. "
+                "Call deliver_quest_item first when a deliver objective is pending."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                    "character_id": {"type": "string"},
+                },
+                "required": ["quest_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grant_quest_advance",
             "description": (
                 "Grant quest advance GP directly (capped by quest maxAdvanceGp). "

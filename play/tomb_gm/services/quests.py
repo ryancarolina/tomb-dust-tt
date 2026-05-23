@@ -15,7 +15,20 @@ from tomb_gm.services.simulation import skill_checks as sc
 from tomb_gm.services import social_encounter as se
 
 QUEST_STATES = frozenset(
-    {"hidden", "offered", "accepted", "ready_to_turn_in", "completed", "abandoned", "failed"}
+    {
+        "hidden",
+        "offered",
+        "declined",
+        "accepted",
+        "ready_to_turn_in",
+        "completed",
+        "abandoned",
+        "failed",
+    }
+)
+
+_UI_EXCLUDED_STATES = frozenset(
+    {"hidden", "offered", "declined", "completed", "abandoned", "failed"}
 )
 
 
@@ -74,7 +87,7 @@ def offer_quest(
     state = get_account_state(conn, campaign_slug)
     runtime = _runtime_quests(state)
     existing = runtime.get(quest_id)
-    if existing and existing.get("state") not in ("hidden", "offered"):
+    if existing and existing.get("state") not in ("hidden", "offered", "declined"):
         return {
             "ok": False,
             "error": f"Quest already {existing.get('state')}",
@@ -124,6 +137,162 @@ def accept_quest(
         se.engage(conn, campaign_slug, npc_id=giver, quest_id=quest_id)
 
     return {"ok": True, "quest_id": quest_id, "state": "accepted"}
+
+
+def decline_quest(
+    conn: sqlite3.Connection,
+    campaign_slug: str,
+    quest_id: str,
+    *,
+    content_root: Path | str,
+) -> dict[str, Any]:
+    definition = get_quest_def(content_root, quest_id)
+    if not definition:
+        return {"ok": False, "error": f"Unknown quest: {quest_id}"}
+
+    state = get_account_state(conn, campaign_slug)
+    runtime = _runtime_quests(state)
+    entry = runtime.get(quest_id)
+    if not entry or entry.get("state") != "offered":
+        return {"ok": False, "error": "Quest not offered", "quest_id": quest_id}
+
+    entry["state"] = "declined"
+    entry["declinedAt"] = _now_iso()
+    save_account_state(conn, campaign_slug, state)
+    return {"ok": True, "quest_id": quest_id, "state": "declined"}
+
+
+def abandon_quest(
+    conn: sqlite3.Connection,
+    campaign_slug: str,
+    quest_id: str,
+    *,
+    content_root: Path | str,
+) -> dict[str, Any]:
+    definition = get_quest_def(content_root, quest_id)
+    if not definition:
+        return {"ok": False, "error": f"Unknown quest: {quest_id}"}
+
+    state = get_account_state(conn, campaign_slug)
+    runtime = _runtime_quests(state)
+    entry = runtime.get(quest_id)
+    if not entry or entry.get("state") not in ("accepted", "ready_to_turn_in"):
+        return {"ok": False, "error": "Quest not active", "quest_id": quest_id}
+
+    entry["state"] = "abandoned"
+    entry["abandonedAt"] = _now_iso()
+    save_account_state(conn, campaign_slug, state)
+    return {"ok": True, "quest_id": quest_id, "state": "abandoned"}
+
+
+def _title_case_id(value: str) -> str:
+    return " ".join(part.capitalize() for part in value.split("-") if part)
+
+
+def _giver_display_name(content_root: Path | str, giver_npc_id: str) -> str:
+    if not giver_npc_id:
+        return ""
+    path = Path(content_root) / "data" / "npcs" / "key_npcs.json"
+    if path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for npc in data.get("npcs", []):
+            if isinstance(npc, dict) and npc.get("id") == giver_npc_id:
+                return str(npc.get("displayName") or npc.get("name") or _title_case_id(giver_npc_id))
+    return _title_case_id(giver_npc_id)
+
+
+def _active_objective_label(definition: dict[str, Any], entry: dict[str, Any]) -> str | None:
+    objectives_state = entry.get("objectives") or {}
+    for obj in definition.get("objectives") or []:
+        obj_id = obj.get("id")
+        if not obj_id or objectives_state.get(obj_id) == "done":
+            continue
+        return str(obj.get("label") or obj_id)
+    return None
+
+
+def list_quests_for_ui(
+    conn: sqlite3.Connection,
+    campaign_slug: str,
+    *,
+    content_root: Path | str,
+    active_only: bool = True,
+) -> dict[str, Any]:
+    defs = load_quest_defs(content_root)
+    state = get_account_state(conn, campaign_slug)
+    runtime = _runtime_quests(state)
+    rows: list[dict[str, Any]] = []
+    for quest_id, entry in runtime.items():
+        qstate = str(entry.get("state") or "hidden")
+        if active_only and qstate in _UI_EXCLUDED_STATES:
+            continue
+        definition = defs.get(quest_id)
+        if not definition:
+            continue
+        giver_id = str(definition.get("giverNpcId") or "")
+        rows.append(
+            {
+                "quest_id": quest_id,
+                "displayName": definition.get("displayName") or quest_id,
+                "giverNpcId": giver_id,
+                "giverDisplayName": _giver_display_name(content_root, giver_id),
+                "state": qstate,
+                "activeObjectiveLabel": _active_objective_label(definition, entry),
+                "objectives": dict(entry.get("objectives") or {}),
+            }
+        )
+    return {"ok": True, "quests": rows}
+
+
+def refresh_quest_objectives(
+    conn: sqlite3.Connection,
+    campaign_slug: str,
+    *,
+    content_root: Path | str,
+    character_id: str | None = None,
+    site_address: str | None = None,
+    has_pack_item_fn: Callable[[str], bool] | None = None,
+) -> dict[str, Any]:
+    defs = load_quest_defs(content_root)
+    state = get_account_state(conn, campaign_slug)
+    runtime = _runtime_quests(state)
+    updated: list[str] = []
+    norm_site = site_address.upper().strip() if site_address else None
+
+    for quest_id, entry in runtime.items():
+        qstate = entry.get("state")
+        if qstate not in ("accepted", "ready_to_turn_in"):
+            continue
+        definition = defs.get(quest_id)
+        if not definition:
+            continue
+
+        objectives_state = entry.setdefault("objectives", _objective_states(definition))
+        changed = False
+        for obj in definition.get("objectives") or []:
+            obj_id = obj.get("id")
+            if not obj_id or objectives_state.get(obj_id) == "done":
+                continue
+            obj_type = obj.get("type")
+            if obj_type == "visit_site" and norm_site:
+                site = str(obj.get("siteAddress") or "").upper().strip()
+                if site and site == norm_site:
+                    objectives_state[obj_id] = "done"
+                    changed = True
+            elif obj_type == "have_item" and has_pack_item_fn:
+                item_id = obj.get("itemId")
+                if item_id and has_pack_item_fn(str(item_id)):
+                    objectives_state[obj_id] = "done"
+                    changed = True
+
+        if changed:
+            _sync_quest_state_after_objectives(entry, definition)
+            updated.append(quest_id)
+
+    if updated:
+        save_account_state(conn, campaign_slug, state)
+
+    return {"ok": True, "updated": updated, "character_id": character_id}
 
 
 def _advance_tier(outcomes: list[dict[str, Any]], margin: int) -> int:

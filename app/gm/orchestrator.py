@@ -3500,6 +3500,12 @@ class Orchestrator:
                 return self.bridge.offer_quest(**args)
             elif name == "accept_quest":
                 return self.bridge.accept_quest(**args)
+            elif name == "decline_quest":
+                return self.bridge.decline_quest(**args)
+            elif name == "abandon_quest":
+                return self.bridge.abandon_quest(**args)
+            elif name == "complete_quest":
+                return self.bridge.complete_quest(**args)
             elif name == "grant_quest_advance":
                 return self.bridge.grant_quest_advance(**args)
             elif name == "list_quests":

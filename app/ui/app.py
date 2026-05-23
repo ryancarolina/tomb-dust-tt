@@ -179,6 +179,7 @@ class App:
             self.character_panel = CharacterPanel(
                 character_rect,
                 on_item_selected=self._on_character_item_selected,
+                on_quest_abandon=self._on_quest_abandon,
             )
             default_title_path = self._content_root / "data" / "illustrations" / "tomb-dust-title.png"
             self.illustration = IllustrationPanel(
@@ -788,6 +789,7 @@ class App:
         if not bridge:
             self.character_panel.update_inventory(None)
             self.character_panel.update_spells(None)
+            self.character_panel.update_quests(None)
             return
 
         character_id = None
@@ -815,6 +817,26 @@ class App:
             except Exception:
                 spells_payload = None
         self.character_panel.update_spells(spells_payload)
+
+        quests_payload = None
+        try:
+            quests_payload = bridge.list_quests_for_ui(active_only=True)
+        except Exception:
+            quests_payload = None
+        self.character_panel.update_quests(quests_payload)
+
+    def _on_quest_abandon(self, quest_id: str) -> None:
+        if not self._orchestrator:
+            return
+        bridge = getattr(self._orchestrator, "bridge", None)
+        if not bridge:
+            return
+        try:
+            result = bridge.abandon_quest(quest_id)
+        except Exception:
+            return
+        if result.get("ok"):
+            self._refresh_character_panel_data(self._prev_engine_status)
 
     def _speak_narration(self, text: str, lines: list[dict] | None, turn_id: int):
         if turn_id != self._current_turn_id:
