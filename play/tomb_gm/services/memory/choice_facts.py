@@ -195,6 +195,31 @@ def tool_impact_fact(tool_name: str, args: dict[str, Any], result: dict[str, Any
     if tool_name in ("equip_item", "unequip_item"):
         return f"Player {tool_name.replace('_', ' ')}: {args.get('instance_id', '?')} → {result.get('slot', 'pack')}."
 
+    if tool_name == "skill_check":
+        skill = result.get("skill_id") or args.get("skill_id", "skill")
+        outcome = "success" if result.get("success") else "failure"
+        margin = result.get("margin")
+        margin_text = f" (margin {margin})" if margin is not None else ""
+        return f"Social {skill} check: {outcome}{margin_text} — total {result.get('total')} vs DC {result.get('dc')}."
+
+    if tool_name == "negotiate_quest_advance":
+        gp = result.get("advance_gp", 0)
+        quest = args.get("quest_id", "quest")
+        skill = args.get("skill_id", "skill")
+        return f"Negotiated {quest} advance via {skill}: {gp} gp granted (margin {result.get('margin')})."
+
+    if tool_name == "grant_quest_advance":
+        return (
+            f"Quest advance granted: {result.get('granted_gp', args.get('gold_gp', 0))} gp "
+            f"for {args.get('quest_id', 'quest')} (total advancePaidGp {result.get('advancePaidGp')})."
+        )
+
+    if tool_name == "accept_quest":
+        return f"Player accepted quest {args.get('quest_id', result.get('quest_id', 'quest'))}."
+
+    if tool_name == "offer_quest":
+        return f"Quest offered: {args.get('quest_id', result.get('quest_id', 'quest'))}."
+
     return None
 
 

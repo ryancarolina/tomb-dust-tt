@@ -1,0 +1,55 @@
+{
+  "quests": [
+    {
+      "id": "holt-brothers-signet",
+      "displayName": "Brother's Signet",
+      "giverNpcId": "marshal-garrick-holt",
+      "summary": "Recover Marshal Holt's brother's signet ring from Breley undercrypt (32-C-UG-1).",
+      "offerTrigger": {
+        "type": "talk_to_npc",
+        "npcId": "marshal-garrick-holt"
+      },
+      "objectives": [
+        {
+          "id": "enter-undercrypt",
+          "type": "visit_site",
+          "siteAddress": "32-C-UG-1",
+          "label": "Reach the undercrypt"
+        },
+        {
+          "id": "recover-ring",
+          "type": "have_item",
+          "itemId": "holt-signet-ring",
+          "label": "Recover the signet ring"
+        },
+        {
+          "id": "return-ring",
+          "type": "deliver_item",
+          "itemId": "holt-signet-ring",
+          "npcId": "marshal-garrick-holt",
+          "label": "Return the ring to Holt"
+        }
+      ],
+      "rewards": {
+        "goldGp": 200,
+        "factionRep": {
+          "knights-of-breley": 1
+        }
+      },
+      "negotiation": {
+        "advance": {
+          "skillIds": ["persuasion", "intimidation", "deception"],
+          "baseDc": 15,
+          "npcId": "marshal-garrick-holt",
+          "maxAdvanceGp": 50,
+          "outcomes": [
+            { "maxMargin": -1, "advanceGp": 0 },
+            { "minMargin": 0, "maxMargin": 4, "advanceGp": 25 },
+            { "minMargin": 5, "advanceGp": 50 }
+          ]
+        }
+      },
+      "docPath": "systems/quests/holt-brothers-signet.md"
+    }
+  ]
+}

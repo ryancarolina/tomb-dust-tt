@@ -259,7 +259,9 @@ For most player actions during play, call `process_beat` with the player's actio
 
 ## Dice Rolling
 - YOU roll ALL dice. The player NEVER rolls.
-- When an action requires a check, calculate mod from character sheet, call roll_d20
+- **Social outcomes** (persuasion, intimidation, deception, etiquette, leadership, insight): call **`skill_check`** — engine reads the character sheet; never pass hand-entered `mod` for social pass/fail.
+- **Quest NPC payments** (e.g. Holt advance): call **`negotiate_quest_advance`** or **`grant_quest_advance`** before narrating GP from an NPC; never invent payment amounts.
+- For other uncertain actions, use `roll_d20` or `skill_check` as appropriate.
 - Show result in narration: "You attempt [action] — [natural] + [mod] = [total] vs DC [dc]"
 - If player says "I roll", interpret as attempting the action — YOU make the roll
 

@@ -91,6 +91,7 @@ from gm.narration_verify import (
     TurnTruth,
     build_creation_turn_truth,
     build_encounter_turn_truth,
+    build_exploration_turn_truth,
     format_turn_truth_for_prompt,
     verify_narration,
 )
@@ -139,6 +140,9 @@ _ENCOUNTER_NOT_ENGAGED_HINT = (
 _ENCOUNTER_VERIFY_FALLBACK = (
     "Something stirs in the shadows — a threat you have not yet resolved. "
     "You could listen for movement, try to slip past, withdraw, or engage."
+)
+_EXPLORATION_ECONOMY_VERIFY_FALLBACK = (
+    "The exchange stays unsettled — the Registry ledger shows no matching payment or outcome yet."
 )
 
 _SITE_ENTRY_REFUSAL_LINE = (
@@ -955,6 +959,29 @@ class Orchestrator:
         features = self._room_features_from_status(status)
         return any(str(f.get("feature_type") or "").lower() == "enemy" for f in features)
 
+    def _exploration_economy_verify_active(self, status: dict) -> bool:
+        """True when economy/social TurnTruth verify should run (APP-107; not with encounter verify)."""
+        if status.get("combat"):
+            return False
+        if self._encounter_verify_active(status):
+            return False
+        if self._all_tools_failed_this_turn():
+            return False
+        return True
+
+    def _all_tools_failed_this_turn(self) -> bool:
+        results = self._last_tool_results
+        if not results:
+            return False
+        return all(not r.get("ok") for r in results.values())
+
+    def _social_state_for_truth(self) -> dict[str, Any]:
+        try:
+            result = self.bridge.social_encounter_status()
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
     def _compose_exploration_narration(self, prose: str, *, gate_active: bool) -> str:
         """Exploration post-process: APP-024 site-entry strip, then APP-077 footer/tags."""
         text = sanitize_premature_site_entry_flavor(prose or "", gate_active=gate_active)
@@ -1577,6 +1604,22 @@ class Orchestrator:
                 mode="exploration",
                 state_context=state_context,
             ) or _ENCOUNTER_VERIFY_FALLBACK
+        elif self._exploration_economy_verify_active(status):
+            status = self.bridge.status()
+            truth = build_exploration_turn_truth(
+                status,
+                self._last_tool_results,
+                social_state=self._social_state_for_truth(),
+                player_input=player_input,
+            )
+            narration = self.narrate_with_verification(
+                "",
+                player_input,
+                truth=truth,
+                initial_prose=narration,
+                mode="exploration",
+                state_context=state_context,
+            ) or _EXPLORATION_ECONOMY_VERIFY_FALLBACK
 
         narration = self._compose_exploration_narration(narration, gate_active=gate_active)
         self._emit_narration(narration)
@@ -1687,17 +1730,25 @@ class Orchestrator:
         player_input: str,
         truth_block: str,
         state_context: str,
+        *,
+        truth: TurnTruth | None = None,
     ) -> list[dict[str, Any]]:
+        if truth and not truth.encounter_phase and not (truth.step or "").startswith("encounter_"):
+            write_hint = (
+                "Write 1-3 sentences of scene narration only. "
+                "Do not claim GP changes, item transfers, or social pass/fail unless authoritative facts allow."
+            )
+        else:
+            write_hint = (
+                "Write 1-3 sentences of encounter narration only. "
+                "Offer detect, sneak, withdraw, or hostile engage — do not start combat in prose."
+            )
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "system", "content": state_context},
             {
                 "role": "system",
-                "content": (
-                    f"{truth_block}\n\n"
-                    "Write 1-3 sentences of encounter narration only. "
-                    "Offer detect, sneak, withdraw, or hostile engage — do not start combat in prose."
-                ),
+                "content": f"{truth_block}\n\n{write_hint}",
             },
             *self.history[-4:],
             {"role": "user", "content": player_input},
@@ -1945,7 +1996,7 @@ class Orchestrator:
             f"encounter_{truth.encounter_phase}" if truth.encounter_phase else "encounter"
         )
         messages = self._exploration_narration_messages(
-            player_input, truth_block, state_context
+            player_input, truth_block, state_context, truth=truth
         )
         verify_retries = self._narration_verify_max_retries
         prose = initial_prose
@@ -3426,8 +3477,24 @@ class Orchestrator:
                 return self.bridge.sell_item(**args)
             elif name == "list_stash":
                 return self.bridge.list_stash(**args)
+            elif name == "list_factions":
+                return self.bridge.list_factions(**args)
             elif name == "list_vendor":
                 return self.bridge.list_vendor(**args)
+            elif name == "skill_check":
+                return self.bridge.skill_check(**args)
+            elif name == "negotiate_quest_advance":
+                return self.bridge.negotiate_quest_advance(**args)
+            elif name == "offer_quest":
+                return self.bridge.offer_quest(**args)
+            elif name == "accept_quest":
+                return self.bridge.accept_quest(**args)
+            elif name == "grant_quest_advance":
+                return self.bridge.grant_quest_advance(**args)
+            elif name == "list_quests":
+                return self.bridge.list_quests()
+            elif name == "social_encounter_status":
+                return self.bridge.social_encounter_status()
             else:
                 return {"ok": False, "error": f"Unknown tool: {name}"}
         except Exception as exc:

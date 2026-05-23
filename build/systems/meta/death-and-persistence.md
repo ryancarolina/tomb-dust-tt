@@ -2,9 +2,9 @@
 
 Tomb Dust treats **character death** as expected, not exceptional. A delver who dies on a stamped map becomes **Tomb Dust**—ash scraped from the site, a name in a Registry ledger, and a **corpse** left where they fell until someone loots it or the site claims it.
 
-**Death ends the run.** The player starts a **new game** with a fresh character. There is **no inheritance** of faction reputation, map knowledge, deeds, or stats from the dead delver.
+**Death ends the run.** The player starts a **new game** with a fresh character. There is **no inheritance** of map knowledge, deeds, or stats from the dead delver.
 
-**Exception — account stash:** `stash` pack and `stashGp` on the campaign account **persist**. A new delver may withdraw ancestor salvage at a hub with `services.stash` (e.g. Breley Keep `32-C`). Personal body gear and coin on the dead delver do not carry forward.
+**Exception — account stash and faction reputation:** `stash` pack, `stashGp`, and **`account_state_json.reputation`** on the campaign account **persist** across delver deaths within the same campaign. The Registry and major factions remember your **house**, not your corpse's empty pockets. A new delver may withdraw ancestor salvage at a hub with `services.stash` (e.g. Breley Keep `32-C`). Personal body gear and coin on the dead delver do not carry forward.
 
 For in-combat **0 HP** rules (consciousness roll, stabilization), see [combat/encounter.md](../combat/encounter.md).
 
@@ -32,10 +32,10 @@ Everything tied to the **character sheet** and **current run**:
 | **Character** | Name, attributes, class tier, deeds, skill XP, HP, MP, conditions, Fortune (**LUC**) |
 | **Gear on body** | Worn armor, weapons, pack, coin on person, consumables |
 | **Run state** | Unextracted salvage, temporary buffs, active stamp benefits for that delver |
-| **Account progress** | Faction rep, map annotations, Registry standing — **none carry forward** |
-| **Account stash** | **`stash` pack + `stashGp` persist** — new delver may use at hub |
+| **Account progress** | Map annotations, deeds on predecessor sheet — **none carry forward** |
+| **Account stash + rep** | **`stash` pack + `stashGp` + `reputation` persist** — new delver may use at hub |
 
-Hub **stash** is inherited across delver deaths. Other account progress (rep, deeds, map knowledge) does not carry forward.
+Hub **stash** and **faction reputation** are inherited across delver deaths within a campaign. Other account progress (deeds, map knowledge on the dead sheet) does not carry forward.
 
 ---
 

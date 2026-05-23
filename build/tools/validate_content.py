@@ -15,6 +15,7 @@ SPELLS_PATH = ROOT / "data" / "spells" / "spells.json"
 SCHOOLS_PATH = ROOT / "data" / "spells" / "schools.json"
 STARTING_SPELLS_PATH = ROOT / "data" / "character" / "starting-spells.json"
 DEEDS_PATH = ROOT / "data" / "deeds" / "promotions.json"
+FACTIONS_PATH = ROOT / "data" / "factions" / "factions.json"
 LOOT_PATH = ROOT / "data" / "loot" / "tables.json"
 ENCOUNTERS_PATH = ROOT / "data" / "encounters" / "wilderness.json"
 LEDGER_PATH = ROOT / "data" / "av-grid" / "ledger-examples.json"
@@ -447,6 +448,59 @@ def validate_ledger_file(path: Path | None = None) -> list[str]:
     return errors
 
 
+def validate_factions_file(path: Path | None = None) -> list[str]:
+    path = path or FACTIONS_PATH
+    errors: list[str] = []
+    try:
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"{path}: {exc}"]
+    if not isinstance(data, dict):
+        return [f"{path}: root must be object"]
+    _check_semver(data.get("rulesVersion", ""), str(path))
+    factions = data.get("factions")
+    if not isinstance(factions, list) or len(factions) < 1:
+        return [f"{path}: factions must be a non-empty array"]
+    seen: set[str] = set()
+    for i, faction in enumerate(factions):
+        item_path = f"{path}/factions[{i}]"
+        if not isinstance(faction, dict):
+            errors.append(f"{item_path}: faction must be object")
+            continue
+        for key in ("id", "displayName", "repMin", "repMax", "tiers"):
+            if key not in faction:
+                errors.append(f"{item_path}: missing required field {key}")
+        fid = faction.get("id")
+        if isinstance(fid, str):
+            try:
+                _check_slug(fid, item_path)
+            except ContentValidationError as exc:
+                errors.append(str(exc))
+            if fid in seen:
+                errors.append(f"{item_path}: duplicate id {fid!r}")
+            seen.add(str(fid))
+        tiers = faction.get("tiers")
+        if not isinstance(tiers, list) or len(tiers) < 1:
+            errors.append(f"{item_path}: tiers must be a non-empty array")
+            continue
+        for j, tier in enumerate(tiers):
+            tp = f"{item_path}/tiers[{j}]"
+            if not isinstance(tier, dict):
+                errors.append(f"{tp}: tier must be object")
+                continue
+            for tk in ("rep", "label"):
+                if tk not in tier:
+                    errors.append(f"{tp}: missing required field {tk}")
+            rep_op = tier.get("repOp", "eq")
+            if rep_op not in ("eq", "lte", "gte"):
+                errors.append(f"{tp}: invalid repOp {rep_op!r}")
+            for key in tier.get("mechanicalKeys") or []:
+                if not isinstance(key, str) or not key:
+                    errors.append(f"{tp}: mechanicalKeys entries must be non-empty strings")
+    return errors
+
+
 def validate_loot_file(path: Path | None = None) -> list[str]:
     path = path or LOOT_PATH
     errors: list[str] = []
@@ -677,6 +731,7 @@ def main() -> int:
     spell_errors = validate_spells_file()
     school_errors = validate_schools_file()
     deed_errors = validate_deeds_file()
+    faction_errors = validate_factions_file()
     site_errors = validate_sites_dir()
     loot_errors = validate_loot_file()
     loot_catalog_errors = validate_loot_catalog_refs()
@@ -685,7 +740,7 @@ def main() -> int:
     ledger_errors = validate_ledger_file()
     errors = (
         weapon_errors + monster_errors + spell_errors + school_errors + deed_errors
-        + site_errors + loot_errors + loot_catalog_errors + kit_errors
+        + faction_errors + site_errors + loot_errors + loot_catalog_errors + kit_errors
         + encounter_errors + ledger_errors
     )
 

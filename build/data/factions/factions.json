@@ -1,0 +1,95 @@
+{
+  "rulesVersion": "1.0.0",
+  "factions": [
+    {
+      "id": "delvers-registry",
+      "displayName": "Delver's Registry",
+      "repMin": -3,
+      "repMax": 3,
+      "hubAddresses": ["32-C", "27-D"],
+      "docPath": "build/systems/factions/delvers-registry.md",
+      "tiers": [
+        { "rep": -3, "label": "blacklisted", "effects": ["Stamps revoked; blacklist"] },
+        { "rep": -2, "label": "double_tax", "effects": ["Double tax; no insurance"] },
+        { "rep": -1, "label": "hostile_clerks", "effects": ["Clerks hostile; +1 day stamp processing"] },
+        { "rep": 0, "label": "standard_fees", "effects": ["Standard Registry fees"] },
+        {
+          "rep": 1,
+          "label": "stamp_discount",
+          "effects": ["−5 gp on next stamp purchase"],
+          "mechanicalKeys": ["registry_stamp_discount"]
+        },
+        { "rep": 2, "label": "survey_queue", "effects": ["Survey contract queue; fence introductions"] },
+        { "rep": 3, "label": "moot_advocate", "effects": ["Moot advocate; one free stamp renewal per season"] }
+      ]
+    },
+    {
+      "id": "iron-pact",
+      "displayName": "Iron Pact",
+      "repMin": -3,
+      "repMax": 3,
+      "hubAddresses": ["31-C-UG-3", "32-C-UG-2"],
+      "docPath": "build/systems/factions/iron-pact.md",
+      "tiers": [
+        { "rep": -3, "label": "seizure", "effects": ["Seizure on underdeep extract"] },
+        { "rep": -2, "label": "pact_toll", "effects": ["+50% Pact toll on UG layers"] },
+        { "rep": -1, "label": "cold_escort", "effects": ["Cold escorts in crystal delves"] },
+        { "rep": 0, "label": "standard_treaty", "effects": ["Standard vault treaties"] },
+        { "rep": 1, "label": "depth_overrun", "effects": ["Ignore minor depth overruns once"] },
+        { "rep": 2, "label": "shared_survey", "effects": ["Shared survey data at 31-C-UG-3"] },
+        { "rep": 3, "label": "co_stamp", "effects": ["Co-stamp on vault wings"] }
+      ]
+    },
+    {
+      "id": "knights-of-breley",
+      "displayName": "Knights of the Ninety-Ninth Night",
+      "repMin": -3,
+      "repMax": 3,
+      "hubAddresses": ["32-C", "47-B", "47-B-BV"],
+      "docPath": "build/systems/factions/knights-of-the-ninety-ninth-night.md",
+      "tiers": [
+        { "rep": -3, "label": "arrest", "effects": ["Arrest near rift cells"] },
+        {
+          "rep": -2,
+          "label": "no_bv_escort",
+          "effects": ["No BV / stacked EP escort; Holt advance DC +2"],
+          "mechanicalKeys": ["holt_advance_dc_modifier"]
+        },
+        { "rep": -1, "label": "escort_fees", "effects": ["Mandatory escort fees"] },
+        { "rep": 0, "label": "standard_patrol", "effects": ["Standard patrol clearance"] },
+        { "rep": 1, "label": "blessing", "effects": ["Blessing (+1 save vs shadow, 1/session)"] },
+        {
+          "rep": 2,
+          "label": "holt_licenses",
+          "effects": ["Holt licenses at 32-C; +25 gp quest advance cap"],
+          "mechanicalKeys": ["holt_advance_cap_bonus"]
+        },
+        { "rep": 3, "label": "knight_adjunct", "effects": ["Knight adjunct on Black Vale contracts"] }
+      ]
+    },
+    {
+      "id": "verdant-vale",
+      "displayName": "Verdant Vale (informal)",
+      "repMin": -3,
+      "repMax": 3,
+      "hubAddresses": ["27-D", "40-C"],
+      "docPath": "build/systems/factions/README.md",
+      "tiers": [
+        {
+          "rep": -2,
+          "repOp": "lte",
+          "label": "sabotaged_maps",
+          "effects": ["Sabotaged maps; grotto encounters +1 tier"],
+          "mechanicalKeys": ["verdant_travel_tier_bump"]
+        },
+        { "rep": 0, "label": "ignored", "effects": ["Ignored by Vale watchers"] },
+        {
+          "rep": 2,
+          "repOp": "gte",
+          "label": "safe_passage",
+          "effects": ["Safe passage through WM grottos; healing spring rumor"]
+        }
+      ]
+    }
+  ]
+}

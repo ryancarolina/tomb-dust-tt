@@ -15,6 +15,12 @@ _ATTR_ORDER: tuple[tuple[str, str], ...] = (
     ("SPI", "LUC"),
 )
 _SKILLS_MAX_LINES = 3
+_FACTION_ABBREV: dict[str, str] = {
+    "delvers-registry": "REG",
+    "iron-pact": "IP",
+    "knights-of-breley": "KN",
+    "verdant-vale": "VV",
+}
 
 
 def _format_mod(mod: int) -> str:
@@ -45,6 +51,7 @@ class StatsPanel:
         self.attribute_modifiers: dict[str, int] = {}
         self.skills: list[dict] = []
         self.concentration: str | None = None
+        self.reputation: dict[str, dict] = {}
         self._font = None
         self._font_small = None
         self._font_stat = None
@@ -116,6 +123,12 @@ class StatsPanel:
         else:
             self.character_name = "—"
             self._clear_roster_fields()
+
+        rep_payload = status.get("reputation") or {}
+        self.reputation = {
+            k: v for k, v in rep_payload.items()
+            if k != "_active_effects" and isinstance(v, dict)
+        }
 
         party = status.get("party")
         if party:
@@ -239,6 +252,23 @@ class StatsPanel:
         gold_val = self._font.render(f"{self.gold} GP", True, FORTUNE_GOLD)
         screen.blit(gold_val, (x, y))
         y += gold_val.get_height() + 12
+
+        if self.reputation:
+            rep_label = self._font_small.render("Rep", True, TEXT_MUTED)
+            screen.blit(rep_label, (x, y))
+            y += rep_label.get_height() + 2
+            rep_tokens: list[str] = []
+            for fid in ("delvers-registry", "iron-pact", "knights-of-breley", "verdant-vale"):
+                entry = self.reputation.get(fid)
+                if not entry:
+                    continue
+                abbrev = _FACTION_ABBREV.get(fid, fid[:3].upper())
+                value = int(entry.get("value", 0))
+                rep_tokens.append(f"{abbrev} {_format_mod(value)}")
+            if rep_tokens:
+                rep_surf = self._font_small.render(" · ".join(rep_tokens), True, TEXT_SECONDARY)
+                screen.blit(rep_surf, (x, y))
+                y += rep_surf.get_height() + 12
 
         if self.has_roster:
             ac_surf = self._font_small.render(f"AC {self.ac}", True, TEXT_PRIMARY)

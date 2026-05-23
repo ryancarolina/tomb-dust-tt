@@ -121,7 +121,10 @@ def test_execute_tool_use_item_combat_gate(orchestrator, monkeypatch):
 
     assert result == {
         "ok": False,
-        "error": "During combat only combat_action is available. Got: use_item",
+        "error": (
+            "During combat only combat_action and fortune_spend are available. "
+            "Got: use_item"
+        ),
     }
     use_item_mock.assert_not_called()
 

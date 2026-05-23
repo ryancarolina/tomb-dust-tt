@@ -1,5 +1,7 @@
 # Factions
 
+**Machine-readable rep tiers:** [`../../data/factions/factions.json`](../../data/factions/factions.json) (validated by `build/tools/validate_content.py`).
+
 | Faction | Role | Rep effects (summary) |
 |---------|------|------------------------|
 | [delvers-registry.md](delvers-registry.md) | Licensed tomb economy | Stamp price, insurance, Moot rulings |

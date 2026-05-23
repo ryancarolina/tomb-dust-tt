@@ -584,8 +584,130 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "skill_check",
+            "description": (
+                "Sheet-backed social skill check (persuasion, intimidation, deception, etiquette, "
+                "leadership, insight). Engine computes modifiers from character sheet — do NOT pass mod. "
+                "Required before narrating social pass/fail or NPC compliance."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "skill_id": {
+                        "type": "string",
+                        "enum": [
+                            "persuasion",
+                            "intimidation",
+                            "deception",
+                            "etiquette",
+                            "leadership",
+                            "insight",
+                        ],
+                    },
+                    "character_id": {"type": "string"},
+                    "dc": {"type": "integer", "description": "Optional DC; opposed NPC used when omitted"},
+                    "opposed_npc_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "advantage": {"type": "boolean"},
+                    "disadvantage": {"type": "boolean"},
+                },
+                "required": ["skill_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "negotiate_quest_advance",
+            "description": (
+                "Haggle quest advance payment after accept_quest. Rolls sheet-backed skill_check, "
+                "maps margin to advance GP tier, grants gold via engine. Required before narrating "
+                "NPC paying upfront quest gold (e.g. Holt advance)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                    "skill_id": {
+                        "type": "string",
+                        "enum": ["persuasion", "intimidation", "deception"],
+                    },
+                    "approach": {"type": "string", "description": "Player-facing approach phrase"},
+                    "character_id": {"type": "string"},
+                    "advantage": {"type": "boolean"},
+                },
+                "required": ["quest_id", "skill_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "offer_quest",
+            "description": "Offer a canon quest to the player (creates offered state; not in log until accept).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                },
+                "required": ["quest_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "accept_quest",
+            "description": "Player accepts an offered quest; adds to active quest log.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                },
+                "required": ["quest_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grant_quest_advance",
+            "description": (
+                "Grant quest advance GP directly (capped by quest maxAdvanceGp). "
+                "Prefer negotiate_quest_advance for haggle flows."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                    "gold_gp": {"type": "integer"},
+                    "character_id": {"type": "string"},
+                },
+                "required": ["quest_id", "gold_gp"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_quests",
+            "description": "List campaign quest runtime state from engine.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_stash",
             "description": "Show account stash (persists across character deaths). Hub surface only for transfers.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_factions",
+            "description": "List canon factions and current campaign reputation (−3 to +3 per faction).",
             "parameters": {"type": "object", "properties": {}},
         },
     },

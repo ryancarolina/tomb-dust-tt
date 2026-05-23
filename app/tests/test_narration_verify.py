@@ -7,6 +7,7 @@ from gm.narration_verify import (
     TurnTruth,
     build_creation_turn_truth,
     build_encounter_turn_truth,
+    build_exploration_turn_truth,
     format_turn_truth_for_prompt,
     verify_narration,
 )
@@ -202,3 +203,14 @@ class TestEncounterNarrationVerify:
         assert "grave-ghoul" in block
         assert "Do not describe combat started" in block
         assert "Step:" not in block
+
+
+class TestExplorationEconomyTurnTruth:
+    def test_format_economy_not_encounter(self):
+        truth = build_exploration_turn_truth(
+            {"roster": [{"slot": 1, "gold": 10}], "party": {}, "combat": None},
+            {},
+        )
+        block = format_turn_truth_for_prompt(truth, creation=None)
+        assert "Engine gold (after tools): 10 gp" in block
+        assert "Encounter phase:" not in block

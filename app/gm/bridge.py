@@ -35,7 +35,25 @@ class GameBridge:
 
     def status(self) -> dict:
         """Session snapshot; shape documented in tmp/app-gamebridge-spec.md § API appendix."""
-        return handle_status(self._ns, None)
+        payload = handle_status(self._ns, None)
+        active = payload.get("active") or {}
+        campaign_slug = active.get("campaign_slug")
+        if campaign_slug:
+            try:
+                from tomb_gm.services.content import ContentService
+                from tomb_gm.services.factions import reputation_status_summary
+
+                content_root = self.ctx.config.content_root
+                address = (payload.get("party") or {}).get("address")
+                payload["reputation"] = reputation_status_summary(
+                    self.ctx.conn,
+                    content_root,
+                    campaign_slug,
+                    address=address,
+                )
+            except Exception:
+                pass
+        return payload
 
     def check(self) -> dict:
         return handle_check(self._ns, None)
@@ -1023,6 +1041,93 @@ class GameBridge:
         except econ.EconomyError as exc:
             return {"ok": False, "error": str(exc)}
 
+    def list_factions(self) -> dict:
+        from tomb_gm.services.factions import FactionError, list_factions_with_rep
+
+        try:
+            factions = list_factions_with_rep(
+                self.ctx.conn,
+                self.ctx.config.content_root,
+                self._campaign_slug(),
+            )
+            return {"ok": True, "factions": factions}
+        except (FactionError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def get_faction_rep(self, faction_id: str) -> dict:
+        from tomb_gm.services.factions import FactionError, get_rep, tier_for
+
+        try:
+            content_root = self.ctx.config.content_root
+            campaign_slug = self._campaign_slug()
+            value = get_rep(self.ctx.conn, campaign_slug, faction_id, content_root=content_root)
+            tier = tier_for(content_root, faction_id, value)
+            return {
+                "ok": True,
+                "faction_id": faction_id,
+                "value": value,
+                "tier": tier.get("label"),
+                "effects": list(tier.get("effects") or []),
+                "mechanicalKeys": list(tier.get("mechanicalKeys") or []),
+            }
+        except (FactionError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def adjust_faction_rep(
+        self,
+        faction_id: str,
+        delta: int,
+        reason: str,
+        source: str | None = None,
+    ) -> dict:
+        from tomb_gm.services.factions import FactionError, adjust_rep
+
+        try:
+            result = adjust_rep(
+                self.ctx.conn,
+                self._campaign_slug(),
+                faction_id,
+                delta,
+                reason,
+                content_root=self.ctx.config.content_root,
+                source=source,
+            )
+            try:
+                log_event(
+                    self.ctx.conn,
+                    self._active_session_id(),
+                    "faction_rep_adjust",
+                    {
+                        "faction_id": faction_id,
+                        "delta": result.get("delta_applied"),
+                        "before": result.get("before"),
+                        "after": result.get("after"),
+                        "reason": reason,
+                        "source": source,
+                    },
+                )
+            except Exception:
+                pass
+            return result
+        except (FactionError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def faction_effects_at(self, address: str | None = None) -> dict:
+        from tomb_gm.services.economy import get_account_state
+        from tomb_gm.services.factions import FactionError, effects_at, _load_rep_state
+
+        try:
+            content_root = self.ctx.config.content_root
+            campaign_slug = self._campaign_slug()
+            rep_map = _load_rep_state(self.ctx.conn, campaign_slug, content_root)
+            if address is None:
+                party = self.status().get("party") or {}
+                address = party.get("address")
+            active = effects_at(content_root, rep_map, address=address)
+            return {"ok": True, "address": address, "effects": active}
+        except (FactionError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
     def list_vendor(self, vendor_id: str = "registry-quartermaster") -> dict:
         from tomb_gm.services.content import ContentService
 
@@ -1107,6 +1212,147 @@ class GameBridge:
             importance=importance, session_id=session_id,
         )
         return {"ok": True, "memory_id": memory_id}
+
+    # ------------------------------------------------------------------
+    # Social play + quests (APP-108)
+    # ------------------------------------------------------------------
+
+    def skill_check(
+        self,
+        skill_id: str,
+        *,
+        character_id: str | None = None,
+        dc: int | None = None,
+        opposed_npc_id: str | None = None,
+        reason: str = "",
+        advantage: bool = False,
+        disadvantage: bool = False,
+        seed: int | None = None,
+    ) -> dict:
+        from tomb_gm.services.hub import active_delver_id
+        from tomb_gm.services.simulation import skill_checks as sc
+
+        campaign_slug = self._campaign_slug()
+        char_id = character_id or active_delver_id(self.ctx.conn, campaign_slug)
+        if not char_id:
+            return {"ok": False, "error": "no active character"}
+        return sc.skill_check(
+            self.ctx.conn,
+            campaign_slug,
+            char_id,
+            skill_id,
+            dc,
+            opposed_npc_id=opposed_npc_id,
+            content_root=self.ctx.config.content_root,
+            log_event=log_event,
+            session_id=self._active_session_id(),
+            reason=reason,
+            advantage=advantage,
+            disadvantage=disadvantage,
+            seed=seed,
+        )
+
+    def social_encounter_status(self) -> dict:
+        from tomb_gm.services import social_encounter as se
+
+        summary = se.active_encounter_summary(self.ctx.conn, self._campaign_slug())
+        return {"ok": True, **summary}
+
+    def social_encounter_engage(self, npc_id: str, quest_id: str | None = None) -> dict:
+        from tomb_gm.services import social_encounter as se
+
+        return se.engage(
+            self.ctx.conn,
+            self._campaign_slug(),
+            npc_id=npc_id,
+            quest_id=quest_id,
+        )
+
+    def social_encounter_leave(self, npc_id: str, quest_id: str | None = None) -> dict:
+        from tomb_gm.services import social_encounter as se
+
+        enc_id = se.encounter_id(npc_id, quest_id)
+        return se.leave_encounter(self.ctx.conn, self._campaign_slug(), enc_id)
+
+    def list_quests(self) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.list_quests(self.ctx.conn, self._campaign_slug())
+
+    def offer_quest(self, quest_id: str) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.offer_quest(
+            self.ctx.conn,
+            self._campaign_slug(),
+            quest_id,
+            content_root=self.ctx.config.content_root,
+        )
+
+    def accept_quest(self, quest_id: str) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.accept_quest(
+            self.ctx.conn,
+            self._campaign_slug(),
+            quest_id,
+            content_root=self.ctx.config.content_root,
+        )
+
+    def grant_quest_advance(
+        self,
+        quest_id: str,
+        gold_gp: int,
+        *,
+        character_id: str | None = None,
+    ) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.grant_quest_advance(
+            self.ctx.conn,
+            self._campaign_slug(),
+            quest_id,
+            gold_gp,
+            content_root=self.ctx.config.content_root,
+            character_id=character_id,
+        )
+
+    def negotiate_quest_advance(
+        self,
+        quest_id: str,
+        skill_id: str,
+        *,
+        character_id: str | None = None,
+        approach: str | None = None,
+        advantage: bool = False,
+        seed: int | None = None,
+    ) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.negotiate_quest_advance(
+            self.ctx.conn,
+            self._campaign_slug(),
+            quest_id,
+            skill_id,
+            content_root=self.ctx.config.content_root,
+            log_event=log_event,
+            session_id=self._active_session_id(),
+            character_id=character_id,
+            approach=approach,
+            advantage=advantage,
+            seed=seed,
+        )
+
+    def complete_quest(self, quest_id: str, *, character_id: str | None = None) -> dict:
+        from tomb_gm.services import quests
+
+        return quests.complete_quest(
+            self.ctx.conn,
+            self._campaign_slug(),
+            quest_id,
+            content_root=self.ctx.config.content_root,
+            character_id=character_id,
+        )
 
     def build_recap(self) -> dict:
         from tomb_gm.services.memory import build_recap
