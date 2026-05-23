@@ -24656,9 +24656,50 @@
         "fence": true
       },
       "childAddresses": [
+        "32-C-UG-0",
         "32-C-UG-1",
         "32-C-UG-2"
       ]
+    },
+    "32-C-UG-0": {
+      "id": "32-C-UG-0",
+      "column": 32,
+      "row": "C",
+      "surfaceRoot": "32-C",
+      "parent": "32-C",
+      "layerStack": [
+        {
+          "type": "UG",
+          "depth": 0
+        }
+      ],
+      "biomes": [
+        "HL",
+        "UD"
+      ],
+      "region": "heartlands",
+      "displayName": "Breley underworks (sewers)",
+      "summary": "Municipal runoff tunnels; ward grates off the lower bailey.",
+      "history": "Pre-Registry maintenance culverts; custodian access only on paper.",
+      "dangerRating": "hazard",
+      "registry": {
+        "public": true,
+        "stamped": false
+      },
+      "links": {
+        "location": "systems/locations/breley-keep.md",
+        "monsters": [
+          "systems/monsters/dire-rat.md",
+          "systems/monsters/sewer-spider.md",
+          "systems/monsters/rust-slime.md"
+        ]
+      },
+      "tags": [
+        "tutorial",
+        "sewer",
+        "underworks"
+      ],
+      "childAddresses": []
     },
     "32-C-UG-1": {
       "id": "32-C-UG-1",

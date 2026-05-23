@@ -14,16 +14,23 @@ Role in Aventhar: As the heart of Ealdormere, Breley Keep embodies the realm's v
 
 **Region:** Heartlands · **Built:** Post-creation, Aven-blessed design · **NPC:** [Marshal Garrick Holt](../npcs/marshal-garrick-holt.md)
 
-**AV-GRID:** `32-C` (surface) · `32-C-UG-1` (undercrypt) · `32-C-UG-2` (lower vaults)
+**AV-GRID:** `32-C` (surface) · `32-C-UG-0` (underworks / sewers) · `32-C-UG-1` (undercrypt) · `32-C-UG-2` (lower vaults)
 
-**Delving:** Licensed Registry stamps for UG levels; Iron Pact disputes **32-C-UG-2** iron.
+**Delving:** **32-C-UG-0** is municipal underworks — public, unstamped; grate access off the lower bailey. Licensed Registry stamps apply to **32-C-UG-1** and deeper; Iron Pact disputes **32-C-UG-2** iron.
 
 ## Encounters (d20)
 
 | Site | Threat |
 |------|--------|
+| Underworks (sewers) | [dire-rat.md](../monsters/dire-rat.md), [sewer-spider.md](../monsters/sewer-spider.md), [rust-slime.md](../monsters/rust-slime.md) |
 | Undercrypt | [hollow-knight.md](../monsters/hollow-knight.md), [grave-ghoul.md](../monsters/grave-ghoul.md) |
 | Outer ward drill | [ironbound-sentinel.md](../monsters/ironbound-sentinel.md) (rogue construct) |
 | Garrison patrol | [humanoids.md](../monsters/humanoids.md) (Footman, Knight) |
 
 **Hook:** Holt licenses party to recover seal-ring from **32-C-UG-1**.
+
+## Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-05-22 | APP-110: Added AV-GRID `32-C-UG-0` (Breley underworks / sewers); synced World ties and encounters; index rebuilt. |

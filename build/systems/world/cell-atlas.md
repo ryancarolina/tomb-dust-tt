@@ -10,6 +10,7 @@
 | `47-B` | Shadowfen Ruins surface | elite |
 | `47-B-UG-3` | Pre-Sundering vaults | elite (re-survey active) |
 | `47-B-BV` | Black Vale rift | boss (sealed) |
+| `32-C-UG-0` | Breley underworks (sewers) | hazard |
 | `32-C-UG-1` | Breley undercrypt | skirmisher |
 
 ## Region blocks
