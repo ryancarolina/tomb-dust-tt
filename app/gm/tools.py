@@ -533,6 +533,62 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "has_pack_item",
+            "description": (
+                "Check whether the active delver's pack contains a catalog item by itemId. "
+                "Read-only — use before deliver_quest_item or quest narration."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id": {"type": "string"},
+                    "character_id": {"type": "string"},
+                },
+                "required": ["item_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_pack_item",
+            "description": (
+                "Remove one pack row by instanceId or first matching itemId. "
+                "Unequip first. Persists sheet on success."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {"type": "string"},
+                    "item_id": {"type": "string"},
+                    "character_id": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "deliver_quest_item",
+            "description": (
+                "Turn in a quest item at an NPC when a deliver_item objective is pending. "
+                "Removes the item and advances quest objectives — does not pay rewards."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quest_id": {"type": "string"},
+                    "item_id": {"type": "string"},
+                    "npc_id": {"type": "string"},
+                    "character_id": {"type": "string"},
+                },
+                "required": ["quest_id", "item_id", "npc_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grant_loot",
             "description": "Roll and persist loot to the active delver's pack. Never narrate loot without calling this.",
             "parameters": {

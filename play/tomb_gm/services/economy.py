@@ -268,6 +268,8 @@ def sell_item(
 
     catalog = content.load_item(str(item.get("itemId", ""))) or {}
     kind = str(item.get("kind") or catalog.get("kind", "gear"))
+    if kind == "quest":
+        raise EconomyError("Quest items cannot be sold")
 
     sell_multiplier = 0.5
     fence_sale = bool(cell_services.get("fence")) and use_fence
@@ -392,6 +394,11 @@ def stash_deposit_item(
         raise EconomyError(f"Instance not in pack: {instance_id}")
     if item.get("equipped"):
         raise EconomyError("Cannot deposit equipped item")
+
+    catalog = content.load_item(str(item.get("itemId", ""))) or {}
+    kind = str(item.get("kind") or catalog.get("kind", "gear"))
+    if kind == "quest":
+        raise EconomyError("Quest items cannot be deposited in stash")
 
     stack_qty = int(item.get("quantity", 1))
     xfer_qty = stack_qty if quantity is None else max(1, int(quantity))

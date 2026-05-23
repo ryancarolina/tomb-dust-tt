@@ -956,6 +956,108 @@ class GameBridge:
         self.ctx.conn.commit()
         return {"ok": True, "character_id": char_id, **result}
 
+    def has_pack_item(self, item_id: str, character_id: str | None = None) -> dict:
+        from tomb_gm.domain.inventory import ensure_normalized, get_pack
+        from tomb_gm.services.content import ContentService
+
+        campaign_slug = self._campaign_slug()
+        char_id = character_id
+        if not char_id:
+            row = self.ctx.conn.execute(
+                "SELECT id FROM characters WHERE campaign_slug = ? AND slot IS NOT NULL AND alive = 1 "
+                "ORDER BY slot ASC LIMIT 1",
+                (campaign_slug,),
+            ).fetchone()
+            if not row:
+                return {"ok": False, "error": "no living character found"}
+            char_id = row["id"]
+        row = self.ctx.conn.execute(
+            "SELECT sheet_json FROM characters WHERE id = ? AND campaign_slug = ?",
+            (char_id, campaign_slug),
+        ).fetchone()
+        if not row:
+            return {"ok": False, "error": f"Character not found: {char_id}"}
+        content = ContentService(self.ctx.config.content_root)
+        lookup = content.items_lookup()
+        sheet = json.loads(row["sheet_json"])
+        ensure_normalized(sheet, item_lookup=lookup)
+        pack = get_pack(sheet)
+        instance_ids: list[str] = []
+        quantity = 0
+        for item in pack:
+            if item.get("itemId") == item_id:
+                instance_ids.append(str(item["instanceId"]))
+                quantity += int(item.get("quantity", 1))
+        return {
+            "ok": True,
+            "character_id": char_id,
+            "itemId": item_id,
+            "found": bool(instance_ids),
+            "instanceIds": instance_ids,
+            "quantity": quantity,
+        }
+
+    def remove_pack_item(
+        self,
+        *,
+        instance_id: str | None = None,
+        item_id: str | None = None,
+        character_id: str | None = None,
+    ) -> dict:
+        from tomb_gm.domain.inventory import (
+            ensure_normalized,
+            get_pack,
+            remove_first_by_item_id,
+            remove_instance,
+        )
+        from tomb_gm.services.content import ContentService
+
+        if bool(instance_id) == bool(item_id):
+            return {"ok": False, "error": "Provide instance_id or item_id, not both"}
+
+        campaign_slug = self._campaign_slug()
+        char_id = character_id
+        if not char_id:
+            row = self.ctx.conn.execute(
+                "SELECT id FROM characters WHERE campaign_slug = ? AND slot IS NOT NULL AND alive = 1 "
+                "ORDER BY slot ASC LIMIT 1",
+                (campaign_slug,),
+            ).fetchone()
+            if not row:
+                return {"ok": False, "error": "no living character found"}
+            char_id = row["id"]
+        row = self.ctx.conn.execute(
+            "SELECT sheet_json FROM characters WHERE id = ? AND campaign_slug = ?",
+            (char_id, campaign_slug),
+        ).fetchone()
+        if not row:
+            return {"ok": False, "error": f"Character not found: {char_id}"}
+        content = ContentService(self.ctx.config.content_root)
+        lookup = content.items_lookup()
+        sheet = json.loads(row["sheet_json"])
+        ensure_normalized(sheet, item_lookup=lookup)
+        pack = get_pack(sheet)
+
+        if instance_id:
+            target = next((i for i in pack if i.get("instanceId") == instance_id), None)
+            if target and target.get("equipped"):
+                return {"ok": False, "error": "Cannot remove equipped item — unequip first"}
+            result = remove_instance(pack, instance_id)
+        else:
+            target = next((i for i in pack if i.get("itemId") == item_id), None)
+            if target and target.get("equipped"):
+                return {"ok": False, "error": "Cannot remove equipped item — unequip first"}
+            result = remove_first_by_item_id(pack, item_id or "")
+
+        if not result.get("ok"):
+            return result
+        self.ctx.conn.execute(
+            "UPDATE characters SET sheet_json = ? WHERE id = ? AND campaign_slug = ?",
+            (json.dumps(sheet), char_id, campaign_slug),
+        )
+        self.ctx.conn.commit()
+        return {"ok": True, "character_id": char_id, "removed": result.get("removed")}
+
     def grant_loot(self, tier: str | None = None, character_id: str | None = None) -> dict:
         from tomb_gm.services.content import ContentService
         from tomb_gm.services.loot_resolver import LootResolver, grant_loot as persist_loot
@@ -1352,6 +1454,44 @@ class GameBridge:
             quest_id,
             content_root=self.ctx.config.content_root,
             character_id=character_id,
+        )
+
+    def deliver_quest_item(
+        self,
+        quest_id: str,
+        item_id: str,
+        npc_id: str,
+        *,
+        character_id: str | None = None,
+    ) -> dict:
+        from tomb_gm.services import quests
+
+        campaign_slug = self._campaign_slug()
+        char_id = character_id
+        if not char_id:
+            row = self.ctx.conn.execute(
+                "SELECT id FROM characters WHERE campaign_slug = ? AND slot IS NOT NULL AND alive = 1 "
+                "ORDER BY slot ASC LIMIT 1",
+                (campaign_slug,),
+            ).fetchone()
+            if not row:
+                return {"ok": False, "error": "no living character found"}
+            char_id = row["id"]
+
+        return quests.deliver_quest_item(
+            self.ctx.conn,
+            campaign_slug,
+            quest_id,
+            item_id,
+            npc_id,
+            content_root=self.ctx.config.content_root,
+            character_id=char_id,
+            has_item_fn=lambda iid: self.has_pack_item(iid, character_id=char_id),
+            remove_item_fn=lambda **kw: self.remove_pack_item(
+                instance_id=kw.get("instance_id"),
+                item_id=kw.get("item_id"),
+                character_id=char_id,
+            ),
         )
 
     def build_recap(self) -> dict:

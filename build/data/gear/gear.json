@@ -248,5 +248,13 @@
     "stackable": false,
     "costGp": 100,
     "weight": 0
+  },
+  {
+    "id": "holt-signet-ring",
+    "rulesVersion": "1.0.0",
+    "displayName": "Holt signet ring",
+    "kind": "quest",
+    "tags": ["quest", "holt"],
+    "weight": 0
   }
 ]

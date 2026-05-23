@@ -6,6 +6,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from tomb_gm.services.economy import get_account_state, save_account_state
@@ -296,6 +297,104 @@ def negotiate_quest_advance(
         "margin": margin,
         "advance_gp": tier_gp,
         "grant": grant,
+    }
+
+
+def _all_objectives_done(entry: dict[str, Any], definition: dict[str, Any]) -> bool:
+    objectives_state = entry.get("objectives") or {}
+    for obj in definition.get("objectives") or []:
+        obj_id = obj.get("id")
+        if not obj_id:
+            continue
+        if objectives_state.get(obj_id) != "done":
+            return False
+    return True
+
+
+def _sync_quest_state_after_objectives(entry: dict[str, Any], definition: dict[str, Any]) -> None:
+    if _all_objectives_done(entry, definition) and entry.get("state") == "accepted":
+        entry["state"] = "ready_to_turn_in"
+
+
+def _find_pending_deliver_objective(
+    definition: dict[str, Any],
+    entry: dict[str, Any],
+    item_id: str,
+    npc_id: str,
+) -> tuple[str | None, dict[str, Any] | None]:
+    objectives_state = entry.get("objectives") or {}
+    for obj in definition.get("objectives") or []:
+        if obj.get("type") != "deliver_item":
+            continue
+        if obj.get("itemId") != item_id or obj.get("npcId") != npc_id:
+            continue
+        obj_id = obj.get("id")
+        if not obj_id:
+            continue
+        if objectives_state.get(obj_id) == "done":
+            continue
+        return str(obj_id), obj
+    return None, None
+
+
+def deliver_quest_item(
+    conn: sqlite3.Connection,
+    campaign_slug: str,
+    quest_id: str,
+    item_id: str,
+    npc_id: str,
+    *,
+    content_root: Path | str,
+    character_id: str | None = None,
+    has_item_fn: Callable[[str], dict[str, Any]] | None = None,
+    remove_item_fn: Callable[..., dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    definition = get_quest_def(content_root, quest_id)
+    if not definition:
+        return {"ok": False, "error": f"Unknown quest: {quest_id}"}
+
+    state = get_account_state(conn, campaign_slug)
+    runtime = _runtime_quests(state)
+    entry = runtime.get(quest_id)
+    quest_state = entry.get("state") if entry else None
+    if not entry or quest_state not in ("accepted", "ready_to_turn_in"):
+        return {"ok": False, "error": f"Quest not accepted: {quest_id}", "quest_id": quest_id}
+
+    objective_id, _objective = _find_pending_deliver_objective(definition, entry, item_id, npc_id)
+    if not objective_id:
+        return {"ok": False, "error": "No deliver_item objective for item/npc", "quest_id": quest_id}
+
+    if has_item_fn is not None:
+        has_result = has_item_fn(item_id)
+        if not has_result.get("ok"):
+            return has_result
+        if not has_result.get("found"):
+            return {"ok": False, "error": f"Item not in pack: {item_id}"}
+
+    if remove_item_fn is None:
+        return {"ok": False, "error": "remove_item_fn required"}
+
+    remove_kwargs: dict[str, Any] = {"item_id": item_id}
+    if character_id:
+        remove_kwargs["character_id"] = character_id
+    remove_result = remove_item_fn(**remove_kwargs)
+    if not remove_result.get("ok"):
+        return remove_result
+
+    entry.setdefault("objectives", _objective_states(definition))
+    entry["objectives"][objective_id] = "done"
+    _sync_quest_state_after_objectives(entry, definition)
+    save_account_state(conn, campaign_slug, state)
+
+    return {
+        "ok": True,
+        "quest_id": quest_id,
+        "item_id": item_id,
+        "objective_id": objective_id,
+        "npc_id": npc_id,
+        "state": entry.get("state"),
+        "removed": remove_result.get("removed"),
+        "character_id": remove_result.get("character_id") or character_id,
     }
 
 

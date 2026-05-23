@@ -252,6 +252,9 @@ The world uses **scene-by-scene** movement. Each AV-GRID cell (12 miles) is divi
 - When the player eats rations, drinks a potion, reads a scroll, or consumes ammo: call `list_inventory()` for `instanceId`, then `use_item(instance_id)` before narrating consumption.
 - `use_item` does not restore HP or cast spells — narrate flavor only unless separate mechanics (spells, roll_d20) apply.
 - Equipped items cannot be used — call `unequip_item` first if needed.
+- Quest turn-in: call `deliver_quest_item(quest_id, item_id, npc_id)` at the quest giver before narrating acceptance of the item.
+- Do not narrate item removal or quest progress without tool `ok: true`.
+- After deliver succeeds, call `complete_quest` for payout.
 - Narrate what they find based on the feature's description and type.
 
 ## Primary Play Tool: `process_beat`

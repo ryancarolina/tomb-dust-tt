@@ -13,7 +13,7 @@
     "itemId": { "$ref": "common.schema.json#/$defs/slug" },
     "kind": {
       "type": "string",
-      "enum": ["weapon", "armor", "shield", "jewelry", "ammo", "consumable", "material", "gear"]
+      "enum": ["weapon", "armor", "shield", "jewelry", "ammo", "consumable", "material", "gear", "quest"]
     },
     "equipped": { "type": "boolean" },
     "slot": {
