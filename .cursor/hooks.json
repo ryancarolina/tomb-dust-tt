@@ -23,7 +23,7 @@
     "stop": [
       {
         "command": "python .cursor/hooks/backlog_ticket_gate.py stop",
-        "failClosed": false
+        "failClosed": true
       }
     ],
     "beforeSubmitPrompt": [

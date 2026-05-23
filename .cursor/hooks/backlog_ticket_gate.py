@@ -20,6 +20,13 @@ from backlog_ticket_lib import (  # noqa: E402
     normalize_path,
     path_allowed,
 )
+from pipeline_manifest import (  # noqa: E402
+    active_dev_team_manifest,
+    format_missing_gates,
+    load_manifest,
+    stop_incomplete,
+    subagent_impl_blocked,
+)
 
 TICKET_ID_IN_TEXT = re.compile(r"APP-\d{3}")
 
@@ -54,6 +61,15 @@ def _extract_edit_path(data: dict) -> str | None:
     return None
 
 
+def _focus_manifest() -> dict | None:
+    active = load_active_ticket()
+    if active and active.get("run_dir"):
+        manifest = load_manifest(PROJECT_ROOT / normalize_path(active["run_dir"]))
+        if manifest:
+            return manifest
+    return active_dev_team_manifest()
+
+
 def handle_session_start(_data: dict) -> int:
     lines = [
         "## Backlog ticket enforcement",
@@ -71,15 +87,24 @@ def handle_session_start(_data: dict) -> int:
         for row in batch["tickets"]:
             lines.append(f"  - `{row.get('id')}` focus={'*' if row.get('id') == batch.get('focus') else ''}")
         if batch.get("schedule", {}).get("impl_waves"):
-            lines.append("- **Impl waves:** " + ", ".join(
-                "/".join(w.get("parallel", [])) for w in batch["schedule"]["impl_waves"]
-            ))
+            lines.append(
+                "- **Impl waves:** "
+                + ", ".join("/".join(w.get("parallel", [])) for w in batch["schedule"]["impl_waves"])
+            )
     elif active:
         lines.append(f"- **Active ticket:** `{active.get('id')}` → `{active.get('ticket_path')}`")
         if active.get("run_dir"):
             lines.append(f"- **Run folder:** `{active.get('run_dir')}`")
     else:
         lines.append("- **Active ticket:** none — claim before editing `app/`")
+
+    manifest = _focus_manifest()
+    if manifest and manifest.get("dev_team"):
+        stage = manifest.get("stage", "claim")
+        lines.append(f"- **Dev-team stage:** `{stage}` · manifest `{manifest.get('ticket_id')}`")
+        missing = format_missing_gates(manifest)
+        if missing:
+            lines.append(f"- **Missing gates:** {', '.join(missing)}")
 
     in_prog = list_in_progress_tickets()
     if in_prog:
@@ -135,6 +160,12 @@ def handle_subagent_start(data: dict) -> int:
     if not isinstance(prompt, str):
         prompt = str(prompt)
 
+    manifest = _focus_manifest()
+    blocked, reason = subagent_impl_blocked(prompt, manifest)
+    if blocked:
+        _emit({"permission": "deny", "user_message": reason, "agent_message": reason})
+        return 0
+
     batch = load_active_batch()
     active = load_active_ticket()
     ticket_in_prompt = TICKET_ID_IN_TEXT.search(prompt)
@@ -154,6 +185,19 @@ def handle_subagent_start(data: dict) -> int:
 def handle_stop(_data: dict) -> int:
     batch = load_active_batch()
     active = load_active_ticket()
+    manifest = _focus_manifest()
+
+    if manifest and manifest.get("dev_team"):
+        incomplete, missing = stop_incomplete(manifest)
+        if incomplete:
+            msg = (
+                f"Dev-team pipeline incomplete for `{manifest.get('ticket_id')}`: "
+                f"missing {', '.join(missing)}. "
+                "Complete human-test-plan + commit (Stage 7) or waive via release flags."
+            )
+            _emit({"followup_message": msg})
+            return 1
+
     try:
         proc = subprocess.run(
             ["git", "diff", "--name-only", "HEAD"],
@@ -187,7 +231,6 @@ def handle_stop(_data: dict) -> int:
 def main() -> int:
     event = sys.argv[1] if len(sys.argv) > 1 else ""
     data = _read_stdin()
-
     handlers = {
         "sessionStart": handle_session_start,
         "preToolUse": handle_pre_tool_use,

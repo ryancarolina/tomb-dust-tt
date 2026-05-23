@@ -14,7 +14,8 @@ The **Orchestrator** (parent agent that invoked `@dev-team`) dispatches **Task s
 
 **Must do:**
 
-- Stage 0: `search --open-only` → `schedule` (≤3 IDs) → `claim-batch` → write `batch-board-APP-XXX-...md` (path in `batch_board` JSON field)
+- Stage 0: `search --open-only` → `schedule` (≤3 IDs) → `claim-batch --dev-team` → write `batch-board-APP-XXX-...md` (path in `batch_board` JSON field)
+- After each gate: `pipeline-set-stage APP-XXX <stage> --gate <gate_name>`; run `pipeline-check` before `release --done`
 - `impl-check APP-XXX` before any ticket's Stage 4; honor `impl_waves` from schedule
 - `focus APP-XXX` before dispatching work that edits that ticket's Expected files
 - Maintain each ticket's `run-folder/status.md`
@@ -37,6 +38,8 @@ The **Orchestrator** (parent agent that invoked `@dev-team`) dispatches **Task s
 - Write `research-brief.md`, `spec.md`, `plan.md`, or QA reports yourself
 - Skip Task dispatch and “play” a role in first person
 - Skip reading the subagent **Reflection** block before the next gate
+- `release --done` without `pipeline-check` (unless user waived via `--waive-pipeline`)
+- Multi-stage implementation in one Task prompt
 
 **Announcement template (post to user every dispatch):**
 

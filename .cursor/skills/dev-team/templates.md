@@ -6,7 +6,39 @@ Copy sections into **`tmp/backlog/runs/<APP-XXX>-<task-name>/`** files. Replace 
 
 **Paths:** write only under `tmp/backlog/runs/<APP-XXX>-<task-name>/`. Never `.dev-team/` or out-of-tree pointers.
 
+**Manifest:** every `@dev-team` claim uses `--dev-team` (or `pipeline-init`) so `pipeline-manifest.json` exists. Orchestrator runs `pipeline-set-stage` after each gate. `release --done` calls `pipeline-check` unless `--waive-pipeline`.
+
 **Subagents:** reflect→retry loop (≤3 attempts per dispatch); **Reflection** block in return message only — no files.
+
+---
+
+## pipeline-manifest.json
+
+Created at claim (`--dev-team`) or via `pipeline-init`. Linked from `status.md`.
+
+```json
+{
+  "ticket_id": "APP-XXX",
+  "task_name": "kebab-name",
+  "dev_team": true,
+  "stage": "claim",
+  "gates": {
+    "research_brief": { "done": false, "at": null },
+    "spec_qa_pass": { "done": false, "at": null },
+    "plan_qa_pass": { "done": false, "at": null },
+    "implementation_qa_pass": { "done": false, "at": null },
+    "drift_check": { "done": false, "at": null },
+    "human_test_plan": { "done": false, "at": null },
+    "commit": { "done": false, "at": null }
+  },
+  "waivers": { "pipeline": false, "playtest": false, "commit": false },
+  "updated_at": "2026-05-22T00:00:00Z"
+}
+```
+
+**Anti-patterns:** multi-ticket impl Task · silent ticket renumber · `release --done` without `pipeline-check` · skipping `pipeline-set-stage` after QA PASS.
+
+**Bootstrap:** meta tickets building this system may use `pipeline-init --no-dev-team` until hooks land.
 
 ---
 
@@ -98,6 +130,7 @@ Do **not** write `drift-check.md` or `reflection-qa-drift.md`.
 **Backlog ticket:** [APP-XXX](../../app-xxx-slug.md)
 **Domain spec:** [app-example-spec.md](../../app-example-spec.md)
 **Run folder:** tmp/backlog/runs/<APP-XXX>-<task-name>/
+**Manifest:** [pipeline-manifest.json](./pipeline-manifest.json)
 **Batch board:** [batch-board-APP-XXX-APP-YYY.md](../batch-board-APP-XXX-APP-YYY.md)
 **Started:** <date>
 **Current stage:** claim | research | spec | plan | implement | impl-qa | drift | commit | playtest | complete | blocked

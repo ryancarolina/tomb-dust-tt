@@ -135,10 +135,18 @@ Record schedule in the **batch board** file (required naming — see below) and 
 
 ```bash
 python tmp/backlog/claim_ticket.py claim-batch APP-001 APP-002 APP-004 \
-  --task APP-001=fix-site-edges APP-002=creation-drift APP-004=advancedto-log
+  --task APP-001=fix-site-edges APP-002=creation-drift APP-004=advancedto-log \
+  --dev-team
 ```
 
-Creates **`tmp/.active-batch.json`** (≤3 tickets), **`tmp/.active-ticket.json`** (focus), and one **`tmp/backlog/runs/APP-XXX-<task>/`** per ticket.
+Creates **`tmp/.active-batch.json`** (≤3 tickets), **`tmp/.active-ticket.json`** (focus), one **`tmp/backlog/runs/APP-XXX-<task>/`** per ticket, and **`pipeline-manifest.json`** when `--dev-team` is set.
+
+After each gate:
+
+```bash
+python tmp/backlog/claim_ticket.py pipeline-set-stage APP-XXX spec_qa --gate spec_qa_pass
+python tmp/backlog/claim_ticket.py pipeline-check APP-XXX
+```
 
 ```bash
 python tmp/backlog/claim_ticket.py batch-status   # inspect batch + schedule
