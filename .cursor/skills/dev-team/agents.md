@@ -14,7 +14,8 @@ The **Orchestrator** (parent agent that invoked `@dev-team`) dispatches **Task s
 
 **Must do:**
 
-- Stage 0: `search --open-only` → `schedule` (≤3 IDs) → `claim-batch --dev-team` → write `batch-board-APP-XXX-...md` (path in `batch_board` JSON field)
+- Stage 0: **one Shell command at a time** on Windows (no `&&`) → `search --open-only` → `schedule` (≤3 IDs) → `claim-batch --dev-team` with **`--task APP-XXX=name` per ticket** → write `batch-board-APP-XXX-...md` (path in `batch_board` JSON field)
+- If Stage 0 CLI fails → **stop** and report; do not improvise claim or skip to Dev
 - After each gate: `pipeline-set-stage APP-XXX <stage> --gate <gate_name>`; run `pipeline-check` before `release --done`
 - `impl-check APP-XXX` before any ticket's Stage 4; honor `impl_waves` from schedule
 - `focus APP-XXX` before dispatching work that edits that ticket's Expected files
@@ -36,6 +37,8 @@ The **Orchestrator** (parent agent that invoked `@dev-team`) dispatches **Task s
 - Start Stage 4 on a ticket while `impl-check` reports a blocking dependency
 - Start Stage 6–7 on lane B while lane A has overlapping uncommitted `app/` changes
 - Write `research-brief.md`, `spec.md`, `plan.md`, or QA reports yourself
+- Call `pipeline-set-stage --gate` to tick gates without a subagent completing that stage (“backfill”)
+- Treat stop-hook pipeline warnings as “tick boxes” — run real stages or ask user about `--waive-*`
 - Skip Task dispatch and “play” a role in first person
 - Skip reading the subagent **Reflection** block before the next gate
 - `release --done` without `pipeline-check` (unless user waived via `--waive-pipeline`)

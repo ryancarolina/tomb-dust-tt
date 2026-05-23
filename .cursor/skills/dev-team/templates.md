@@ -36,7 +36,7 @@ Created at claim (`--dev-team`) or via `pipeline-init`. Linked from `status.md`.
 }
 ```
 
-**Anti-patterns:** multi-ticket impl Task · silent ticket renumber · `release --done` without `pipeline-check` · skipping `pipeline-set-stage` after QA PASS.
+**Anti-patterns:** multi-ticket impl Task · silent ticket renumber · `release --done` without `pipeline-check` · skipping `pipeline-set-stage` after QA PASS · orchestrator backfill of gates/artifacts · chaining Stage 0 with `&&` on PowerShell · positional `APP-XXX=task-name` instead of `--task`.
 
 **Bootstrap:** meta tickets building this system may use `pipeline-init --no-dev-team` until hooks land.
 

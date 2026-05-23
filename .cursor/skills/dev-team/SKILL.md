@@ -88,6 +88,16 @@ Return message includes a **Drift check** block (see [templates.md](templates.md
 
 **Goal:** Pick up to **3 tickets**, respect **priority** (P0 → P1 → P2) and **dependencies**, authorize edits via batch session.
 
+### Shell (Windows / PowerShell)
+
+This repo is often edited on **PowerShell 5.x**. **Do not** chain CLI steps with `&&` — it fails with `InvalidEndOfLine`. Run **one command per Shell invocation** (or use `;` only when both must run in one line).
+
+If any Stage 0 command exits non-zero or prints `error:` → **STOP**. Report to the user. **Do not** dispatch Research/Dev or hand-create run folders.
+
+### “Build them” ≠ skip the pipeline
+
+User verbs like **build**, **implement**, or **ship** still mean the **full** dev-team pipeline (Stages 1–7). They do **not** authorize jumping to Stage 4 Dev, skipping Research/PM/plan QA, or orchestrator-written artifacts.
+
 ### 0a — Search backlog (orchestrator)
 
 **Pickable tickets only:** status **`open`**. When auto-selecting work, **never** pick `in_progress`, `done`, or `cancelled`.
@@ -133,10 +143,27 @@ Record schedule in the **batch board** file (required naming — see below) and 
 
 ### 0c — Claim batch (orchestrator)
 
+Task names use **repeated `--task` flags** — never positional `APP-XXX=kebab-name` after ticket IDs (argparse error or “at most 3 tickets”).
+
+**PowerShell (one line, no `&&`):**
+
+```powershell
+python tmp/backlog/claim_ticket.py claim-batch APP-110 APP-111 APP-085 --dev-team --task APP-110=breley-sewers-av-grid --task APP-111=tutorial-hazard-monsters --task APP-085=quest-system
+```
+
+**Bash:**
+
 ```bash
 python tmp/backlog/claim_ticket.py claim-batch APP-001 APP-002 APP-004 \
-  --task APP-001=fix-site-edges APP-002=creation-drift APP-004=advancedto-log \
-  --dev-team
+  --dev-team \
+  --task APP-001=fix-site-edges --task APP-002=creation-drift --task APP-004=advancedto-log
+```
+
+Wrong (will fail):
+
+```text
+claim-batch APP-110 APP-111 APP-085 APP-111=tutorial-hazard-monsters
+schedule APP-110 APP-111 APP-085 && python tmp/backlog/claim_ticket.py claim-batch ...
 ```
 
 Creates **`tmp/.active-batch.json`** (≤3 tickets), **`tmp/.active-ticket.json`** (focus), one **`tmp/backlog/runs/APP-XXX-<task>/`** per ticket, and **`pipeline-manifest.json`** when `--dev-team` is set.
@@ -158,9 +185,9 @@ Single-ticket work still works: `python tmp/backlog/claim_ticket.py APP-XXX --ta
 
 ### 0d — Per-ticket setup
 
-For **each** claimed ticket: copy [`templates.md`](templates.md) **`status.md`** into that ticket's run folder; fill ticket + domain spec fields.
+For **each** claimed ticket: copy [`templates.md`](templates.md) **`status.md`** into that ticket's run folder (replace empty touch file); fill ticket + domain spec fields.
 
-**Do not** dispatch Research until claim-batch succeeds and every ticket is `in_progress`.
+**Do not** dispatch Research until claim-batch succeeds, `pipeline-check` shows manifests exist, and every `status.md` is initialized.
 
 ### Parallel batch orchestration (≤3 tickets)
 
@@ -416,6 +443,8 @@ Derive cases from `spec.md`, ticket AC, and what actually shipped (e.g. creation
 | Announce dispatches | User-visible **Dispatching {Role} agent** before every Task call |
 | Reflection | Internal reflect→retry loop (≤3 attempts per dispatch); **Reflection** block in return — escalate human if still incomplete after 3 |
 | Drift check | Stage 6 only — no file; **Drift check** block in QA return message; domain spec + ticket AC updates still land in repo |
+| No backfill | Orchestrator **never** writes stage artifacts or calls `pipeline-set-stage --gate` to tick gates without a real subagent dispatch |
+| Stop hook | Uncommitted `app/`/`build/`/`play/` with incomplete pipeline → run missing stages; **never** retroactively mark gates done |
 | Ticket first | No Research without Stage 0 claim; hooks enforce `app/` edits |
 | Role separation | Do not skip Research before PM; do not implement before plan QA PASS |
 | QA mindset | Assume defects exist; require evidence (file:line, trace) for findings |

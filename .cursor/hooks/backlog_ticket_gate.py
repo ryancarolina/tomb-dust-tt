@@ -25,6 +25,7 @@ from pipeline_manifest import (  # noqa: E402
     format_missing_gates,
     load_manifest,
     stop_incomplete,
+    stop_incomplete_lanes,
     subagent_impl_blocked,
 )
 
@@ -185,18 +186,28 @@ def handle_subagent_start(data: dict) -> int:
 def handle_stop(_data: dict) -> int:
     batch = load_active_batch()
     active = load_active_ticket()
-    manifest = _focus_manifest()
 
-    if manifest and manifest.get("dev_team"):
-        incomplete, missing = stop_incomplete(manifest)
-        if incomplete:
+    incomplete_lanes = stop_incomplete_lanes()
+    if incomplete_lanes:
+        if len(incomplete_lanes) == 1:
+            tid, missing = incomplete_lanes[0]
             msg = (
-                f"Dev-team pipeline incomplete for `{manifest.get('ticket_id')}`: "
+                f"Dev-team pipeline incomplete for `{tid}`: "
                 f"missing {', '.join(missing)}. "
-                "Complete human-test-plan + commit (Stage 7) or waive via release flags."
+                "Run the missing pipeline stages via Task subagents — do not backfill gates. "
+                f"Or waive via `release {tid} --done --waive-pipeline` with user approval."
             )
-            _emit({"followup_message": msg})
-            return 1
+        else:
+            parts = [
+                f"`{tid}` ({', '.join(missing)})" for tid, missing in incomplete_lanes
+            ]
+            msg = (
+                "Dev-team batch has uncommitted app/build/play changes with incomplete pipelines: "
+                + "; ".join(parts)
+                + ". Close each lane through Stages 1–7 (real subagents) or ask the user about waivers."
+            )
+        _emit({"followup_message": msg})
+        return 1
 
     try:
         proc = subprocess.run(
