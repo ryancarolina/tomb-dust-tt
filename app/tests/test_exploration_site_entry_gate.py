@@ -13,6 +13,8 @@ from gm.orchestrator import (
 
 ENTRY_PROSE = "You step into the torchlit crypt. Corridors stretch ahead."
 BENIGN_SURFACE = "The clerk stamps your permit. Wind off the salt road."
+QUEST_SITE_DIRECTION = "Breley Undercrypt lies beneath the keep."
+NPC_PAST_TENSE_UNDERCRYPT = "He went down into the undercrypt weeks ago."
 
 
 def _tool_call(name: str, args: dict | None = None, *, call_id: str = "tc1") -> dict:
@@ -73,6 +75,32 @@ def _assert_no_entry_markers(text: str) -> None:
     assert "torchlit" not in lower
     assert "corridor" not in lower
     assert "step into" not in lower
+
+
+def test_sanitize_preserves_quest_site_name_direction():
+    assert (
+        sanitize_premature_site_entry_flavor(QUEST_SITE_DIRECTION, gate_active=True)
+        == QUEST_SITE_DIRECTION
+    )
+
+
+def test_sanitize_preserves_npc_past_tense_undercrypt():
+    assert (
+        sanitize_premature_site_entry_flavor(NPC_PAST_TENSE_UNDERCRYPT, gate_active=True)
+        == NPC_PAST_TENSE_UNDERCRYPT
+    )
+
+
+def test_sanitize_entry_prose_still_stripped():
+    assert not sanitize_premature_site_entry_flavor(ENTRY_PROSE, gate_active=True).strip()
+
+
+def test_sanitize_paragraph_ambiance_collapse():
+    single_line = "Corridors stretch ahead."
+    assert not sanitize_premature_site_entry_flavor(single_line, gate_active=True).strip()
+
+    mixed = f"{QUEST_SITE_DIRECTION}\n\nCorridors stretch ahead."
+    assert not sanitize_premature_site_entry_flavor(mixed, gate_active=True).strip()
 
 
 def test_sanitize_premature_site_entry_flavor_unit():

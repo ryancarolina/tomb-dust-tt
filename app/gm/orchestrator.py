@@ -170,24 +170,26 @@ def _should_delve_entry_hint(fn_name: str, args: dict, result: dict) -> bool:
     )
 
 
-_SITE_ENTRY_MARKER_RES = (
+_SITE_ENTRY_LINE_MARKER_RES = (
     re.compile(r"step\s+(?:into|inside|through)", re.IGNORECASE),
     re.compile(r"cross(?:es|ed)?\s+the\s+threshold", re.IGNORECASE),
     re.compile(r"beyond\s+the\s+(?:arch|door|gate)", re.IGNORECASE),
-    re.compile(r"torchlit", re.IGNORECASE),
-    re.compile(r"corridor", re.IGNORECASE),
-    re.compile(r"vault\s+interior", re.IGNORECASE),
-    re.compile(r"catacomb", re.IGNORECASE),
-    re.compile(r"undercrypt", re.IGNORECASE),
-    re.compile(r"dungeon\s+(?:floor|hall)", re.IGNORECASE),
     re.compile(
         r"you\s+(?:are|enter|stand)\s+(?:now\s+)?(?:in|inside)\s+(?:the\s+)?(?:crypt|dungeon|site|undercrypt|vault)",
         re.IGNORECASE,
     ),
     re.compile(r"\[Phase:\s*delve", re.IGNORECASE),
-    re.compile(r"\[Location:[^\]]*(?:UG-|undercrypt|crypt|dungeon)", re.IGNORECASE),
     re.compile(r"Phase:\s*delve", re.IGNORECASE),
     re.compile(r"mode:\s*dungeon", re.IGNORECASE),
+    re.compile(r"\[Location:[^\]]*(?:UG-|undercrypt|crypt|dungeon)", re.IGNORECASE),
+)
+
+_SITE_ENTRY_PARAGRAPH_MARKER_RES = (
+    re.compile(r"torchlit", re.IGNORECASE),
+    re.compile(r"corridor", re.IGNORECASE),
+    re.compile(r"vault\s+interior", re.IGNORECASE),
+    re.compile(r"catacomb", re.IGNORECASE),
+    re.compile(r"dungeon\s+(?:floor|hall)", re.IGNORECASE),
 )
 
 
@@ -196,12 +198,15 @@ def sanitize_premature_site_entry_flavor(text: str, *, gate_active: bool) -> str
     if not gate_active or not (text or "").strip():
         return text or ""
 
-    def _matches_marker(chunk: str) -> bool:
-        return any(pattern.search(chunk) for pattern in _SITE_ENTRY_MARKER_RES)
+    def _line_matches(chunk: str) -> bool:
+        return any(pattern.search(chunk) for pattern in _SITE_ENTRY_LINE_MARKER_RES)
 
-    kept = [line for line in (text or "").splitlines() if not _matches_marker(line)]
+    def _paragraph_matches(chunk: str) -> bool:
+        return any(pattern.search(chunk) for pattern in _SITE_ENTRY_PARAGRAPH_MARKER_RES)
+
+    kept = [line for line in (text or "").splitlines() if not _line_matches(line)]
     result = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
-    if result and _matches_marker(result):
+    if result and _paragraph_matches(result):
         return ""
     return result
 
@@ -3469,6 +3474,12 @@ class Orchestrator:
                 return self.bridge.unequip_item(**args)
             elif name == "use_item":
                 return self.bridge.use_item(**args)
+            elif name == "has_pack_item":
+                return self.bridge.has_pack_item(**args)
+            elif name == "remove_pack_item":
+                return self.bridge.remove_pack_item(**args)
+            elif name == "deliver_quest_item":
+                return self.bridge.deliver_quest_item(**args)
             elif name == "grant_loot":
                 return self.bridge.grant_loot(**args)
             elif name == "buy_item":
