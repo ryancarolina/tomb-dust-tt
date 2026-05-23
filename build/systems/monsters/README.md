@@ -78,8 +78,10 @@ Author new monsters with an explicit behavior; default authored blocks use **ign
 - [humanoids.md](humanoids.md) — guard, footman, knight, cultist, bandit templates
 
 ### Beasts
-- [thornwolf.md](thornwolf.md)
+- [dire-rat.md](dire-rat.md)
 - [dusk-bat-swarm.md](dusk-bat-swarm.md)
+- [sewer-spider.md](sewer-spider.md)
+- [thornwolf.md](thornwolf.md)
 
 ## Habitat by region
 
@@ -96,3 +98,9 @@ Author new monsters with an explicit behavior; default authored blocks use **ign
 World map: [world/aventhar-overview.md](../world/aventhar-overview.md).
 
 **Content audit (TD-072):** All index entries above include d20 stat blocks as of Wave 5; stub gaps filled for ether/shadow/fen lines used in MVP corridor and Shadowfen delves.
+
+## Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-05-22 | APP-111: Breley sewer hazard roster — `dire-rat.md`, `sewer-spider.md` authored; `rust-slime.md` synced (Downed behavior, Tactics, Move); Beasts index updated. JSON verify-only (`dire-rat`, `sewer-spider`, `rust-slime`). |

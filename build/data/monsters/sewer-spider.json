@@ -1,0 +1,49 @@
+{
+  "id": "sewer-spider",
+  "rulesVersion": "1.0.0",
+  "displayName": "Sewer Spider",
+  "docPath": "systems/monsters/sewer-spider.md",
+  "lore": {
+    "origin": "Mundane giant spiders nesting in Breley underworks; drawn to damp stone and trapped prey.",
+    "description": "Plate-sized bodies with mottled brown chitin; webs of sticky silk, not Ether-tainted.",
+    "weaknesses": "Fire destroys webs; bright lantern light reveals ceiling ambushes."
+  },
+  "habitat": {
+    "regions": ["Heartlands"],
+    "addresses": ["32-C-UG-0"]
+  },
+  "statBlocks": [
+    {
+      "id": "hazard",
+      "displayName": "Sewer Spider",
+      "tier": "hazard",
+      "downedBehavior": "ignore",
+      "ac": 13,
+      "hp": 12,
+      "move": 8,
+      "pb": 2,
+      "attributes": { "STR": 0, "AGI": 3, "STA": 1, "INT": -3, "SPI": -1 },
+      "traits": [
+        {
+          "name": "Spider Climb",
+          "text": "Can climb difficult surfaces including ceilings without a check."
+        }
+      ],
+      "actions": [
+        {
+          "name": "Bite",
+          "text": "1d4+2 piercing.",
+          "attack": { "toHit": 4, "damage": "1d4+2", "damageType": "piercing" }
+        },
+        {
+          "name": "Web",
+          "text": "Ranged 20 ft, +4 to hit. Hit: target is Webbed (speed 0). Escape: DC 11 STR or AGI check as action.",
+          "recharge": "5-6",
+          "attack": { "toHit": 4, "reachFt": 20 },
+          "save": { "dc": 11, "ability": "AGI" }
+        }
+      ]
+    }
+  ],
+  "treasure": ["Spider silk (5 gp)", "scrap (1–3 gp)"]
+}

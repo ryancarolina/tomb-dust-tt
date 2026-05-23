@@ -1,0 +1,53 @@
+{
+  "id": "rust-slime",
+  "rulesVersion": "1.0.0",
+  "displayName": "Rust Slime",
+  "docPath": "systems/monsters/rust-slime.md",
+  "lore": {
+    "origin": "Dungeon ooze feeding on old iron; common in Breley vault underlevels and tomb crypts.",
+    "description": "Orange-brown gelatin with suspended metal flakes; dissolves blades over time.",
+    "weaknesses": "Cold slows; no metal touch (poles, magic)."
+  },
+  "habitat": {
+    "regions": ["Heartlands", "Underdeep"],
+    "addresses": ["32-C-UG-0", "32-C-UG-1", "32-C-UG-2"]
+  },
+  "statBlocks": [
+    {
+      "id": "hazard",
+      "displayName": "Rust Slime",
+      "tier": "hazard",
+      "downedBehavior": "ignore",
+      "ac": 11,
+      "hp": 18,
+      "move": 4,
+      "pb": 2,
+      "attributes": { "STR": 2, "AGI": -3, "STA": 3, "INT": -5, "SPI": -4 },
+      "traits": [
+        {
+          "name": "Ooze",
+          "text": "Squeeze through 1-inch gaps."
+        },
+        {
+          "name": "Corrode Metal",
+          "text": "Nonmagical metal weapon that hits it: DC 12 or −1 damage permanently (destroyed at −3)."
+        }
+      ],
+      "actions": [
+        {
+          "name": "Pseudopod",
+          "text": "1d6+2 acid.",
+          "attack": { "toHit": 4, "damage": "1d6+2", "damageType": "acid" }
+        },
+        {
+          "name": "Engulf",
+          "text": "Grapple +4; while grappled, 2d6 acid at start of target turn.",
+          "recharge": "6",
+          "attack": { "toHit": 4 },
+          "save": { "dc": 12, "ability": "STR" }
+        }
+      ]
+    }
+  ],
+  "treasure": ["Purified core (10 gp)", "dissolved coins (half value)"]
+}

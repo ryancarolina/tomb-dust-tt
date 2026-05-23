@@ -1,0 +1,42 @@
+{
+  "id": "dire-rat",
+  "rulesVersion": "1.0.0",
+  "displayName": "Dire Rat",
+  "docPath": "systems/monsters/dire-rat.md",
+  "lore": {
+    "origin": "Breley sewer vermin grown fat on refuse and runoff; plague carriers in the underworks.",
+    "description": "Dog-sized rats with yellowed fangs and patchy fur matted with slime.",
+    "weaknesses": "Fire and loud noise scatter packs; narrow gratings block pursuit."
+  },
+  "habitat": {
+    "regions": ["Heartlands"],
+    "addresses": ["32-C-UG-0"]
+  },
+  "statBlocks": [
+    {
+      "id": "hazard",
+      "displayName": "Dire Rat",
+      "tier": "hazard",
+      "downedBehavior": "ignore",
+      "ac": 12,
+      "hp": 10,
+      "move": 8,
+      "pb": 2,
+      "attributes": { "STR": 0, "AGI": 2, "STA": 1, "INT": -3, "SPI": -2 },
+      "traits": [
+        {
+          "name": "Pack Tactics",
+          "text": "Advantage on melee if ally is within 5 ft of target."
+        }
+      ],
+      "actions": [
+        {
+          "name": "Bite",
+          "text": "1d4+1 piercing.",
+          "attack": { "toHit": 4, "damage": "1d4+1", "damageType": "piercing" }
+        }
+      ]
+    }
+  ],
+  "treasure": ["Scrap (1–5 gp)", "gnawed trinket (occasional)"]
+}
